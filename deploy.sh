@@ -2,20 +2,20 @@
 # =============================================================================
 # MikroTik NOC — installer for Ubuntu 20.04+ (Docker based).
 #
-# Easiest: just run it and answer the prompts:
+# Easiest: just run it and answer the prompts (asked EVERY run, so you can change
+# the ports any time):
 #   sudo ./deploy.sh
-#     1) IP server            (auto-detected default)
-#     2) Domain frontend      (blank = access via IP:port)
-#     3) Domain backend/API   (blank = same domain, served under /api)
-#     4) HTTPS? (only if a domain was entered)
+#     - Alamat akses (IP atau domain)
+#     - Port frontend / web   (default 3600, customizable)
+#     - Port backend / API    (default 3500, customizable)
+#   -> open http://<host>:<frontend-port>
 #
-# Resulting layouts:
-#   - no domain            -> http://IP:3600 (web) + http://IP:3500 (api)   [direct]
-#   - frontend domain only -> https://sf.raf.my.id  (api under /api)         [single origin]
-#   - frontend + backend   -> https://sf.raf.my.id + https://api.sf.raf.my.id [split, CORS-whitelisted]
+# Domain + automatic HTTPS (bundled reverse proxy) is opt-in via flags:
+#   sudo ./deploy.sh --frontend-domain sf.raf.my.id --backend-domain api.sf.raf.my.id --tls
+#   sudo ./deploy.sh --frontend-domain sf.raf.my.id --tls    # single origin, API under /api
 #
-# Flags (automation): --ip, --frontend-domain, --backend-domain, --tls/--no-tls,
-#   --backend-port, --frontend-port, --yes. (--host/--proxy kept for compat.)
+# Other flags: --ip, --backend-port, --frontend-port, --no-tls, --yes (skip prompts,
+#   reuse saved .env). --host/--proxy kept for compatibility.
 # Re-run any time to update — config + secrets are kept in .env.
 # =============================================================================
 set -euo pipefail
@@ -27,7 +27,7 @@ SUDO=""
 getenv() { if [ -f .env ]; then grep -E "^$1=" .env | head -n1 | cut -d= -f2- || true; fi; }
 is_ip()  { echo "$1" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; }
 
-# ---- start from existing .env / env (re-run keeps the previous config) ----
+# ---- load current values from .env (used as defaults; reused on re-run) ----
 SERVER_IP="${SERVER_IP:-$(getenv SERVER_IP)}"
 FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-$(getenv FRONTEND_DOMAIN)}"
 BACKEND_DOMAIN="${BACKEND_DOMAIN:-$(getenv BACKEND_DOMAIN)}"
@@ -38,14 +38,15 @@ HTTPS_PORT="${HTTPS_PORT:-$(getenv HTTPS_PORT)}"
 TLS="${TLS:-$(getenv DEPLOY_TLS)}"
 ASSUME_YES=0
 FORCE_PROXY=0
+DOMAIN_VIA_FLAG=0
 HOST_FLAG=""
 
 # ---- flags ----
 while [ $# -gt 0 ]; do
   case "$1" in
     --ip) SERVER_IP="$2"; shift 2 ;;
-    --frontend-domain|--web-domain) FRONTEND_DOMAIN="$2"; shift 2 ;;
-    --backend-domain|--api-domain) BACKEND_DOMAIN="$2"; shift 2 ;;
+    --frontend-domain|--web-domain) FRONTEND_DOMAIN="$2"; DOMAIN_VIA_FLAG=1; shift 2 ;;
+    --backend-domain|--api-domain) BACKEND_DOMAIN="$2"; DOMAIN_VIA_FLAG=1; shift 2 ;;
     --host) HOST_FLAG="$2"; shift 2 ;;
     --backend-port) BACKEND_PORT="$2"; shift 2 ;;
     --frontend-port) FRONTEND_PORT="$2"; shift 2 ;;
@@ -59,25 +60,21 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# legacy --host: IP -> server ip, otherwise -> frontend domain
+# legacy --host: IP -> server ip, domain -> frontend domain
 if [ -n "$HOST_FLAG" ]; then
-  if is_ip "$HOST_FLAG"; then SERVER_IP="${SERVER_IP:-$HOST_FLAG}"; else FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-$HOST_FLAG}"; fi
+  if is_ip "$HOST_FLAG"; then SERVER_IP="${SERVER_IP:-$HOST_FLAG}"; else FRONTEND_DOMAIN="$HOST_FLAG"; DOMAIN_VIA_FLAG=1; fi
 fi
 
-# ---- interactive setup (only when nothing decided + a real terminal) ----
-if [ -z "${SERVER_IP}${FRONTEND_DOMAIN}" ] && [ "$ASSUME_YES" != "1" ] && [ -t 0 ]; then
+# ---- interactive: host + BOTH ports, asked on EVERY run (defaults pre-filled),
+# so the ports are always customizable. Domain + HTTPS is opt-in via flags. ----
+if [ "$ASSUME_YES" != "1" ] && [ -t 0 ] && [ "$DOMAIN_VIA_FLAG" != "1" ] && [ "$FORCE_PROXY" != "1" ]; then
   echo "──────────── Instalasi MikroTik NOC ────────────"
-  DEFAULT_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  read -rp "1) IP server [${DEFAULT_IP:-localhost}]: " A; SERVER_IP="${A:-${DEFAULT_IP:-localhost}}"
-  read -rp "2) Domain frontend (kosongkan = akses via IP): " A; FRONTEND_DOMAIN="${A:-}"
-  if [ -n "$FRONTEND_DOMAIN" ]; then
-    read -rp "3) Domain backend/API (kosongkan = pakai domain frontend + /api): " A; BACKEND_DOMAIN="${A:-}"
-    read -rp "4) HTTPS otomatis (Let's Encrypt — perlu server publik & port 80/443)? [y/T]: " A
-    case "$A" in [Yy]*) TLS=1 ;; *) TLS=0 ;; esac
-  else
-    read -rp "   Port web/frontend [${FRONTEND_PORT:-3600}]: " A; FRONTEND_PORT="${A:-${FRONTEND_PORT:-3600}}"
-    read -rp "   Port API/backend  [${BACKEND_PORT:-3500}]: " A; BACKEND_PORT="${A:-${BACKEND_PORT:-3500}}"
-  fi
+  DEFAULT_HOST="${SERVER_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"; DEFAULT_HOST="${DEFAULT_HOST:-localhost}"
+  read -rp "Alamat akses (IP atau domain) [${DEFAULT_HOST}]: " A; SERVER_IP="${A:-$DEFAULT_HOST}"
+  read -rp "Port frontend / web  [${FRONTEND_PORT:-3600}]: " A; FRONTEND_PORT="${A:-${FRONTEND_PORT:-3600}}"
+  read -rp "Port backend / API   [${BACKEND_PORT:-3500}]: " A; BACKEND_PORT="${A:-${BACKEND_PORT:-3500}}"
+  FRONTEND_DOMAIN=""; BACKEND_DOMAIN=""   # simple/interactive = direct ports
+  echo "(domain + HTTPS otomatis: pakai flag — lihat ./deploy.sh --help)"
   echo "────────────────────────────────────────────────"
 fi
 

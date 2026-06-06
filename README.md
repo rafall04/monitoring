@@ -105,34 +105,27 @@ cd monitoring
 sudo ./deploy.sh        # interactive — just answer the prompts
 ```
 
-The installer asks **three things**, then configures everything (including the
-CORS whitelist) for you:
+By default it asks just three simple things — so the **ports are always
+customizable**, even on re-run (press Enter to keep the current value):
 
-1. **IP server** — auto-detected default.
-2. **Domain frontend** — leave blank to access via the IP.
-3. **Domain backend/API** — leave blank to serve the API under the same domain (`/api`).
+1. **Alamat akses** — the server IP (or a domain).
+2. **Port frontend / web** — default **3600**.
+3. **Port backend / API** — default **3500**.
 
-…then **HTTPS?** (only if you entered a domain). The combination decides the layout:
+→ opens `http://<host>:<frontend-port>`. Add `--yes` to skip the prompts on an
+update and reuse the saved config.
 
-| Inputs | Result |
+**Domain + automatic HTTPS** (bundled **Caddy** reverse proxy, **Let's Encrypt**)
+is opt-in via flags:
+
+| Command | Result |
 | --- | --- |
-| IP only | `http://IP:3600` (web) + `http://IP:3500` (api) — direct ports |
-| frontend domain only | `https://sf.raf.my.id` — API under `/api`, one origin |
-| frontend **+** backend domain | `https://sf.raf.my.id` + `https://api.sf.raf.my.id` — split; CORS whitelists the frontend |
+| `sudo ./deploy.sh --ip 172.17.11.12 --backend-port 3500 --frontend-port 3600` | direct, custom ports |
+| `sudo ./deploy.sh --frontend-domain sf.raf.my.id --tls` | `https://sf.raf.my.id` — API under `/api` (one origin) |
+| `sudo ./deploy.sh --frontend-domain sf.raf.my.id --backend-domain api.sf.raf.my.id --tls` | split origins; CORS whitelists the frontend |
 
-Ports default to frontend **3600** / backend **3500** (asked in IP mode). Domain
-modes use a bundled **Caddy** reverse proxy with automatic **Let's Encrypt** TLS
-(domains must resolve to the server and ports 80/443 reachable for the ACME
-challenge). The same choices are available as flags for automation:
-
-```bash
-# IP, custom ports:
-sudo ./deploy.sh --ip 172.17.11.12 --backend-port 3500 --frontend-port 3600
-# Split domains + HTTPS:
-sudo ./deploy.sh --ip 172.17.11.12 --frontend-domain sf.raf.my.id --backend-domain api.sf.raf.my.id --tls
-# Single domain (API under /api):
-sudo ./deploy.sh --frontend-domain sf.raf.my.id --tls
-```
+TLS needs the domains public + ports 80/443 reachable for the ACME challenge;
+drop `--tls` for plain HTTP.
 
 Sign in with `admin@noc.local` / `ChangeMe123!` — **change it after the first
 login** (or set `SUPER_ADMIN_PASSWORD` before the first run). The DB starts
