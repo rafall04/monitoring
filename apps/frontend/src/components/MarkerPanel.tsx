@@ -102,6 +102,7 @@ export default function MarkerPanel(props: MarkerPanelProps) {
         isCritical,
         note: note || null,
         manualOverride: override === '' ? null : override,
+        ...(syncNetwatch && ipAddress ? { syncNetwatch: true } : {}),
       };
       props.onSave(device.id, patch);
     }
@@ -285,17 +286,25 @@ export default function MarkerPanel(props: MarkerPanelProps) {
           </Field>
         )}
 
-        {mode === 'add' && (
-          <label className="flex items-center gap-2 text-sm text-slate-300">
-            <input
-              type="checkbox"
-              checked={syncNetwatch}
-              onChange={(e) => setSyncNetwatch(e.target.checked)}
-              disabled={!editable}
-            />
-            Also create Netwatch entry on the router
-          </label>
-        )}
+        <label className="flex items-start gap-2 text-sm text-slate-300">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={syncNetwatch}
+            onChange={(e) => setSyncNetwatch(e.target.checked)}
+            disabled={!editable || !ipAddress}
+          />
+          <span>
+            {mode === 'add'
+              ? 'Also create the Netwatch entry on the router'
+              : 'Re-install the Netwatch entry on the router'}
+            <span className="mt-0.5 block text-xs text-slate-500">
+              {ipAddress
+                ? 'Pushes a /tool/netwatch entry (with up/down webhook) to the MikroTik now.'
+                : 'Set an IP address first.'}
+            </span>
+          </span>
+        </label>
 
         <Field label="Note">
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} disabled={!editable} />

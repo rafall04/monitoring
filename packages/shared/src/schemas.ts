@@ -168,6 +168,9 @@ export const updateDeviceSchema = z.object({
   isCritical: z.boolean().optional(),
   note: z.string().max(2000).nullable().optional(),
   manualOverride: zEnum(MANUAL_OVERRIDES).nullable().optional(),
+  // when true the backend (re)installs the matching /tool/netwatch entry on the
+  // router — e.g. after the IP address changed. Not a stored column.
+  syncNetwatch: z.boolean().optional(),
 });
 export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;
 

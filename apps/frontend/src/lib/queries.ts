@@ -115,11 +115,15 @@ export function useMoveDevice(siteId: string) {
   });
 }
 
+// Create/update may include a transient `netwatchError` hint when a Netwatch
+// (re)install was requested but failed — the device itself is still saved.
+export type DeviceWithNetwatch = Device & { netwatchError?: string };
+
 export function useUpdateDevice(siteId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: { id: string; patch: UpdateDeviceInput }) =>
-      api.patch<Device>(`/devices/${v.id}`, v.patch),
+      api.patch<DeviceWithNetwatch>(`/devices/${v.id}`, v.patch),
     onSuccess: (d) =>
       qc.setQueryData<Device[]>(qk.siteDevices(siteId), (old) =>
         old?.map((x) => (x.id === d.id ? d : x)),
@@ -130,7 +134,7 @@ export function useUpdateDevice(siteId: string) {
 export function useCreateDevice(siteId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateDeviceInput) => api.post<Device>('/devices', body),
+    mutationFn: (body: CreateDeviceInput) => api.post<DeviceWithNetwatch>('/devices', body),
     onSuccess: (d) =>
       qc.setQueryData<Device[]>(qk.siteDevices(siteId), (old) => (old ? [...old, d] : [d])),
   });

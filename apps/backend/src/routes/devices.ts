@@ -3,6 +3,7 @@ import type { Prisma } from '@noc/server';
 import {
   clientForRouter,
   computeSiteSummary,
+  decryptSecret,
   env,
   netwatchApiInput,
   prisma,
@@ -77,26 +78,22 @@ export async function deviceRoutes(app: FastifyInstance) {
       });
 
       let netwatchSynced = false;
+      let netwatchError: string | undefined;
       if (body.syncNetwatch && created.ipAddress) {
+        const site = await prisma.site.findUnique({ where: { id: created.siteId } });
         try {
-          const client = clientForRouter(router);
-          try {
-            const params = {
-              webhookBaseUrl: env.PUBLIC_BASE_URL,
-              routerId: router.id,
-              token: router.webhookToken,
-              host: created.ipAddress,
-              deviceName: created.name,
-            };
-            await client.removeNetwatchByHost(created.ipAddress);
-            await client.addNetwatch(netwatchApiInput(params));
-            netwatchSynced = true;
-          } finally {
-            await client.close();
-          }
+          await installNetwatchForDevice(
+            router,
+            { name: created.name, ipAddress: created.ipAddress, isCritical: created.isCritical },
+            site,
+          );
+          netwatchSynced = true;
         } catch (e) {
+          netwatchError = (e as Error)?.message ?? String(e);
           req.log.warn({ e }, 'netwatch sync on device create failed');
         }
+      } else if (body.syncNetwatch && !created.ipAddress) {
+        netwatchError = 'Device has no IP address';
       }
 
       const d = netwatchSynced
@@ -115,7 +112,8 @@ export async function deviceRoutes(app: FastifyInstance) {
         summary: await computeSiteSummary(prisma, dto.siteId),
       });
       await writeAudit(req, { action: 'create', entity: 'device', entityId: d.id, after: dto });
-      return dto;
+      // netwatchError is a transient hint for the UI; it is not persisted.
+      return netwatchError ? { ...dto, netwatchError } : dto;
     },
   );
 
@@ -124,12 +122,40 @@ export async function deviceRoutes(app: FastifyInstance) {
     { onRequest: [authenticate], preHandler: [requirePermission('device:edit-attributes')] },
     async (req) => {
       const { id } = idParamSchema.parse(req.params);
-      const body = updateDeviceSchema.parse(req.body);
+      const { syncNetwatch, ...patch } = updateDeviceSchema.parse(req.body);
       const before = await prisma.device.findUnique({ where: { id } });
       if (!before) throw notFound('Device not found');
       assertSiteAccess(req.appUser, before.siteId);
 
-      const d = await prisma.device.update({ where: { id }, data: body });
+      let d = await prisma.device.update({ where: { id }, data: patch });
+
+      let netwatchError: string | undefined;
+      if (syncNetwatch) {
+        if (!d.ipAddress) {
+          netwatchError = 'Device has no IP address';
+        } else {
+          const router = await prisma.routerMikrotik.findUnique({ where: { id: d.routerId } });
+          const site = await prisma.site.findUnique({ where: { id: d.siteId } });
+          if (!router) {
+            netwatchError = 'Router not found';
+          } else {
+            try {
+              await installNetwatchForDevice(
+                router,
+                { name: d.name, ipAddress: d.ipAddress, isCritical: d.isCritical },
+                site,
+                // if the IP changed, drop the stale entry for the previous IP too
+                before.ipAddress ? [before.ipAddress] : [],
+              );
+              d = await prisma.device.update({ where: { id }, data: { netwatchSynced: true } });
+            } catch (e) {
+              netwatchError = (e as Error)?.message ?? String(e);
+              req.log.warn({ e }, 'netwatch re-sync on device update failed');
+            }
+          }
+        }
+      }
+
       const dto = toDeviceDto(d);
       await publishSiteEvent(app.redisPub, dto.siteId, {
         type: 'device.updated',
@@ -144,7 +170,7 @@ export async function deviceRoutes(app: FastifyInstance) {
         before: toDeviceDto(before),
         after: dto,
       });
-      return dto;
+      return netwatchError ? { ...dto, netwatchError } : dto;
     },
   );
 
@@ -294,4 +320,62 @@ export async function deviceRoutes(app: FastifyInstance) {
       return { ok: true };
     },
   );
+}
+
+/**
+ * (Re)install the Netwatch entry for ONE device on its router. Mirrors the
+ * router-wide install: includes the direct-to-Telegram alert when the site is in
+ * `router` mode and the device is critical. `alsoRemoveHosts` clears stale
+ * entries (e.g. a previous IP) on a best-effort basis. Throws on connect/API
+ * failure so the caller can surface the reason to the user.
+ */
+async function installNetwatchForDevice(
+  router: {
+    id: string;
+    webhookToken: string;
+    host: string;
+    apiPort: number;
+    useTls: boolean;
+    username: string;
+    passwordEncrypted: string;
+    routerosVersion: string;
+  },
+  device: { name: string; ipAddress: string; isCritical: boolean },
+  site: { name: string; telegramMode: string; telegramBotEncrypted: string | null; telegramChatId: string | null } | null,
+  alsoRemoveHosts: string[] = [],
+): Promise<void> {
+  const telegram =
+    device.isCritical &&
+    site &&
+    site.telegramMode === 'router' &&
+    site.telegramBotEncrypted &&
+    site.telegramChatId
+      ? { botToken: decryptSecret(site.telegramBotEncrypted), chatId: site.telegramChatId, siteName: site.name }
+      : undefined;
+
+  const client = clientForRouter(router);
+  try {
+    for (const h of alsoRemoveHosts) {
+      if (h && h !== device.ipAddress) {
+        try {
+          await client.removeNetwatchByHost(h);
+        } catch {
+          /* best effort — a missing stale entry is fine */
+        }
+      }
+    }
+    await client.removeNetwatchByHost(device.ipAddress);
+    await client.addNetwatch(
+      netwatchApiInput({
+        webhookBaseUrl: env.PUBLIC_BASE_URL,
+        routerId: router.id,
+        token: router.webhookToken,
+        host: device.ipAddress,
+        deviceName: device.name,
+        telegram,
+      }),
+    );
+  } finally {
+    await client.close();
+  }
 }

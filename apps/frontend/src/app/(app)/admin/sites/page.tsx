@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { Company, RouterResource, Site } from '@noc/shared';
+import type { Company, RouterPublic, RouterResource, Site } from '@noc/shared';
 import { api } from '@/lib/api';
 import { qk, useRouters, useSites } from '@/lib/queries';
 import { Button, Card, Field, Select, Spinner, TextInput } from '@/components/ui';
@@ -25,6 +25,8 @@ export default function AdminSitesPage() {
   const [routerForm, setRouterForm] = useState({ siteId: '', name: '', host: '', apiPort: '8728', useTls: false, username: 'admin', password: '', routerosVersion: 'v6' });
   const [testResult, setTestResult] = useState<Record<string, string>>({});
   const [importMsg, setImportMsg] = useState<Record<string, string>>({});
+  const [installMsg, setInstallMsg] = useState<Record<string, string>>({});
+  const [editRouterId, setEditRouterId] = useState<string | null>(null);
   const [scriptFor, setScriptFor] = useState<{ routerId: string; host: string; cli: string; mode: string } | null>(null);
 
   const addCompany = useMutation({ mutationFn: () => api.post('/companies', { name: companyName }), onSuccess: () => { setCompanyName(''); invalidate(); } });
@@ -82,6 +84,33 @@ export default function AdminSitesPage() {
     } catch (e) {
       setImportMsg((p) => ({ ...p, [routerId]: `gagal: ${(e as Error).message}` }));
     }
+  };
+
+  // Push a Netwatch entry to the router for EVERY device that has an IP. Reports
+  // per-device success/failure so a silent connection problem is visible.
+  const installNetwatch = async (routerId: string) => {
+    setInstallMsg((p) => ({ ...p, [routerId]: 'memasang Netwatch…' }));
+    try {
+      const res = await api.post<{ results: Array<{ device: string; ok: boolean; reason?: string }> }>(
+        `/routers/${routerId}/netwatch/install`,
+        {},
+      );
+      const ok = res.results.filter((x) => x.ok).length;
+      const failed = res.results.filter((x) => !x.ok);
+      const failTxt = failed.length
+        ? ` · gagal ${failed.length}: ${failed.map((f) => `${f.device} (${f.reason ?? '?'})`).join('; ')}`
+        : '';
+      setInstallMsg((p) => ({ ...p, [routerId]: `✓ Netwatch terpasang untuk ${ok} device${failTxt}` }));
+      invalidate();
+    } catch (e) {
+      setInstallMsg((p) => ({ ...p, [routerId]: `gagal: ${(e as Error).message}` }));
+    }
+  };
+
+  const saveRouter = async (id: string, patch: Record<string, unknown>) => {
+    await api.patch(`/routers/${id}`, patch);
+    setEditRouterId(null);
+    invalidate();
   };
 
   const sitesByCompany = (cid: string) => sites.data?.filter((s) => s.companyId === cid) ?? [];
@@ -169,15 +198,21 @@ export default function AdminSitesPage() {
                   <span className="font-medium text-slate-100">{r.name}</span>{' '}
                   <span className="text-slate-500">{r.host}:{r.apiPort} · {r.routerosVersion} · {r.status}</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button variant="secondary" onClick={() => testConn(r.id)}>Test</Button>
+                  <Button variant="secondary" onClick={() => installNetwatch(r.id)}>Sync Netwatch</Button>
                   <Button variant="secondary" onClick={() => importNetwatch(r.id)}>Import</Button>
-                  <Button variant="ghost" onClick={() => { const host = prompt('Device IP/host for the Netwatch script:'); if (host) void loadScript(r.id, host); }}>Netwatch script</Button>
+                  <Button variant="ghost" onClick={() => { const host = prompt('Device IP/host for the Netwatch script:'); if (host) void loadScript(r.id, host); }}>Script</Button>
+                  <button className="text-blue-400 hover:text-blue-300" onClick={() => setEditRouterId((c) => (c === r.id ? null : r.id))}>{editRouterId === r.id ? 'close' : 'edit'}</button>
                   <button className="text-red-400 hover:text-red-300" onClick={() => delRouter.mutate(r.id)}>delete</button>
                 </div>
               </div>
               {testResult[r.id] && <div className="mt-1 text-xs text-slate-400">{testResult[r.id]}</div>}
               {importMsg[r.id] && <div className="mt-1 text-xs text-emerald-400">{importMsg[r.id]}</div>}
+              {installMsg[r.id] && <div className="mt-1 text-xs text-emerald-400">{installMsg[r.id]}</div>}
+              {editRouterId === r.id && (
+                <EditRouterForm router={r} onSave={saveRouter} onCancel={() => setEditRouterId(null)} />
+              )}
             </div>
           ))}
         </div>
@@ -289,6 +324,82 @@ function SiteRow({ site, onDelete, onUploaded }: { site: Site; onDelete: () => v
         <p className="mt-1 text-[11px] text-slate-500">
           server = NOC yang kirim (token aman di server) · router = script Netwatch yang kirim (perlu Install/Sync di router) · hanya device is_critical.
         </p>
+      </div>
+    </div>
+  );
+}
+
+function EditRouterForm({
+  router,
+  onSave,
+  onCancel,
+}: {
+  router: RouterPublic;
+  onSave: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [f, setF] = useState({
+    name: router.name,
+    host: router.host,
+    apiPort: String(router.apiPort),
+    useTls: router.useTls,
+    username: router.username,
+    password: '',
+    routerosVersion: router.routerosVersion as string,
+    pollIntervalSec: router.pollIntervalSec != null ? String(router.pollIntervalSec) : '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const submit = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      await onSave(router.id, {
+        name: f.name,
+        host: f.host,
+        apiPort: Number(f.apiPort),
+        useTls: f.useTls,
+        username: f.username,
+        routerosVersion: f.routerosVersion,
+        pollIntervalSec: f.pollIntervalSec ? Number(f.pollIntervalSec) : null,
+        ...(f.password ? { password: f.password } : {}),
+      });
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-surface-border pt-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+        <Field label="Name"><TextInput value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+        <Field label="Host"><TextInput value={f.host} onChange={(e) => setF({ ...f, host: e.target.value })} /></Field>
+        <Field label="Port"><TextInput value={f.apiPort} onChange={(e) => setF({ ...f, apiPort: e.target.value })} /></Field>
+        <Field label="User"><TextInput value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} /></Field>
+        <Field label="Password (blank = keep)">
+          <TextInput type="password" value={f.password} placeholder="••••••" onChange={(e) => setF({ ...f, password: e.target.value })} />
+        </Field>
+        <Field label="Version">
+          <Select value={f.routerosVersion} onChange={(e) => setF({ ...f, routerosVersion: e.target.value })}>
+            <option value="v6">v6</option>
+            <option value="v7">v7</option>
+          </Select>
+        </Field>
+        <Field label="Poll sec">
+          <TextInput value={f.pollIntervalSec} placeholder="default" onChange={(e) => setF({ ...f, pollIntervalSec: e.target.value })} />
+        </Field>
+      </div>
+      <label className="mt-2 flex items-center gap-2 text-sm text-slate-300">
+        <input type="checkbox" checked={f.useTls} onChange={(e) => setF({ ...f, useTls: e.target.checked })} />
+        Use TLS (api-ssl)
+      </label>
+      <div className="mt-2 flex items-center gap-2">
+        <Button onClick={submit} disabled={busy || !f.host || !f.name}>{busy ? 'Saving…' : 'Save router'}</Button>
+        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+        {err && <span className="text-sm text-red-400">{err}</span>}
       </div>
     </div>
   );

@@ -48,7 +48,13 @@ export default function SiteMapPage() {
   const [tab, setTab] = useState<'line' | 'denah'>('line');
   const [editMode, setEditMode] = useState(false);
   const [selected, setSelected] = useState<Device | null>(null);
-  const [adding, setAdding] = useState<PatchDevicePositionInput | null>(null);
+  // 'manual' = add from a button (no map coords yet); object = placed on the map.
+  const [adding, setAdding] = useState<PatchDevicePositionInput | 'manual' | null>(null);
+  const [flash, setFlash] = useState<{ kind: 'ok' | 'warn'; msg: string } | null>(null);
+  const showFlash = (kind: 'ok' | 'warn', msg: string) => {
+    setFlash({ kind, msg });
+    window.setTimeout(() => setFlash(null), 7000);
+  };
 
   useSiteSocket(
     siteId,
@@ -111,6 +117,17 @@ export default function SiteMapPage() {
             ))}
           </div>
           {tab === 'denah' && <Legend />}
+          {canCreate && (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setSelected(null);
+                setAdding('manual');
+              }}
+            >
+              + Add device
+            </Button>
+          )}
           {(canEditPos || canCreate || canManageStructure) && (
             <Button
               variant={editMode ? 'primary' : 'secondary'}
@@ -124,6 +141,21 @@ export default function SiteMapPage() {
           )}
         </div>
       </header>
+
+      {flash && (
+        <div
+          className={`flex items-center justify-between gap-3 border-b px-5 py-2 text-sm ${
+            flash.kind === 'ok'
+              ? 'border-emerald-800 bg-emerald-950/40 text-emerald-300'
+              : 'border-amber-800 bg-amber-950/40 text-amber-300'
+          }`}
+        >
+          <span>{flash.msg}</span>
+          <button className="text-xs opacity-70 hover:opacity-100" onClick={() => setFlash(null)}>
+            ✕
+          </button>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
@@ -175,7 +207,7 @@ export default function SiteMapPage() {
             site={site.data}
             mode={adding ? 'add' : 'edit'}
             device={selected}
-            addPos={adding ?? undefined}
+            addPos={adding && adding !== 'manual' ? adding : undefined}
             routers={routers.data ?? []}
             areas={areas.data ?? []}
             canEditAttributes={canEditAttr}
@@ -185,13 +217,35 @@ export default function SiteMapPage() {
               setSelected(null);
               setAdding(null);
             }}
-            onSave={(id, patch) => update.mutate({ id, patch }, { onSuccess: () => setSelected(null) })}
+            onSave={(id, patch) =>
+              update.mutate(
+                { id, patch },
+                {
+                  onSuccess: (d) => {
+                    setSelected(null);
+                    if (patch.syncNetwatch) {
+                      if (d.netwatchError) showFlash('warn', `Netwatch gagal di-update: ${d.netwatchError}`);
+                      else showFlash('ok', `Netwatch untuk "${d.name}" diperbarui di router ✓`);
+                    }
+                  },
+                  onError: (e) => showFlash('warn', `Gagal menyimpan: ${(e as Error).message}`),
+                },
+              )
+            }
             onCreate={(body) =>
               create.mutate(body, {
                 onSuccess: (d) => {
                   setAdding(null);
                   setSelected(d);
+                  if (body.syncNetwatch) {
+                    if (d.netwatchError)
+                      showFlash('warn', `Device dibuat, tetapi Netwatch GAGAL: ${d.netwatchError}`);
+                    else showFlash('ok', `Device "${d.name}" dibuat + Netwatch terpasang di router ✓`);
+                  } else {
+                    showFlash('ok', `Device "${d.name}" dibuat ✓`);
+                  }
                 },
+                onError: (e) => showFlash('warn', `Gagal membuat device: ${(e as Error).message}`),
               })
             }
             onDelete={(id) => remove.mutate(id, { onSuccess: () => setSelected(null) })}
