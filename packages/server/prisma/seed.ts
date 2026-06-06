@@ -8,24 +8,42 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../src/db';
 import { encryptSecret, generateToken } from '../src/crypto';
 
-async function main() {
-  const email = process.env.SUPER_ADMIN_EMAIL ?? 'admin@noc.local';
-  const password = process.env.SUPER_ADMIN_PASSWORD ?? 'ChangeMe123!';
-  const name = process.env.SUPER_ADMIN_NAME ?? 'Super Admin';
-
-  const admin = await prisma.appUser.upsert({
+// Create a user if missing; for an existing user only refresh role/active so a
+// password the admin already changed is never reset by a redeploy.
+async function ensureUser(
+  email: string,
+  name: string,
+  password: string,
+  role: 'super_admin' | 'operator' | 'user',
+  scopeSiteIds: string[] = [],
+) {
+  await prisma.appUser.upsert({
     where: { email },
-    update: { role: 'super_admin', isActive: true },
+    update: { role, isActive: true },
     create: {
       name,
       email,
       passwordHash: await bcrypt.hash(password, 10),
-      role: 'super_admin',
-      scopeSiteIds: [],
+      role,
+      scopeSiteIds,
       isActive: true,
     },
   });
-  console.log(`✓ super_admin ready: ${admin.email}`);
+}
+
+async function main() {
+  // ---- Default accounts (always seeded; password only set on first create) ----
+  const adminEmail = process.env.SUPER_ADMIN_EMAIL ?? 'admin@noc.local';
+  const adminPassword = process.env.SUPER_ADMIN_PASSWORD ?? 'admin123';
+  const adminName = process.env.SUPER_ADMIN_NAME ?? 'Super Admin';
+
+  await ensureUser(adminEmail, adminName, adminPassword, 'super_admin');
+  await ensureUser('operator@noc.local', 'Operator', 'operator123', 'operator');
+  await ensureUser('demo@noc.local', 'Demo Viewer', 'demo123', 'user');
+  console.log('✓ default accounts ready:');
+  console.log(`   ${adminEmail} / ${adminPassword}  (super_admin)`);
+  console.log('   operator@noc.local / operator123  (operator)');
+  console.log('   demo@noc.local / demo123  (viewer)');
 
   // Demo data (Demo Corp + sample sites/routers/devices) is OPT-IN so production
   // deploys start with a clean database. Enable with SEED_DEMO=true.
@@ -122,32 +140,20 @@ async function main() {
     ],
   });
 
-  // demo operator (scoped to Site A) + viewer (scoped to Site B)
-  await prisma.appUser.create({
-    data: {
-      name: 'Demo Operator',
-      email: 'operator@noc.local',
-      passwordHash: await bcrypt.hash('Operator123!', 10),
-      role: 'operator',
-      scopeSiteIds: [siteA.id],
-      isActive: true,
-    },
+  // Scope the default operator/demo accounts to the demo sites.
+  await prisma.appUser.update({
+    where: { email: 'operator@noc.local' },
+    data: { scopeSiteIds: [siteA.id] },
   });
-  await prisma.appUser.create({
-    data: {
-      name: 'Demo Viewer',
-      email: 'viewer@noc.local',
-      passwordHash: await bcrypt.hash('Viewer123!', 10),
-      role: 'user',
-      scopeSiteIds: [siteB.id],
-      isActive: true,
-    },
+  await prisma.appUser.update({
+    where: { email: 'demo@noc.local' },
+    data: { scopeSiteIds: [siteA.id, siteB.id] },
   });
 
   console.log('✓ demo data created:');
   console.log(`  company: ${company.name}`);
   console.log(`  sites:   ${siteA.name} (floorplan), ${siteB.name} (geo)`);
-  console.log('  logins:  operator@noc.local / Operator123!,  viewer@noc.local / Viewer123!');
+  console.log('  scoped:  operator -> HQ Factory,  demo -> both sites');
 }
 
 main()

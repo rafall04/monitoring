@@ -17,7 +17,9 @@
 # CORS is whitelisted to the frontend domain + the IP:port.
 #
 # Flags (automation): --ip, --frontend-domain, --backend-domain, --backend-port,
-#   --frontend-port, --tls/--no-tls, --yes (skip prompts, reuse .env).
+#   --frontend-port, --tls/--no-tls, --yes (skip prompts, reuse .env),
+#   --cloudflare  (external proxy / Cloudflare Tunnel: apps on the ports, domain
+#                  URLs over HTTPS, no bundled Caddy — just forward localhost).
 # =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -35,6 +37,7 @@ BACKEND_DOMAIN="${BACKEND_DOMAIN:-$(getenv BACKEND_DOMAIN)}"
 BACKEND_PORT="${BACKEND_PORT:-$(getenv BACKEND_PORT)}"
 FRONTEND_PORT="${FRONTEND_PORT:-$(getenv FRONTEND_PORT)}"
 TLS="${TLS:-$(getenv DEPLOY_TLS)}"
+EXTERNAL="${EXTERNAL:-$(getenv DEPLOY_EXTERNAL)}"
 ASSUME_YES=0
 
 # ---- flags ----
@@ -48,7 +51,8 @@ while [ $# -gt 0 ]; do
     --frontend-port) FRONTEND_PORT="$2"; shift 2 ;;
     --tls) TLS=1; shift ;;
     --no-tls) TLS=0; shift ;;
-    --proxy) shift ;; # accepted for compatibility (proxy auto-runs when a domain is set)
+    --cloudflare|--external-proxy|--external) EXTERNAL=1; shift ;;
+    --proxy) EXTERNAL=0; shift ;; # use the bundled Caddy proxy instead of an external one
     -y|--yes) ASSUME_YES=1; shift ;;
     -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
@@ -76,6 +80,7 @@ fi
 # ---- final defaults ----
 SERVER_IP="${SERVER_IP:-localhost}"
 TLS="${TLS:-0}"
+EXTERNAL="${EXTERNAL:-0}"
 BACKEND_PORT="${BACKEND_PORT:-3500}"
 FRONTEND_PORT="${FRONTEND_PORT:-3600}"
 HTTP_PORT=80
@@ -85,7 +90,15 @@ APP_BIND=""   # apps are always published on the custom host ports (direct acces
 # ---- derive URLs + (when a domain is set) the bundled Caddy proxy ----
 CADDYFILE="./Caddyfile"
 CADDY_SITE_ADDRESS=":80"
-if [ -n "$FRONTEND_DOMAIN" ]; then
+if [ -n "$FRONTEND_DOMAIN" ] && [ "$EXTERNAL" = "1" ]; then
+  # External proxy (Cloudflare Tunnel / own ingress): apps stay on the host ports,
+  # public URLs use the domains over HTTPS, and NO bundled Caddy runs.
+  COMPOSE_PROFILE=""; LAYOUT="external"
+  WEB_URL="https://${FRONTEND_DOMAIN}"
+  if [ -n "$BACKEND_DOMAIN" ]; then API_URL="https://${BACKEND_DOMAIN}"; WS_URL="wss://${BACKEND_DOMAIN}/ws"
+  else API_URL="https://${FRONTEND_DOMAIN}"; WS_URL="wss://${FRONTEND_DOMAIN}/ws"; fi
+  CORS_ORIGIN="${WEB_URL},http://${SERVER_IP}:${FRONTEND_PORT},http://localhost:${FRONTEND_PORT}"
+elif [ -n "$FRONTEND_DOMAIN" ]; then
   COMPOSE_PROFILE="--profile proxy"
   [ "$TLS" = "1" ] && { SC="https"; WSC="wss"; } || { SC="http"; WSC="ws"; }
   WEB_URL="${SC}://${FRONTEND_DOMAIN}"
@@ -153,7 +166,7 @@ JWT_ACCESS_SECRET="$(getenv JWT_ACCESS_SECRET)";       JWT_ACCESS_SECRET="${JWT_
 JWT_REFRESH_SECRET="$(getenv JWT_REFRESH_SECRET)";     JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-$(openssl rand -base64 48)}"
 CREDENTIALS_ENC_KEY="$(getenv CREDENTIALS_ENC_KEY)";   CREDENTIALS_ENC_KEY="${CREDENTIALS_ENC_KEY:-$(openssl rand -base64 32)}"
 SUPER_ADMIN_EMAIL="$(getenv SUPER_ADMIN_EMAIL)";       SUPER_ADMIN_EMAIL="${SUPER_ADMIN_EMAIL:-admin@noc.local}"
-SUPER_ADMIN_PASSWORD="$(getenv SUPER_ADMIN_PASSWORD)"; SUPER_ADMIN_PASSWORD="${SUPER_ADMIN_PASSWORD:-ChangeMe123!}"
+SUPER_ADMIN_PASSWORD="$(getenv SUPER_ADMIN_PASSWORD)"; SUPER_ADMIN_PASSWORD="${SUPER_ADMIN_PASSWORD:-admin123}"
 SUPER_ADMIN_NAME="$(getenv SUPER_ADMIN_NAME)";         SUPER_ADMIN_NAME="${SUPER_ADMIN_NAME:-Super Admin}"
 
 # ---- write .env ----
@@ -164,6 +177,7 @@ LOG_LEVEL=info
 # ---- Deployment (set by deploy.sh) ----
 DEPLOY_LAYOUT=${LAYOUT}
 DEPLOY_TLS=${TLS}
+DEPLOY_EXTERNAL=${EXTERNAL}
 SERVER_IP=${SERVER_IP}
 FRONTEND_DOMAIN=${FRONTEND_DOMAIN}
 BACKEND_DOMAIN=${BACKEND_DOMAIN}
