@@ -90,7 +90,8 @@ export function Shell({ children }: { children: ReactNode }) {
           ) : (
             <div className="px-3 py-1 text-xs text-slate-500">No sites</div>
           )}
-          {(can('hotspot:view') || can('reports:view')) && sectionLabel('Operations')}
+          {(can('hotspot:view') || can('reports:view') || can('map:view')) && sectionLabel('Operations')}
+          {can('map:view') && item('/alerts', 'Alerts')}
           {can('hotspot:view') && item('/hotspot', 'Hotspot')}
           {can('reports:view') && item('/reports', 'Reports')}
           {showAdmin && (

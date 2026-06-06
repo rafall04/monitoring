@@ -79,10 +79,17 @@ export async function applyDeviceStatus(
   }
 
   const oldStatus = device.status;
+  // Clear ack metadata on recovery — an incident has ended; the next down event
+  // is a fresh incident that must be acknowledged again.
+  const clearAck = newStatus === 'up';
   const updated = await deps.prisma.$transaction(async (tx) => {
     const d = await tx.device.update({
       where: { id: device.id },
-      data: { status: newStatus, statusSince: occurredAt },
+      data: {
+        status: newStatus,
+        statusSince: occurredAt,
+        ...(clearAck ? { ackBy: null, ackAt: null } : {}),
+      },
     });
     await tx.statusEvent.create({
       data: {

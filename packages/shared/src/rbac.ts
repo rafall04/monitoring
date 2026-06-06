@@ -24,6 +24,7 @@ export const PERMISSIONS = [
   'reports:view', // uptime/SLA reports
   'audit:view', // read audit log
   'settings:manage', // edit global branding + defaults
+  'alerts:manage', // ack / silence incidents
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -41,6 +42,7 @@ const OPERATOR_PERMISSIONS: Permission[] = [
   'hotspot:manage-users',
   'hotspot:disconnect',
   'reports:view',
+  'alerts:manage',
 ];
 
 const USER_PERMISSIONS: Permission[] = ['map:view', 'device:view'];

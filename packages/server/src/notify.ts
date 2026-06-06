@@ -41,6 +41,7 @@ interface NotifyDevice {
   siteId: string;
   isCritical: boolean;
   manualOverride: string | null;
+  silencedUntil?: Date | null;
 }
 
 /**
@@ -56,6 +57,7 @@ export async function maybeNotifyTelegram(
 ): Promise<void> {
   try {
     if (!device.isCritical || device.manualOverride === 'maintenance') return;
+    if (device.silencedUntil && device.silencedUntil.getTime() > Date.now()) return;
     const isDown = newStatus === 'down';
     const isRecovery = newStatus === 'up' && oldStatus === 'down';
     if (!isDown && !isRecovery) return;

@@ -139,6 +139,13 @@ model Device {
   orderIndex     Int      @default(0) // position within its line/room
   note           String?
 
+  // Incident workflow: an acknowledged incident is "seen, working on it" (still
+  // counts as down). A silenced device suppresses alerts until `silencedUntil`,
+  // e.g. while a tech is on-site fixing things.
+  ackBy          String?
+  ackAt          DateTime?
+  silencedUntil  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

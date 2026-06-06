@@ -284,6 +284,14 @@ export const updateSettingsSchema = z.object({
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
+// ---- Alerts / Incidents ------------------------------------------------------
+
+export const silenceSchema = z.object({
+  /** Minutes from now. 0 = un-silence. Max 1 week. */
+  minutes: z.number().int().min(0).max(7 * 24 * 60),
+});
+export type SilenceInput = z.infer<typeof silenceSchema>;
+
 // ---- Reports -----------------------------------------------------------------
 
 export const uptimeReportQuerySchema = z.object({

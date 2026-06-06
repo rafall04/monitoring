@@ -182,9 +182,55 @@ export interface Device {
   manualOverride: ManualOverride | null;
   netwatchSynced: boolean;
   isCritical: boolean;
+  /** Operator that acknowledged the current incident, if any. */
+  ackBy: string | null;
+  ackAt: string | null;
+  /** Alerts suppressed until this moment (ISO). */
+  silencedUntil: string | null;
   note: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A single row in the global status-event timeline (joined view). */
+export interface StatusEventRow {
+  id: string;
+  deviceId: string;
+  deviceName: string;
+  siteId: string;
+  siteName: string;
+  isCritical: boolean;
+  oldStatus: DeviceStatus;
+  newStatus: DeviceStatus;
+  source: 'webhook' | 'polling' | 'manual';
+  occurredAt: string;
+}
+
+/** An open incident — a device currently down, with workflow state. */
+export interface Incident {
+  deviceId: string;
+  deviceName: string;
+  siteId: string;
+  siteName: string;
+  isCritical: boolean;
+  status: DeviceStatus;
+  statusSince: string | null;
+  durationSec: number;
+  ackBy: string | null;
+  ackAt: string | null;
+  silencedUntil: string | null;
+}
+
+/** A row in the audit log viewer. */
+export interface AuditLogRow {
+  id: string;
+  userId: string | null;
+  userName: string | null;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  ip: string | null;
+  createdAt: string;
 }
 
 export interface DownDevice {
