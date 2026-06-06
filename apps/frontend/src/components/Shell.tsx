@@ -106,12 +106,17 @@ export function Shell({ children }: { children: ReactNode }) {
 
         <div className="border-t border-surface-border p-3 text-xs text-slate-400">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="min-w-0">
+            <Link
+              href="/profile"
+              onClick={() => setNavOpen(false)}
+              className="min-w-0 rounded hover:bg-slate-200/40 dark:hover:bg-slate-800/40"
+              title="My profile"
+            >
               <div className="truncate font-medium text-slate-200">{user.name}</div>
               <div className="truncate">
                 {user.email} · {user.role}
               </div>
-            </div>
+            </Link>
             <button
               onClick={toggle}
               aria-label="Toggle theme"

@@ -12,7 +12,9 @@ import { STATUS_COLORS, STATUS_LABELS, type DisplayStatus } from '@noc/shared';
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 const variants: Record<Variant, string> = {
-  primary: 'bg-blue-600 hover:bg-blue-500 text-white',
+  // accent = brand color (CSS var --accent driven by Settings). Defaults to
+  // blue-500 when no admin has customized it.
+  primary: 'bg-accent text-white hover:opacity-90',
   secondary:
     'bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600',
   danger: 'bg-red-600 hover:bg-red-500 text-white',
@@ -68,7 +70,7 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
 export function Spinner({ label }: { label?: string }) {
   return (
     <div className="flex items-center gap-2 text-sm text-slate-400">
-      <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-blue-500" />
+      <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-accent" />
       {label ?? 'Loading…'}
     </div>
   );

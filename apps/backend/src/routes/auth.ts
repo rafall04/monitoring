@@ -8,8 +8,9 @@ import {
   toAppUserPublic,
   type AppUser,
 } from '@noc/server';
-import { loginSchema, refreshSchema } from '@noc/shared';
-import { unauthorized } from '../lib/errors';
+import { changePasswordSchema, loginSchema, refreshSchema, updateProfileSchema } from '@noc/shared';
+import { writeAudit } from '../lib/audit';
+import { badRequest, unauthorized } from '../lib/errors';
 import { durationToSeconds } from '../lib/time';
 import { authenticate } from '../plugins/auth';
 
@@ -80,4 +81,42 @@ export async function authRoutes(app: FastifyInstance) {
     if (!u) throw unauthorized();
     return toAppUserPublic(u);
   });
+
+  // Self-service profile edit (name only). Email + role + scope are managed via
+  // the admin user endpoints to prevent privilege/lockout abuse.
+  app.patch('/me', { onRequest: [authenticate] }, async (req) => {
+    const body = updateProfileSchema.parse(req.body);
+    const u = await prisma.appUser.update({
+      where: { id: req.appUser.id },
+      data: { name: body.name },
+    });
+    await writeAudit(req, { action: 'profile-update', entity: 'app_user', entityId: u.id, after: { name: u.name } });
+    return toAppUserPublic(u);
+  });
+
+  // Self-service password change. Rate-limited like login. Verifies the
+  // current password before accepting the new one, and revokes every existing
+  // refresh token so other sessions must sign back in.
+  app.post(
+    '/change-password',
+    {
+      onRequest: [authenticate],
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
+    async (req) => {
+      const body = changePasswordSchema.parse(req.body);
+      const u = await prisma.appUser.findUnique({ where: { id: req.appUser.id } });
+      if (!u) throw unauthorized();
+      const ok = await bcrypt.compare(body.currentPassword, u.passwordHash);
+      if (!ok) throw badRequest('Password sekarang tidak cocok');
+      const passwordHash = await bcrypt.hash(body.newPassword, 10);
+      await prisma.appUser.update({ where: { id: u.id }, data: { passwordHash } });
+      await prisma.refreshToken.updateMany({
+        where: { userId: u.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await writeAudit(req, { action: 'password-change', entity: 'app_user', entityId: u.id });
+      return { ok: true };
+    },
+  );
 }

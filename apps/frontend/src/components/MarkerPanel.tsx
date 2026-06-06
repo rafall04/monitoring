@@ -224,7 +224,7 @@ export default function MarkerPanel(props: MarkerPanelProps) {
                   }}
                   className={`flex items-center justify-center rounded border p-1.5 disabled:opacity-50 ${
                     selected
-                      ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                      ? 'border-accent bg-accent/10 text-accent'
                       : 'border-surface-border text-slate-300 hover:border-slate-500'
                   }`}
                   dangerouslySetInnerHTML={{ __html: deviceSvg(key, 18) }}
@@ -250,7 +250,7 @@ export default function MarkerPanel(props: MarkerPanelProps) {
               </>
             ) : (
               editable && (
-                <label className="cursor-pointer text-xs text-blue-400 hover:text-blue-300">
+                <label className="cursor-pointer text-xs text-accent hover:opacity-80">
                   {iconBusy ? 'Uploading…' : 'Upload custom (SVG/PNG)…'}
                   <input
                     type="file"

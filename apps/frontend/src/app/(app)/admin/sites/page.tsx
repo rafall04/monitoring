@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { Company, RouterPublic, RouterResource, Site } from '@noc/shared';
 import { api } from '@/lib/api';
 import { qk, useRouters, useSites } from '@/lib/queries';
+import { useConfirm, usePrompt, useToast } from '@/lib/toast';
 import { Button, Card, Field, Select, Spinner, TextInput } from '@/components/ui';
 
 export default function AdminSitesPage() {
@@ -12,6 +13,9 @@ export default function AdminSitesPage() {
   const companies = useQuery({ queryKey: ['companies'], queryFn: () => api.get<Company[]>('/companies') });
   const sites = useSites();
   const routers = useRouters();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const askPrompt = usePrompt();
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['companies'] });
@@ -56,8 +60,34 @@ export default function AdminSitesPage() {
       }),
     onSuccess: () => { setRouterForm({ ...routerForm, name: '', host: '', password: '' }); invalidate(); },
   });
-  const delSite = useMutation({ mutationFn: (id: string) => api.del(`/sites/${id}`), onSuccess: invalidate });
-  const delRouter = useMutation({ mutationFn: (id: string) => api.del(`/routers/${id}`), onSuccess: invalidate });
+  const delSite = useMutation({
+    mutationFn: (id: string) => api.del(`/sites/${id}`),
+    onSuccess: () => { toast.ok('Site dihapus'); invalidate(); },
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+  });
+  const delRouter = useMutation({
+    mutationFn: (id: string) => api.del(`/routers/${id}`),
+    onSuccess: () => { toast.ok('Router dihapus'); invalidate(); },
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+  });
+  const askDeleteRouter = async (r: { id: string; name: string }) => {
+    const ok = await confirm({
+      title: 'Hapus router?',
+      body: `${r.name} dan semua device-nya akan dihapus dari NOC. Entry Netwatch di router fisik tidak ikut terhapus.`,
+      confirmLabel: 'Hapus',
+      danger: true,
+    });
+    if (ok) delRouter.mutate(r.id);
+  };
+  const askDeleteSite = async (s: { id: string; name: string }) => {
+    const ok = await confirm({
+      title: 'Hapus site?',
+      body: `${s.name} beserta seluruh router, device, area, dan line di dalamnya akan dihapus permanen.`,
+      confirmLabel: 'Hapus',
+      danger: true,
+    });
+    if (ok) delSite.mutate(s.id);
+  };
 
   const testConn = async (id: string) => {
     setTestResult((p) => ({ ...p, [id]: 'testing…' }));
@@ -161,7 +191,7 @@ export default function AdminSitesPage() {
 
         <div className="mt-4 space-y-2">
           {sites.data?.map((s) => (
-            <SiteRow key={s.id} site={s} onDelete={() => delSite.mutate(s.id)} onUploaded={invalidate} />
+            <SiteRow key={s.id} site={s} onDelete={() => askDeleteSite(s)} onUploaded={invalidate} />
           ))}
         </div>
       </Card>
@@ -202,9 +232,21 @@ export default function AdminSitesPage() {
                   <Button variant="secondary" onClick={() => testConn(r.id)}>Test</Button>
                   <Button variant="secondary" onClick={() => installNetwatch(r.id)}>Sync Netwatch</Button>
                   <Button variant="secondary" onClick={() => importNetwatch(r.id)}>Import</Button>
-                  <Button variant="ghost" onClick={() => { const host = prompt('Device IP/host for the Netwatch script:'); if (host) void loadScript(r.id, host); }}>Script</Button>
-                  <button className="text-blue-400 hover:text-blue-300" onClick={() => setEditRouterId((c) => (c === r.id ? null : r.id))}>{editRouterId === r.id ? 'close' : 'edit'}</button>
-                  <button className="text-red-400 hover:text-red-300" onClick={() => delRouter.mutate(r.id)}>delete</button>
+                  <Button
+                    variant="ghost"
+                    onClick={async () => {
+                      const host = await askPrompt({
+                        title: 'Generate Netwatch script',
+                        label: 'IP / hostname device',
+                        placeholder: '192.168.88.10',
+                      });
+                      if (host) void loadScript(r.id, host);
+                    }}
+                  >
+                    Script
+                  </Button>
+                  <button className="text-accent hover:opacity-80" onClick={() => setEditRouterId((c) => (c === r.id ? null : r.id))}>{editRouterId === r.id ? 'close' : 'edit'}</button>
+                  <button className="text-red-400 hover:text-red-300" onClick={() => askDeleteRouter(r)}>delete</button>
                 </div>
               </div>
               {testResult[r.id] && <div className="mt-1 text-xs text-slate-400">{testResult[r.id]}</div>}

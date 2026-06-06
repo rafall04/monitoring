@@ -18,6 +18,7 @@ import {
   useSiteSummary,
   useUpdateDevice,
 } from '@/lib/queries';
+import { useConfirm, useToast } from '@/lib/toast';
 import { useSiteSocket } from '@/lib/ws';
 import LineView from '@/components/LineView';
 import MarkerPanel from '@/components/MarkerPanel';
@@ -50,11 +51,8 @@ export default function SiteMapPage() {
   const [selected, setSelected] = useState<Device | null>(null);
   // 'manual' = add from a button (no map coords yet); object = placed on the map.
   const [adding, setAdding] = useState<PatchDevicePositionInput | 'manual' | null>(null);
-  const [flash, setFlash] = useState<{ kind: 'ok' | 'warn'; msg: string } | null>(null);
-  const showFlash = (kind: 'ok' | 'warn', msg: string) => {
-    setFlash({ kind, msg });
-    window.setTimeout(() => setFlash(null), 7000);
-  };
+  const toast = useToast();
+  const confirm = useConfirm();
 
   useSiteSocket(
     siteId,
@@ -109,7 +107,7 @@ export default function SiteMapPage() {
                 key={t}
                 onClick={() => setTab(t)}
                 className={`px-3 py-1 text-xs font-medium ${
-                  tab === t ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'
+                  tab === t ? 'bg-accent text-white' : 'text-slate-400 hover:bg-slate-800'
                 }`}
               >
                 {t === 'line' ? 'Line / Area' : 'Denah'}
@@ -141,21 +139,6 @@ export default function SiteMapPage() {
           )}
         </div>
       </header>
-
-      {flash && (
-        <div
-          className={`flex items-center justify-between gap-3 border-b px-5 py-2 text-sm ${
-            flash.kind === 'ok'
-              ? 'border-emerald-800 bg-emerald-950/40 text-emerald-300'
-              : 'border-amber-800 bg-amber-950/40 text-amber-300'
-          }`}
-        >
-          <span>{flash.msg}</span>
-          <button className="text-xs opacity-70 hover:opacity-100" onClick={() => setFlash(null)}>
-            ✕
-          </button>
-        </div>
-      )}
 
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
@@ -224,11 +207,13 @@ export default function SiteMapPage() {
                   onSuccess: (d) => {
                     setSelected(null);
                     if (patch.syncNetwatch) {
-                      if (d.netwatchError) showFlash('warn', `Netwatch gagal di-update: ${d.netwatchError}`);
-                      else showFlash('ok', `Netwatch untuk "${d.name}" diperbarui di router ✓`);
+                      if (d.netwatchError) toast.error(`Netwatch gagal di-update: ${d.netwatchError}`);
+                      else toast.ok(`Netwatch untuk "${d.name}" diperbarui di router ✓`);
+                    } else {
+                      toast.ok('Tersimpan');
                     }
                   },
-                  onError: (e) => showFlash('warn', `Gagal menyimpan: ${(e as Error).message}`),
+                  onError: (e) => toast.error(`Gagal menyimpan: ${(e as Error).message}`),
                 },
               )
             }
@@ -237,18 +222,36 @@ export default function SiteMapPage() {
                 onSuccess: (d) => {
                   setAdding(null);
                   setSelected(d);
-                  if (body.syncNetwatch) {
-                    if (d.netwatchError)
-                      showFlash('warn', `Device dibuat, tetapi Netwatch GAGAL: ${d.netwatchError}`);
-                    else showFlash('ok', `Device "${d.name}" dibuat + Netwatch terpasang di router ✓`);
+                  // syncNetwatch now defaults to true on the backend; the only
+                  // reason it would NOT have run is when IP was empty.
+                  if (d.netwatchError) {
+                    toast.error(`Device dibuat, tetapi Netwatch GAGAL: ${d.netwatchError}`);
+                  } else if (body.ipAddress) {
+                    toast.ok(`Device "${d.name}" dibuat + Netwatch terpasang di router ✓`);
                   } else {
-                    showFlash('ok', `Device "${d.name}" dibuat ✓`);
+                    toast.ok(`Device "${d.name}" dibuat ✓`);
                   }
                 },
-                onError: (e) => showFlash('warn', `Gagal membuat device: ${(e as Error).message}`),
+                onError: (e) => toast.error(`Gagal membuat device: ${(e as Error).message}`),
               })
             }
-            onDelete={(id) => remove.mutate(id, { onSuccess: () => setSelected(null) })}
+            onDelete={async (id) => {
+              const target = selected;
+              const ok = await confirm({
+                title: 'Hapus device?',
+                body: target
+                  ? `${target.name} akan dihapus. Netwatch entry-nya juga dilepas dari router.`
+                  : undefined,
+                confirmLabel: 'Hapus',
+                danger: true,
+              });
+              if (ok) {
+                remove.mutate(id, {
+                  onSuccess: () => { setSelected(null); toast.ok('Device dihapus'); },
+                  onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+                });
+              }
+            }}
           />
         )}
       </div>

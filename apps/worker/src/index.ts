@@ -6,6 +6,7 @@ import {
   type StatusEngineDeps,
 } from '@noc/server';
 import { startHealthServer } from './health';
+import { RetentionSweeper } from './retention';
 import { PollScheduler } from './scheduler';
 
 async function main() {
@@ -31,8 +32,13 @@ async function main() {
   const deps: StatusEngineDeps = { prisma, redisPub, logger };
 
   const scheduler = new PollScheduler(deps, logger);
-  const health = startHealthServer(env.WORKER_HEALTH_PORT, () => scheduler.stats);
+  const retention = new RetentionSweeper(logger);
+  const health = startHealthServer(env.WORKER_HEALTH_PORT, () => ({
+    scheduler: scheduler.stats,
+    retention: retention.stats,
+  }));
   scheduler.start();
+  retention.start();
 
   logger.info(
     {
@@ -46,6 +52,7 @@ async function main() {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'shutting down worker');
     scheduler.stop();
+    retention.stop();
     health.close();
     await redisPub.quit().catch(() => undefined);
     await prisma.$disconnect().catch(() => undefined);

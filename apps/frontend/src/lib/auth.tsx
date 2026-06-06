@@ -17,6 +17,8 @@ interface AuthState {
   ready: boolean;
   login: (email: string, password: string) => Promise<AppUserPublic>;
   logout: () => Promise<void>;
+  /** Push an updated user snapshot (e.g. after self-service profile edit). */
+  setUser: (u: AppUserPublic) => void;
   can: (permission: Permission) => boolean;
 }
 
@@ -59,8 +61,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const can = (permission: Permission) =>
     user ? hasPermission(user.role, permission) : false;
 
+  const replaceUser = (u: AppUserPublic) => {
+    setStoredUser(u);
+    setUser(u);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, ready, login, logout, can }}>
+    <AuthContext.Provider value={{ user, ready, login, logout, setUser: replaceUser, can }}>
       {children}
     </AuthContext.Provider>
   );

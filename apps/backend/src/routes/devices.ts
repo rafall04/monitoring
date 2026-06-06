@@ -32,14 +32,42 @@ export async function deviceRoutes(app: FastifyInstance) {
   const view = { onRequest: [authenticate], preHandler: [requirePermission('device:view')] };
 
   app.get('/', view, async (req) => {
-    const q = req.query as { siteId?: string; routerId?: string };
+    const q = req.query as {
+      siteId?: string;
+      routerId?: string;
+      search?: string;
+      status?: string;
+      critical?: string;
+      take?: string;
+    };
+    // Hard cap so a runaway client cannot pull a million-row table at once.
+    // The map page needs every device on a site, so the cap is generous.
+    const take = Math.min(5000, Math.max(1, Number(q.take) || 5000));
+
     const where: Prisma.DeviceWhereInput = siteScopeWhere(req.appUser);
     if (q.siteId) {
       assertSiteAccess(req.appUser, q.siteId);
       where.siteId = q.siteId;
     }
     if (q.routerId) where.routerId = q.routerId;
-    const rows = await prisma.device.findMany({ where, orderBy: { name: 'asc' } });
+    if (q.critical === '1') where.isCritical = true;
+    if (q.status === 'up' || q.status === 'down' || q.status === 'unknown') {
+      where.status = q.status;
+    }
+    const s = (q.search ?? '').trim();
+    if (s) {
+      where.OR = [
+        { name: { contains: s, mode: 'insensitive' } },
+        { ipAddress: { contains: s, mode: 'insensitive' } },
+        { note: { contains: s, mode: 'insensitive' } },
+      ];
+    }
+
+    const rows = await prisma.device.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      take,
+    });
     return rows.map(toDeviceDto);
   });
 

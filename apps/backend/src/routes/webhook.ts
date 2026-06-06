@@ -14,7 +14,12 @@ import { forbidden, unauthorized } from '../lib/errors';
  * Accepts params from the query string OR a JSON body.
  */
 export async function webhookRoutes(app: FastifyInstance) {
-  app.post('/netwatch', async (req, reply) => {
+  // 600 req/min/IP = up to ~10 events per second from one router. A healthy
+  // Netwatch with hundreds of devices wakes far below this; a stuck script
+  // hot-looping (or a misconfigured allowlist) gets capped, not amplified.
+  app.post('/netwatch', {
+    config: { rateLimit: { max: 600, timeWindow: '1 minute' } },
+  }, async (req, reply) => {
     if (webhookIpAllowlist.length > 0 && !webhookIpAllowlist.includes(req.ip)) {
       throw forbidden('Source IP not allowed');
     }

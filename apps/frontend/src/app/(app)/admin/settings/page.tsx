@@ -161,7 +161,7 @@ export default function AdminSettingsPage() {
             ) : (
               <span aria-hidden className="h-12 w-12 rounded bg-accent" />
             )}
-            <label className="cursor-pointer text-xs text-blue-400 hover:text-blue-300">
+            <label className="cursor-pointer text-xs text-accent hover:opacity-80">
               {logoBusy ? 'Mengunggah…' : 'Unggah logo (PNG/SVG)…'}
               <input
                 type="file"

@@ -5,12 +5,15 @@ import { Fragment, useState } from 'react';
 import { ROLES, type AppUserPublic, type Role, type Site } from '@noc/shared';
 import { api } from '@/lib/api';
 import { qk, useAppUsers, useSites } from '@/lib/queries';
+import { useConfirm, useToast } from '@/lib/toast';
 import { Button, Card, Field, Select, Spinner, TextInput } from '@/components/ui';
 
 export default function AdminUsersPage() {
   const qc = useQueryClient();
   const users = useAppUsers();
   const sites = useSites();
+  const toast = useToast();
+  const confirm = useConfirm();
   const refresh = () => qc.invalidateQueries({ queryKey: qk.users });
   const [editId, setEditId] = useState<string | null>(null);
 
@@ -26,14 +29,33 @@ export default function AdminUsersPage() {
     mutationFn: () => api.post('/users', form),
     onSuccess: () => {
       setForm({ name: '', email: '', password: '', role: 'user', scopeSiteIds: [] });
+      toast.ok('User dibuat');
       refresh();
     },
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
   });
   const toggleActive = useMutation({
     mutationFn: (v: { id: string; isActive: boolean }) => api.patch(`/users/${v.id}`, { isActive: v.isActive }),
     onSuccess: refresh,
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
   });
-  const delUser = useMutation({ mutationFn: (id: string) => api.del(`/users/${id}`), onSuccess: refresh });
+  const delUser = useMutation({
+    mutationFn: (id: string) => api.del(`/users/${id}`),
+    onSuccess: () => {
+      toast.ok('User dihapus');
+      refresh();
+    },
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+  });
+  const askDelete = async (id: string, name: string) => {
+    const ok = await confirm({
+      title: 'Hapus user?',
+      body: `${name} akan kehilangan akses. Tindakan ini tidak bisa di-undo.`,
+      confirmLabel: 'Hapus',
+      danger: true,
+    });
+    if (ok) delUser.mutate(id);
+  };
 
   const toggleScope = (siteId: string) =>
     setForm((f) => ({
@@ -118,12 +140,12 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="space-x-3 text-right">
                       <button
-                        className="text-blue-400 hover:text-blue-300"
+                        className="text-accent hover:opacity-80"
                         onClick={() => setEditId((cur) => (cur === u.id ? null : u.id))}
                       >
                         {editId === u.id ? 'close' : 'edit'}
                       </button>
-                      <button className="text-red-400 hover:text-red-300" onClick={() => delUser.mutate(u.id)}>
+                      <button className="text-red-400 hover:text-red-300" onClick={() => askDelete(u.id, u.name)}>
                         delete
                       </button>
                     </td>

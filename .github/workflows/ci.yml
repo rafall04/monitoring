@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel older runs on the same branch when a new commit lands.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Typecheck + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20 + npm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      # Prisma client is consumed as types in the @noc/server workspace, so it
+      # must be generated before the typechecks run.
+      - name: Generate Prisma client
+        run: npm run -w @noc/server db:generate
+
+      - name: Typecheck (all workspaces)
+        run: npm run typecheck
+
+      - name: Production build (frontend)
+        run: npm run build
+        env:
+          # Frontend bakes these at build time. The values do not matter for CI
+          # — they only have to be set so Next.js does not error.
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
+          NEXT_PUBLIC_WS_URL: ws://localhost:4000/ws
+          NEXT_PUBLIC_BACKEND_PORT: '4000'

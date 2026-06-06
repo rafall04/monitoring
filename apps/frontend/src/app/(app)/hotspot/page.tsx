@@ -6,6 +6,7 @@ import type { HotspotActive, HotspotProfile, HotspotUser, VoucherRow } from '@no
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useRouters } from '@/lib/queries';
+import { useConfirm, useToast } from '@/lib/toast';
 import { Button, Card, Field, Select, Spinner, TextInput } from '@/components/ui';
 
 type Tab = 'users' | 'profiles' | 'active' | 'vouchers';
@@ -41,6 +42,8 @@ export default function HotspotPage() {
   const canManage = can('hotspot:manage-users');
   const canManageProfiles = can('hotspot:manage-profiles');
   const canDisconnect = can('hotspot:disconnect');
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const rid = routerId || routers.data?.[0]?.id || '';
 
@@ -88,11 +91,22 @@ export default function HotspotPage() {
   });
   const deleteUser = useMutation({
     mutationFn: (id: string) => api.post(`/hotspot/${rid}/users/delete`, { id }),
-    onSuccess: invalidateUsers,
+    onSuccess: () => { toast.ok('User dihapus'); invalidateUsers(); },
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
   });
+  const askDeleteUser = async (id: string, name: string) => {
+    const ok = await confirm({
+      title: 'Hapus hotspot user?',
+      body: `${name} akan dihapus dari MikroTik.`,
+      confirmLabel: 'Hapus',
+      danger: true,
+    });
+    if (ok) deleteUser.mutate(id);
+  };
   const disconnect = useMutation({
     mutationFn: (id: string) => api.post(`/hotspot/${rid}/active/disconnect`, { id }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hotspot', rid, 'active'] }),
+    onSuccess: () => { toast.ok('Session ditutup'); qc.invalidateQueries({ queryKey: ['hotspot', rid, 'active'] }); },
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
   });
 
   // ---- profile state + mutations ----
@@ -228,7 +242,7 @@ export default function HotspotPage() {
                         {canManage && (
                           <td className="space-x-3 py-1.5 text-right">
                             <button
-                              className="text-blue-400 hover:text-blue-300"
+                              className="text-accent hover:opacity-80"
                               onClick={() =>
                                 u['.id'] &&
                                 setEditUser({
@@ -243,7 +257,7 @@ export default function HotspotPage() {
                             </button>
                             <button
                               className="text-red-400 hover:text-red-300"
-                              onClick={() => u['.id'] && deleteUser.mutate(u['.id'])}
+                              onClick={() => u['.id'] && askDeleteUser(u['.id'], u.name)}
                             >
                               delete
                             </button>
@@ -391,7 +405,7 @@ export default function HotspotPage() {
                         {canManageProfiles && (
                           <td className="py-1.5 text-right">
                             <button
-                              className="text-blue-400 hover:text-blue-300"
+                              className="text-accent hover:opacity-80"
                               onClick={() =>
                                 p['.id'] &&
                                 setEditProfile({

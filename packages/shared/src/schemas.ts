@@ -210,6 +210,19 @@ export const updateAppUserSchema = createAppUserSchema
   .extend({ password: z.string().min(8).max(255).optional() });
 export type UpdateAppUserInput = z.infer<typeof updateAppUserSchema>;
 
+// Self-service profile edit — name only (email changes go through the admin
+// path so they cannot be used to lock the account out).
+export const updateProfileSchema = z.object({
+  name: z.string().min(1).max(120),
+});
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(255),
+  newPassword: z.string().min(8).max(255),
+});
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
 // ---- Webhook (Netwatch -> backend) -------------------------------------------
 
 export const netwatchWebhookSchema = z.object({
