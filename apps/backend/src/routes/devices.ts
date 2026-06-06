@@ -5,6 +5,7 @@ import {
   computeSiteSummary,
   decryptSecret,
   env,
+  getNetwatchConfig,
   netwatchApiInput,
   prisma,
   publishSiteEvent,
@@ -353,6 +354,9 @@ async function installNetwatchForDevice(
       ? { botToken: decryptSecret(site.telegramBotEncrypted), chatId: site.telegramChatId, siteName: site.name }
       : undefined;
 
+  // Pull the global Netwatch config (interval/timeout/custom script tail/TG
+  // templates) so super_admin's Settings drive what actually gets pushed.
+  const cfg = await getNetwatchConfig();
   const client = clientForRouter(router);
   try {
     for (const h of alsoRemoveHosts) {
@@ -373,6 +377,7 @@ async function installNetwatchForDevice(
         host: device.ipAddress,
         deviceName: device.name,
         telegram,
+        cfg,
       }),
     );
   } finally {

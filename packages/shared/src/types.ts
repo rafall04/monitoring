@@ -287,6 +287,15 @@ export interface Settings extends BrandingPublic {
   defaultPollSec: number;
   eventRetentionDays: number;
   auditRetentionDays: number;
+  // Netwatch tuning + custom RouterOS script tail (appended after the NOC
+  // webhook fetch). Empty = no extra commands.
+  netwatchIntervalSec: number;
+  netwatchTimeoutMs: number;
+  netwatchExtraUp: string | null;
+  netwatchExtraDown: string | null;
+  // Telegram message templates with {device} {ip} {site} {status} {when}
+  telegramDownTemplate: string;
+  telegramUpTemplate: string;
   updatedAt: string;
 }
 

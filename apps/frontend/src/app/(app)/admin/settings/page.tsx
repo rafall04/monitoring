@@ -2,9 +2,9 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import type { Settings } from '@noc/shared';
+import { ALERT_PLACEHOLDERS, type Settings } from '@noc/shared';
 import { api } from '@/lib/api';
-import { Button, Card, Field, Select, Spinner, TextInput } from '@/components/ui';
+import { Button, Card, Field, Select, Spinner, Textarea, TextInput } from '@/components/ui';
 
 // Sensible accent presets so admins do not need to think in RGB triplets.
 const ACCENT_PRESETS: Array<{ name: string; rgb: string; hex: string }> = [
@@ -45,6 +45,12 @@ export default function AdminSettingsPage() {
         defaultPollSec: Number(form.defaultPollSec),
         eventRetentionDays: Number(form.eventRetentionDays),
         auditRetentionDays: Number(form.auditRetentionDays),
+        netwatchIntervalSec: Number(form.netwatchIntervalSec),
+        netwatchTimeoutMs: Number(form.netwatchTimeoutMs),
+        netwatchExtraUp: form.netwatchExtraUp,
+        netwatchExtraDown: form.netwatchExtraDown,
+        telegramDownTemplate: form.telegramDownTemplate,
+        telegramUpTemplate: form.telegramUpTemplate,
       });
     },
     onSuccess: (s) => {
@@ -199,6 +205,92 @@ export default function AdminSettingsPage() {
           <Field label="Poll interval (detik)">
             <TextInput value={String(form.defaultPollSec)} onChange={(e) => setForm({ ...form, defaultPollSec: Number(e.target.value) })} />
           </Field>
+        </div>
+      </Card>
+
+      {/* ---- Monitoring & Alerts (Netwatch + Telegram templates) ---- */}
+      <Card className="space-y-4 p-4">
+        <div>
+          <h2 className="font-semibold text-slate-200">Monitoring &amp; Alerts</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Default ping/timeout dan template alert untuk Netwatch + Telegram.
+            Operator hanya memasukkan IP — konfigurasi ada di sini.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Field label="Ping interval (detik)">
+            <TextInput
+              value={String(form.netwatchIntervalSec)}
+              onChange={(e) => setForm({ ...form, netwatchIntervalSec: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="ICMP timeout (ms)">
+            <TextInput
+              value={String(form.netwatchTimeoutMs)}
+              onChange={(e) => setForm({ ...form, netwatchTimeoutMs: Number(e.target.value) })}
+            />
+          </Field>
+        </div>
+
+        <div>
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+            Extra RouterOS script (opsional)
+          </span>
+          <p className="mb-2 text-[11px] text-slate-500">
+            Dijalankan di MikroTik <em>setelah</em> webhook NOC. Contoh: nyalakan LED, log custom, fetch ke alat lain. Kosongkan untuk tidak ada tambahan.
+          </p>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <Field label="On DOWN">
+              <Textarea
+                value={form.netwatchExtraDown ?? ''}
+                onChange={(e) => setForm({ ...form, netwatchExtraDown: e.target.value || null })}
+                rows={4}
+                className="font-mono text-xs"
+                placeholder=':log warning "device down"'
+              />
+            </Field>
+            <Field label="On UP">
+              <Textarea
+                value={form.netwatchExtraUp ?? ''}
+                onChange={(e) => setForm({ ...form, netwatchExtraUp: e.target.value || null })}
+                rows={4}
+                className="font-mono text-xs"
+                placeholder=':log info "device recovered"'
+              />
+            </Field>
+          </div>
+        </div>
+
+        <div>
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+            Telegram message templates
+          </span>
+          <p className="mb-2 text-[11px] text-slate-500">
+            Placeholder yang tersedia:{' '}
+            {ALERT_PLACEHOLDERS.map((p) => (
+              <code key={p} className="mx-0.5 rounded bg-surface px-1 text-slate-300">
+                {p}
+              </code>
+            ))}
+            . Berlaku untuk Telegram server-mode dan router-mode (Netwatch script).
+          </p>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <Field label="DOWN alert">
+              <Textarea
+                value={form.telegramDownTemplate}
+                onChange={(e) => setForm({ ...form, telegramDownTemplate: e.target.value })}
+                rows={3}
+              />
+            </Field>
+            <Field label="UP / RECOVERY alert">
+              <Textarea
+                value={form.telegramUpTemplate}
+                onChange={(e) => setForm({ ...form, telegramUpTemplate: e.target.value })}
+                rows={3}
+              />
+            </Field>
+          </div>
         </div>
       </Card>
 

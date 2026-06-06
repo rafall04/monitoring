@@ -9,8 +9,10 @@
 
 import type { PrismaClient } from '@prisma/client';
 import type { Logger } from 'pino';
+import { renderTemplate } from '@noc/shared';
 import { decryptSecret } from './crypto';
 import type { Redis } from './redis';
+import { getSettings } from './settings';
 
 const TG_API = 'https://api.telegram.org';
 
@@ -70,10 +72,14 @@ export async function maybeNotifyTelegram(
     const fresh = await deps.redisPub.set(`noc:tgcooldown:${device.id}:${newStatus}`, '1', 'EX', 90, 'NX');
     if (fresh !== 'OK') return;
 
-    const emoji = isDown ? '🔴' : '🟢';
-    const label = isDown ? 'DOWN' : 'RECOVERED';
-    const ip = device.ipAddress ? ` (${device.ipAddress})` : '';
-    const text = `${emoji} ${label} — ${device.name}${ip}\n🏭 ${site.name}`;
+    const settings = await getSettings();
+    const template = isDown ? settings.telegramDownTemplate : settings.telegramUpTemplate;
+    const text = renderTemplate(template, {
+      device: device.name,
+      ip: device.ipAddress,
+      site: site.name,
+      status: newStatus,
+    });
     const ok = await sendTelegram(decryptSecret(site.telegramBotEncrypted), site.telegramChatId, text);
     deps.logger.info({ deviceId: device.id, newStatus, ok }, 'telegram alert sent');
   } catch (err) {

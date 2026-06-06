@@ -6,6 +6,7 @@
 
 import { prisma } from './db';
 import type { Setting } from '@prisma/client';
+import type { NetwatchConfig } from './mikrotik/netwatch';
 
 const SETTINGS_ID = 'global';
 
@@ -44,4 +45,21 @@ export function toBrandingPublic(s: Setting): BrandingPublic {
     accentRgb: s.accentRgb,
     themeDefault: (s.themeDefault === 'light' ? 'light' : 'dark'),
   };
+}
+
+/** Subset consumed by the Netwatch script generator + Telegram notifier. */
+export function toNetwatchConfig(s: Setting): NetwatchConfig {
+  return {
+    intervalSec: s.netwatchIntervalSec,
+    timeoutMs: s.netwatchTimeoutMs,
+    extraUp: s.netwatchExtraUp,
+    extraDown: s.netwatchExtraDown,
+    telegramDownTemplate: s.telegramDownTemplate,
+    telegramUpTemplate: s.telegramUpTemplate,
+  };
+}
+
+/** Convenience: read Setting + map to NetwatchConfig in one call. */
+export async function getNetwatchConfig(): Promise<NetwatchConfig> {
+  return toNetwatchConfig(await getSettings());
 }

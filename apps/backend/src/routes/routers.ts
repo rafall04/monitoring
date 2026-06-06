@@ -6,6 +6,7 @@ import {
   env,
   generateNetwatchCli,
   generateToken,
+  getNetwatchConfig,
   netwatchApiInput,
   prisma,
   scriptFor,
@@ -146,6 +147,7 @@ export async function routerRoutes(app: FastifyInstance) {
     if (!r) throw notFound('Router not found');
     assertSiteAccess(req.appUser, r.siteId);
     const site = await prisma.site.findUnique({ where: { id: r.siteId } });
+    const cfg = await getNetwatchConfig();
     const telegram =
       site && site.telegramMode === 'router' && site.telegramBotEncrypted && site.telegramChatId
         ? { botToken: decryptSecret(site.telegramBotEncrypted), chatId: site.telegramChatId, siteName: site.name }
@@ -157,6 +159,7 @@ export async function routerRoutes(app: FastifyInstance) {
       host: q.host,
       deviceName: q.name,
       telegram,
+      cfg,
     };
     return {
       webhookUrl: `${env.PUBLIC_BASE_URL}/api/v1/webhook/netwatch`,
@@ -181,6 +184,7 @@ export async function routerRoutes(app: FastifyInstance) {
       site && site.telegramMode === 'router' && site.telegramBotEncrypted && site.telegramChatId
         ? { botToken: decryptSecret(site.telegramBotEncrypted), chatId: site.telegramChatId, siteName: site.name }
         : undefined;
+    const cfg = await getNetwatchConfig();
 
     const client = clientForRouter(r);
     const results: Array<{ device: string; ok: boolean; reason?: string }> = [];
@@ -198,6 +202,7 @@ export async function routerRoutes(app: FastifyInstance) {
             host: d.ipAddress,
             deviceName: d.name,
             telegram: d.isCritical ? routerTelegram : undefined, // alert critical devices only
+            cfg,
           };
           await client.removeNetwatchByHost(d.ipAddress);
           await client.addNetwatch(netwatchApiInput(params));

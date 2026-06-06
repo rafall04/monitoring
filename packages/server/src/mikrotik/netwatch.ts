@@ -4,7 +4,13 @@
 // We use URL query parameters (not a JSON body) so the generated RouterOS script
 // has NO inner quotes to escape -> identical text works both for copy-paste in
 // the terminal and for automatic install via the binary API.
+//
+// Timing (interval/timeout) and the Telegram message text + optional custom
+// RouterOS tail are read from the global Setting singleton via NetwatchConfig
+// (passed in by the caller — keep this module pure / no DB import).
 // =============================================================================
+
+import { renderTemplate } from '@noc/shared';
 
 export interface NetwatchScriptParams {
   /** Public base URL of the backend reachable by the router, e.g. https://noc.example.com */
@@ -13,9 +19,39 @@ export interface NetwatchScriptParams {
   token: string;
   host: string; // device IP the Netwatch entry watches
   deviceName?: string;
-  interval?: string; // default "00:00:10"
+  /** Ping interval, e.g. "00:00:10". Overrides cfg.intervalSec when set. */
+  interval?: string;
   /** When set (router mode + critical device), the script alerts Telegram directly. */
   telegram?: { botToken: string; chatId: string; siteName: string };
+  /** Global Settings — controls timing + custom RouterOS tail + TG templates. */
+  cfg?: NetwatchConfig;
+}
+
+/** Subset of the global Setting consumed by the script generator. */
+export interface NetwatchConfig {
+  intervalSec: number;
+  timeoutMs: number;
+  extraUp: string | null;
+  extraDown: string | null;
+  telegramDownTemplate: string;
+  telegramUpTemplate: string;
+}
+
+const DEFAULT_CFG: NetwatchConfig = {
+  intervalSec: 10,
+  timeoutMs: 1000,
+  extraUp: null,
+  extraDown: null,
+  telegramDownTemplate: '🔴 DOWN — {device} ({ip})\n🏭 {site}',
+  telegramUpTemplate: '🟢 RECOVERED — {device} ({ip})\n🏭 {site}',
+};
+
+function intervalString(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
 function webhookUrl(p: NetwatchScriptParams, status: 'up' | 'down'): string {
@@ -38,14 +74,18 @@ export function fetchScript(p: NetwatchScriptParams, status: 'up' | 'down'): str
   ].join(' ');
 }
 
-/** Optional direct-to-Telegram fetch (router mode). Message is fully pre-encoded
- *  at generation time, so device names with spaces are safe. */
+/** Optional direct-to-Telegram fetch (router mode). The message text is taken
+ *  from the global Settings template so super_admin can customize it. */
 export function telegramFetch(p: NetwatchScriptParams, status: 'up' | 'down'): string | null {
   if (!p.telegram) return null;
-  const emoji = status === 'up' ? '🟢' : '🔴';
-  const label = status === 'up' ? 'UP' : 'DOWN';
-  const name = p.deviceName ?? p.host;
-  const text = `${emoji} ${label} — ${name} (${p.host})\n🏭 ${p.telegram.siteName}`;
+  const cfg = p.cfg ?? DEFAULT_CFG;
+  const template = status === 'up' ? cfg.telegramUpTemplate : cfg.telegramDownTemplate;
+  const text = renderTemplate(template, {
+    device: p.deviceName ?? p.host,
+    ip: p.host,
+    site: p.telegram.siteName,
+    status,
+  });
   const url =
     `https://api.telegram.org/bot${p.telegram.botToken}/sendMessage` +
     `?chat_id=${encodeURIComponent(p.telegram.chatId)}&text=${encodeURIComponent(text)}`;
@@ -53,11 +93,14 @@ export function telegramFetch(p: NetwatchScriptParams, status: 'up' | 'down'): s
   return `/tool fetch url="${url}" keep-result=no check-certificate=no`;
 }
 
-/** Full up/down script body: webhook to NOC + optional Telegram (router mode). */
+/** Full up/down script body: webhook to NOC + optional Telegram + custom tail. */
 export function scriptFor(p: NetwatchScriptParams, status: 'up' | 'down'): string {
+  const cfg = p.cfg ?? DEFAULT_CFG;
+  const extra = status === 'up' ? cfg.extraUp : cfg.extraDown;
   const parts = [fetchScript(p, status)];
   const tg = telegramFetch(p, status);
   if (tg) parts.push(tg);
+  if (extra && extra.trim()) parts.push(extra.trim());
   return parts.join('\n');
 }
 
@@ -72,14 +115,16 @@ function escapeForCli(s: string): string {
  * same host first.
  */
 export function generateNetwatchCli(p: NetwatchScriptParams): string {
-  const interval = p.interval ?? '00:00:10';
+  const cfg = p.cfg ?? DEFAULT_CFG;
+  const interval = p.interval ?? intervalString(cfg.intervalSec);
+  const timeoutMs = cfg.timeoutMs;
   const up = escapeForCli(scriptFor(p, 'up'));
   const down = escapeForCli(scriptFor(p, 'down'));
   const label = p.deviceName ? `${p.deviceName} (${p.host})` : p.host;
   return [
     `# NOC Netwatch for ${label}`,
     `:foreach i in=[/tool netwatch find where host="${p.host}"] do={/tool netwatch remove $i}`,
-    `/tool netwatch add host=${p.host} interval=${interval} \\`,
+    `/tool netwatch add host=${p.host} interval=${interval} timeout=${timeoutMs}ms \\`,
     `    up-script="${up}" \\`,
     `    down-script="${down}" \\`,
     `    comment="NOC:${p.routerId}"`,
@@ -90,13 +135,16 @@ export function generateNetwatchCli(p: NetwatchScriptParams): string {
 export function netwatchApiInput(p: NetwatchScriptParams): {
   host: string;
   interval: string;
+  timeout: string;
   upScript: string;
   downScript: string;
   comment: string;
 } {
+  const cfg = p.cfg ?? DEFAULT_CFG;
   return {
     host: p.host,
-    interval: p.interval ?? '00:00:10',
+    interval: p.interval ?? intervalString(cfg.intervalSec),
+    timeout: `${cfg.timeoutMs}ms`,
     upScript: scriptFor(p, 'up'),
     downScript: scriptFor(p, 'down'),
     comment: `NOC:${p.routerId}`,

@@ -119,6 +119,7 @@ export class RouterOsV6Client implements MikrotikClient {
       `=up-script=${input.upScript}`,
       `=down-script=${input.downScript}`,
     ];
+    if (input.timeout) params.push(`=timeout=${input.timeout}`);
     if (input.comment) params.push(`=comment=${input.comment}`);
     await this.write('/tool/netwatch/add', params);
   }

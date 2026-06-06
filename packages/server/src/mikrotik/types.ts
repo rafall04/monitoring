@@ -28,6 +28,7 @@ export interface NetwatchEntry {
 export interface AddNetwatchInput {
   host: string;
   interval?: string; // e.g. "00:00:10"
+  timeout?: string;  // e.g. "1000ms"  (MikroTik ICMP timeout)
   upScript: string;
   downScript: string;
   comment?: string;

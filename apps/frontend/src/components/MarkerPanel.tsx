@@ -44,7 +44,10 @@ export default function MarkerPanel(props: MarkerPanelProps) {
   const [isCritical, setIsCritical] = useState(device?.isCritical ?? false);
   const [override, setOverride] = useState<ManualOverride | ''>(device?.manualOverride ?? '');
   const [note, setNote] = useState(device?.note ?? '');
+  // ADD mode: auto-sync Netwatch when IP is set (no UI toggle — settings owned
+  // by super_admin). EDIT mode: surfaced under an Advanced disclosure.
   const [syncNetwatch, setSyncNetwatch] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [iconKey, setIconKey] = useState<string | null>(device?.iconKey ?? null);
   const [iconUrl, setIconUrl] = useState<string | null>(device?.iconUrl ?? null);
   const [iconBusy, setIconBusy] = useState(false);
@@ -75,6 +78,8 @@ export default function MarkerPanel(props: MarkerPanelProps) {
   const save = () => {
     if (mode === 'add') {
       if (!routerId) return;
+      // syncNetwatch defaults to true on the backend — operators don't need to
+      // think about it. It's a no-op anyway when ipAddress is null.
       const body: CreateDeviceInput = {
         routerId,
         name,
@@ -86,7 +91,6 @@ export default function MarkerPanel(props: MarkerPanelProps) {
         lineId: lineId || null,
         isCritical,
         note: note || null,
-        syncNetwatch,
         ...addPos,
       } as CreateDeviceInput;
       props.onCreate(body);
@@ -286,25 +290,38 @@ export default function MarkerPanel(props: MarkerPanelProps) {
           </Field>
         )}
 
-        <label className="flex items-start gap-2 text-sm text-slate-300">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={syncNetwatch}
-            onChange={(e) => setSyncNetwatch(e.target.checked)}
-            disabled={!editable || !ipAddress}
-          />
-          <span>
-            {mode === 'add'
-              ? 'Also create the Netwatch entry on the router'
-              : 'Re-install the Netwatch entry on the router'}
-            <span className="mt-0.5 block text-xs text-slate-500">
-              {ipAddress
-                ? 'Pushes a /tool/netwatch entry (with up/down webhook) to the MikroTik now.'
-                : 'Set an IP address first.'}
-            </span>
-          </span>
-        </label>
+        {mode === 'add' ? (
+          <p className="rounded border border-surface-border bg-surface/40 p-2 text-xs text-slate-400">
+            {ipAddress
+              ? 'Netwatch entry akan dibuat otomatis di router. Default ping interval, timeout, dan template alert diatur super_admin di Settings.'
+              : 'Tambahkan IP agar Netwatch bisa dibuat otomatis di router.'}
+          </p>
+        ) : (
+          <details
+            className="rounded border border-surface-border bg-surface/40 p-2 text-xs text-slate-400"
+            open={showAdvanced}
+            onToggle={(e) => setShowAdvanced((e.target as HTMLDetailsElement).open)}
+          >
+            <summary className="cursor-pointer select-none text-slate-300">Advanced</summary>
+            <label className="mt-2 flex items-start gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={syncNetwatch}
+                onChange={(e) => setSyncNetwatch(e.target.checked)}
+                disabled={!editable || !ipAddress}
+              />
+              <span>
+                Re-install the Netwatch entry on the router
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  {ipAddress
+                    ? 'Pushes /tool/netwatch again — use after an IP change. Defaults from Settings.'
+                    : 'Set an IP address first.'}
+                </span>
+              </span>
+            </label>
+          </details>
+        )}
 
         <Field label="Note">
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} disabled={!editable} />

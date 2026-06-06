@@ -151,8 +151,11 @@ export const createDeviceSchema = z.object({
   mapY: z.number().nullable().optional(),
   isCritical: z.boolean().default(false),
   note: z.string().max(2000).nullable().optional(),
-  // when true the backend also creates a matching /tool/netwatch entry + scripts
-  syncNetwatch: z.boolean().default(false),
+  // Auto-create the matching /tool/netwatch entry on the router after save.
+  // Defaults to TRUE — operators only enter name + IP; Netwatch is wired up
+  // automatically using the global Settings (interval/timeout/extra script).
+  // Skipped when ipAddress is null.
+  syncNetwatch: z.boolean().default(true),
 });
 export type CreateDeviceInput = z.infer<typeof createDeviceSchema>;
 
@@ -281,6 +284,14 @@ export const updateSettingsSchema = z.object({
   defaultPollSec: z.number().int().min(5).max(3600).optional(),
   eventRetentionDays: z.number().int().min(7).max(3650).optional(),
   auditRetentionDays: z.number().int().min(7).max(3650).optional(),
+  // Netwatch tuning + custom RouterOS script tail
+  netwatchIntervalSec: z.number().int().min(2).max(3600).optional(),
+  netwatchTimeoutMs: z.number().int().min(100).max(60_000).optional(),
+  netwatchExtraUp: z.string().max(4000).nullable().optional(),
+  netwatchExtraDown: z.string().max(4000).nullable().optional(),
+  // Telegram templates (free text with {device} {ip} {site} {status} {when})
+  telegramDownTemplate: z.string().min(1).max(1000).optional(),
+  telegramUpTemplate: z.string().min(1).max(1000).optional(),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
