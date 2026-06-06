@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # =============================================================================
-# MikroTik NOC — one-shot deploy for Ubuntu 20.04+ (Docker based).
+# MikroTik NOC — installer for Ubuntu 20.04+ (Docker based).
 #
-# DIRECT mode (default) — frontend + backend on their own host ports:
-#   sudo ./deploy.sh --host 172.17.11.12
-#       -> http://172.17.11.12:3000 (frontend), backend on :4000
-#   sudo ./deploy.sh --host 172.17.11.12 --backend-port 5000 --frontend-port 8080
+# Easiest: just run it and answer the prompts:
+#   sudo ./deploy.sh
+#     - it asks for the IP or domain, detects which one, and asks ports/HTTPS.
 #
-# PROXY mode — one origin behind Caddy (clean URL, no port), good for a domain:
-#   sudo ./deploy.sh --host sf.raf.my.id --proxy           # http://sf.raf.my.id
-#   sudo ./deploy.sh --host sf.raf.my.id --proxy --tls     # https://sf.raf.my.id (auto Let's Encrypt)
+# Non-interactive (automation) — pass flags instead:
+#   sudo ./deploy.sh --host 172.17.11.12                      # IP, ports 3500/3600
+#   sudo ./deploy.sh --host 172.17.11.12 --backend-port 3500 --frontend-port 3600
+#   sudo ./deploy.sh --host sf.raf.my.id --proxy              # domain, http://
+#   sudo ./deploy.sh --host sf.raf.my.id --proxy --tls        # domain, https:// (auto)
+#   sudo ./deploy.sh --host 172.17.11.12 --yes                # accept all defaults
 #
-# Re-run any time to update (rebuild + restart). Secrets are generated ONCE and
-# preserved across runs (kept in .env). Changing host/ports rebuilds the frontend.
+# Re-run any time to update — secrets + config are kept in .env.
 # =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -21,16 +22,19 @@ SUDO=""
 [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
 getenv() { if [ -f .env ]; then grep -E "^$1=" .env | head -n1 | cut -d= -f2- || true; fi; }
+is_ip_or_local() { echo "$1" | grep -qE '^([0-9]{1,3}(\.[0-9]{1,3}){3}|localhost)$'; }
 
-# ---- config: flags > env > existing .env > default ----
+# ---- start from existing .env / env (re-run keeps the previous config) ----
 PUBLIC_HOST="${PUBLIC_HOST:-$(getenv PUBLIC_HOST)}"
 BACKEND_PORT="${BACKEND_PORT:-$(getenv BACKEND_PORT)}"
 FRONTEND_PORT="${FRONTEND_PORT:-$(getenv FRONTEND_PORT)}"
-HTTP_PORT="${HTTP_PORT:-}"
-HTTPS_PORT="${HTTPS_PORT:-}"
-MODE="direct"
-TLS=0
+HTTP_PORT="${HTTP_PORT:-$(getenv HTTP_PORT)}"
+HTTPS_PORT="${HTTPS_PORT:-$(getenv HTTPS_PORT)}"
+MODE="$(getenv DEPLOY_MODE)"
+TLS="$(getenv DEPLOY_TLS)"
+ASSUME_YES=0
 
+# ---- flags (optional; override the above) ----
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) PUBLIC_HOST="$2"; shift 2 ;;
@@ -39,39 +43,60 @@ while [ $# -gt 0 ]; do
     --proxy) MODE="proxy"; shift ;;
     --tls) MODE="proxy"; TLS=1; shift ;;
     --http-port) HTTP_PORT="$2"; MODE="proxy"; shift 2 ;;
+    -y|--yes) ASSUME_YES=1; shift ;;
     -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
 
+# ---- interactive setup (only when host is still unknown + a real terminal) ----
+if [ -z "$PUBLIC_HOST" ] && [ "$ASSUME_YES" != "1" ] && [ -t 0 ]; then
+  echo "──────────── Instalasi MikroTik NOC ────────────"
+  DEFAULT_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  read -rp "IP atau domain server [${DEFAULT_IP:-localhost}]: " A; PUBLIC_HOST="${A:-${DEFAULT_IP:-localhost}}"
+  if is_ip_or_local "$PUBLIC_HOST"; then
+    MODE="direct"
+    read -rp "Port web/frontend [${FRONTEND_PORT:-3600}]: " A; FRONTEND_PORT="${A:-${FRONTEND_PORT:-3600}}"
+    read -rp "Port API/backend  [${BACKEND_PORT:-3500}]: " A; BACKEND_PORT="${A:-${BACKEND_PORT:-3500}}"
+  else
+    MODE="proxy"
+    read -rp "Aktifkan HTTPS otomatis (Let's Encrypt — server harus publik & port 80/443 terbuka)? [y/T]: " A
+    case "$A" in [Yy]*) TLS=1 ;; *) TLS=0 ;; esac
+  fi
+  echo "────────────────────────────────────────────────"
+fi
+
+# ---- final defaults ----
 PUBLIC_HOST="${PUBLIC_HOST:-localhost}"
-BACKEND_PORT="${BACKEND_PORT:-4000}"
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+MODE="${MODE:-direct}"
+TLS="${TLS:-0}"
+BACKEND_PORT="${BACKEND_PORT:-3500}"
+FRONTEND_PORT="${FRONTEND_PORT:-3600}"
 HTTP_PORT="${HTTP_PORT:-80}"
 HTTPS_PORT="${HTTPS_PORT:-443}"
 
-# ---- mode-specific URLs (these are baked into the frontend + used for CORS) ----
+# ---- mode-specific URLs (baked into the frontend + used for CORS) ----
 if [ "$MODE" = "proxy" ]; then
   COMPOSE_PROFILE="--profile proxy"
   APP_BIND="127.0.0.1:"          # apps reachable only via Caddy + localhost
   if [ "$TLS" = "1" ]; then
-    CADDY_SITE_ADDRESS="$PUBLIC_HOST"     # domain -> Caddy provisions HTTPS
+    CADDY_SITE_ADDRESS="$PUBLIC_HOST"
     API_URL="https://${PUBLIC_HOST}"; WEB_URL="https://${PUBLIC_HOST}"; WS_URL="wss://${PUBLIC_HOST}/ws"
   else
-    CADDY_SITE_ADDRESS=":${HTTP_PORT}"    # plain HTTP on HTTP_PORT (any host)
+    CADDY_SITE_ADDRESS=":${HTTP_PORT}"
     SFX=""; [ "$HTTP_PORT" != "80" ] && SFX=":${HTTP_PORT}"
     API_URL="http://${PUBLIC_HOST}${SFX}"; WEB_URL="http://${PUBLIC_HOST}${SFX}"; WS_URL="ws://${PUBLIC_HOST}${SFX}/ws"
   fi
 else
   COMPOSE_PROFILE=""
-  APP_BIND=""                     # publish app ports on all interfaces
-  CADDY_SITE_ADDRESS=":80"        # unused in direct mode
+  APP_BIND=""
+  CADDY_SITE_ADDRESS=":80"
   API_URL="http://${PUBLIC_HOST}:${BACKEND_PORT}"
   WEB_URL="http://${PUBLIC_HOST}:${FRONTEND_PORT}"
   WS_URL="ws://${PUBLIC_HOST}:${BACKEND_PORT}/ws"
 fi
 
-echo "==> mode=$MODE  host=$PUBLIC_HOST  web=$WEB_URL  api=$API_URL"
+echo "==> mode=$MODE  web=$WEB_URL  api=$API_URL"
 
 # ---- prerequisites ----
 for pkg in curl openssl; do
@@ -104,6 +129,7 @@ LOG_LEVEL=info
 
 # ---- Deployment mode + public URL/ports ----
 DEPLOY_MODE=${MODE}
+DEPLOY_TLS=${TLS}
 PUBLIC_HOST=${PUBLIC_HOST}
 BACKEND_PORT=${BACKEND_PORT}
 FRONTEND_PORT=${FRONTEND_PORT}
@@ -180,6 +206,6 @@ cat <<EOF
 $([ "$TLS" = "1" ] && echo " HTTPS needs ${PUBLIC_HOST} to resolve to this server and ports 80/443 reachable for Let's Encrypt.")
  Logs:   docker compose ${COMPOSE_PROFILE} logs -f
  Stop:   docker compose ${COMPOSE_PROFILE} down
- Update: git pull && sudo ./deploy.sh $([ "$MODE" = "proxy" ] && echo "--host ${PUBLIC_HOST} --proxy$([ "$TLS" = "1" ] && echo " --tls")" || echo "--host ${PUBLIC_HOST}")
+ Update: git pull && sudo ./deploy.sh        # re-uses your saved .env config
 ============================================================
 EOF

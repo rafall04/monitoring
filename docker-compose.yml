@@ -43,7 +43,7 @@ services:
       BACKEND_PORT: '4000'
       BACKEND_HOST: '0.0.0.0'
     ports:
-      - '${APP_BIND:-}${BACKEND_PORT:-4000}:4000'
+      - '${APP_BIND:-}${BACKEND_PORT:-3500}:4000'
     # Apply migrations + seed (idempotent) then start the API.
     command: sh -c "npm run prisma:deploy && npm run seed && npm run -w @noc/backend start"
     healthcheck:
@@ -90,7 +90,7 @@ services:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL}
     ports:
-      - '${APP_BIND:-}${FRONTEND_PORT:-3000}:3000'
+      - '${APP_BIND:-}${FRONTEND_PORT:-3600}:3000'
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/login']
       interval: 15s

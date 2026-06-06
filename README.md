@@ -102,14 +102,17 @@ stack (Postgres + Redis + backend + worker + frontend):
 ```bash
 git clone https://github.com/rafall04/monitoring.git
 cd monitoring
-sudo ./deploy.sh --host <SERVER_IP_OR_DOMAIN>
+sudo ./deploy.sh        # interactive: asks for the IP/domain, ports, and HTTPS
 ```
 
-**Direct mode (custom ports)** — frontend + backend each on their own host port:
+The installer **auto-detects** whether you entered an IP or a domain and picks the
+right mode. Defaults: frontend **3600**, backend **3500** (both configurable).
+Prefer flags (for automation)? They still work:
 
 ```bash
-sudo ./deploy.sh --host 172.17.11.12 --backend-port 5000 --frontend-port 8080
-# -> open http://172.17.11.12:8080
+# IP with custom host ports (direct mode):
+sudo ./deploy.sh --host 172.17.11.12 --backend-port 3500 --frontend-port 3600
+# -> open http://172.17.11.12:3600
 ```
 
 **Domain via reverse proxy (one clean origin, no port in the URL)** — uses Caddy:
