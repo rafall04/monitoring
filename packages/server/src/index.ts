@@ -4,6 +4,7 @@ export * from './db';
 export * from './redis';
 export * from './crypto';
 export * from './mappers';
+export * from './settings';
 export * from './notify';
 export * from './status-engine';
 export * from './mikrotik';

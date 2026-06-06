@@ -265,6 +265,25 @@ export type VoucherGenInput = z.infer<typeof voucherGenSchema>;
 export const hotspotDisconnectSchema = z.object({ id: z.string().min(1) });
 export type HotspotDisconnectInput = z.infer<typeof hotspotDisconnectSchema>;
 
+// ---- Settings / Branding -----------------------------------------------------
+
+// "R G B" channel triplet, each 0..255, e.g. "59 130 246"
+const accentRgbRegex = /^\s*\d{1,3}\s+\d{1,3}\s+\d{1,3}\s*$/;
+
+export const updateSettingsSchema = z.object({
+  orgName: z.string().min(1).max(80).optional(),
+  logoUrl: z.string().max(512).nullable().optional(),
+  accentRgb: z.string().regex(accentRgbRegex, 'Use "R G B" channel triplet').optional(),
+  themeDefault: z.enum(['dark', 'light']).optional(),
+  defaultMapLat: z.number().min(-90).max(90).optional(),
+  defaultMapLng: z.number().min(-180).max(180).optional(),
+  defaultMapZoom: z.number().int().min(0).max(22).optional(),
+  defaultPollSec: z.number().int().min(5).max(3600).optional(),
+  eventRetentionDays: z.number().int().min(7).max(3650).optional(),
+  auditRetentionDays: z.number().int().min(7).max(3650).optional(),
+});
+export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
+
 // ---- Reports -----------------------------------------------------------------
 
 export const uptimeReportQuerySchema = z.object({

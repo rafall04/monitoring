@@ -15,4 +15,5 @@ export type {
   AppUser,
   RefreshToken,
   AuditLog,
+  Setting,
 } from '@prisma/client';

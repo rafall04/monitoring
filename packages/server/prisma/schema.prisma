@@ -211,3 +211,25 @@ model AuditLog {
   @@index([entity, entityId])
   @@map("audit_log")
 }
+
+// Global NOC configuration. Single row (id = "global"). Includes white-label
+// branding (org name, logo, accent color, default theme) and operational
+// defaults (poll interval, retention, default map view).
+model Setting {
+  id                 String   @id @default("global")
+  orgName            String   @default("MikroTik NOC")
+  logoUrl            String?
+  // RGB channel triplet e.g. "59 130 246" — consumed via CSS var --accent so
+  // alpha utilities (bg-accent/20) keep working.
+  accentRgb          String   @default("59 130 246")
+  themeDefault       String   @default("dark") // dark | light
+  defaultMapLat      Float    @default(-6.2)
+  defaultMapLng      Float    @default(106.8)
+  defaultMapZoom     Int      @default(13)
+  defaultPollSec     Int      @default(20)
+  eventRetentionDays Int      @default(90)
+  auditRetentionDays Int      @default(180)
+  updatedAt          DateTime @updatedAt
+
+  @@map("setting")
+}

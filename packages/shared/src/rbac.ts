@@ -23,6 +23,7 @@ export const PERMISSIONS = [
   'appuser:manage', // CRUD app users + roles + scope
   'reports:view', // uptime/SLA reports
   'audit:view', // read audit log
+  'settings:manage', // edit global branding + defaults
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

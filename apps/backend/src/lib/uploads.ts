@@ -29,7 +29,7 @@ export function sanitizeSvg(svg: string): string {
 
 export async function saveUpload(
   part: MultipartFile,
-  kind: 'icon' | 'floorplan',
+  kind: 'icon' | 'floorplan' | 'logo',
 ): Promise<{ url: string; filename: string }> {
   const ext = ALLOWED[part.mimetype];
   if (!ext) throw badRequest(`Unsupported file type: ${part.mimetype}`);

@@ -223,6 +223,27 @@ export interface AuthSession extends AuthTokens {
   user: AppUserPublic;
 }
 
+// ---- Settings / Branding -----------------------------------------------------
+
+/** White-label fields exposed without auth (login page needs them). */
+export interface BrandingPublic {
+  orgName: string;
+  logoUrl: string | null;
+  accentRgb: string; // "R G B" channel triplet
+  themeDefault: 'dark' | 'light';
+}
+
+/** Full settings (super_admin only). */
+export interface Settings extends BrandingPublic {
+  defaultMapLat: number;
+  defaultMapLng: number;
+  defaultMapZoom: number;
+  defaultPollSec: number;
+  eventRetentionDays: number;
+  auditRetentionDays: number;
+  updatedAt: string;
+}
+
 // ---- Hotspot read models (fetched live from MikroTik, not mirrored in DB) -----
 
 export interface HotspotUser {

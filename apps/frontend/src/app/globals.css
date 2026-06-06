@@ -9,6 +9,8 @@
   --surface-raised: 255 255 255; /* white */
   --surface-border: 226 232 240; /* slate-200 */
   --text: 15 23 42; /* slate-900 */
+  /* Brand accent — replaced at runtime by BrandingProvider. blue-500 default. */
+  --accent: 59 130 246;
   color-scheme: light;
 }
 .dark {

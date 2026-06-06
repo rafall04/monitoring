@@ -3,10 +3,12 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { useBranding } from '@/lib/branding';
 import { Button, Card, Field, TextInput } from '@/components/ui';
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const branding = useBranding();
   const router = useRouter();
   const [email, setEmail] = useState('admin@noc.local');
   const [password, setPassword] = useState('');
@@ -30,10 +32,22 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-sm p-6">
-        <h1 className="mb-1 text-xl font-semibold text-slate-100">
-          MikroTik <span className="text-blue-400">NOC</span>
-        </h1>
-        <p className="mb-4 text-sm text-slate-400">Sign in to continue</p>
+        <div className="mb-4 flex items-center gap-3">
+          {branding.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={branding.logoUrl}
+              alt=""
+              className="h-10 w-10 shrink-0 rounded object-contain"
+            />
+          ) : (
+            <span aria-hidden className="h-10 w-10 shrink-0 rounded bg-accent" />
+          )}
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-semibold text-slate-100">{branding.orgName}</h1>
+            <p className="text-sm text-slate-400">Sign in to continue</p>
+          </div>
+        </div>
         <form onSubmit={submit} className="space-y-3">
           <Field label="Email">
             <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />

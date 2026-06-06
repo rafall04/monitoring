@@ -13,6 +13,9 @@ const config: Config = {
           raised: 'rgb(var(--surface-raised) / <alpha-value>)',
           border: 'rgb(var(--surface-border) / <alpha-value>)',
         },
+        // Brand accent — overridden at runtime by BrandingProvider when an
+        // admin saves a custom accent. Default = blue-500.
+        accent: 'rgb(var(--accent) / <alpha-value>)',
       },
     },
   },
