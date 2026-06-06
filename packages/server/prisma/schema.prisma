@@ -1,0 +1,213 @@
+// =============================================================================
+// MikroTik NOC - data model
+// Hierarchy: Company -> Site -> RouterMikrotik -> Device (host watched by Netwatch)
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  sites Site[]
+
+  @@map("company")
+}
+
+model Site {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name              String
+  region            String? // kabupaten / regency — groups factories in the global overview
+  mapMode           String  @default("geo") // geo | floorplan
+  floorplanImageUrl String?
+  floorplanWidth    Int?
+  floorplanHeight   Int?
+  imageBounds       Json? // [[y0,x0],[y1,x1]] for CRS.Simple
+  geoCenterLat      Float?
+  geoCenterLng      Float?
+  defaultZoom       Int     @default(13)
+
+  telegramMode         String  @default("off") // off | server | router
+  telegramChatId       String?
+  telegramBotEncrypted String? // AES-256-GCM bot token, never exposed to clients
+
+  createdAt DateTime @default(now())
+
+  routers RouterMikrotik[]
+  areas   Area[]
+  devices Device[]
+
+  @@index([companyId])
+  @@map("site")
+}
+
+// An organizational zone within a factory: either a set of production Lines
+// (kind="lines", e.g. Assembly) or a flat room (kind="room", e.g. QC, Server).
+model Area {
+  id         String   @id @default(cuid())
+  siteId     String
+  site       Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  name       String
+  kind       String   @default("lines") // lines | room
+  orderIndex Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  lines   Line[]
+  devices Device[]
+
+  @@index([siteId])
+  @@map("area")
+}
+
+// An ordered production line inside an Area (Line A, Line B, …).
+model Line {
+  id         String   @id @default(cuid())
+  areaId     String
+  area       Area     @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  name       String
+  orderIndex Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  devices Device[]
+
+  @@index([areaId])
+  @@map("line")
+}
+
+model RouterMikrotik {
+  id     String @id @default(cuid())
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  name              String
+  host              String
+  apiPort           Int      @default(8728)
+  useTls            Boolean  @default(false)
+  username          String
+  passwordEncrypted String // AES-256-GCM, never exposed to clients
+  routerosVersion   String   @default("v6") // v6 | v7
+  pollIntervalSec   Int?
+  webhookToken      String   @unique
+  status            String   @default("unknown") // online | offline | unknown
+  lastSeenAt        DateTime?
+  resourceCache     Json?
+
+  createdAt DateTime @default(now())
+
+  devices Device[]
+
+  @@index([siteId])
+  @@map("router_mikrotik")
+}
+
+model Device {
+  id       String         @id @default(cuid())
+  routerId String
+  router   RouterMikrotik @relation(fields: [routerId], references: [id], onDelete: Cascade)
+  siteId   String
+  site     Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  areaId   String?
+  area     Area?          @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  lineId   String?
+  line     Line?          @relation(fields: [lineId], references: [id], onDelete: SetNull)
+
+  name           String
+  ipAddress      String?
+  type           String   @default("other")
+  iconKey        String? // key into built-in icon library
+  iconUrl        String? // custom uploaded icon
+  geoLat         Float? // geo maps
+  geoLng         Float?
+  mapX           Float? // floorplan maps (CRS.Simple units)
+  mapY           Float?
+  status         String   @default("unknown") // up | down | unknown
+  statusSince    DateTime?
+  manualOverride String? // null | maintenance
+  netwatchSynced Boolean  @default(false)
+  isCritical     Boolean  @default(false)
+  orderIndex     Int      @default(0) // position within its line/room
+  note           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statusEvents StatusEvent[]
+
+  @@index([siteId])
+  @@index([routerId])
+  @@index([routerId, ipAddress])
+  @@index([siteId, status])
+  @@index([lineId])
+  @@index([areaId])
+  @@map("device")
+}
+
+model StatusEvent {
+  id         String   @id @default(cuid())
+  deviceId   String
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  oldStatus  String
+  newStatus  String
+  source     String // webhook | polling | manual
+  occurredAt DateTime @default(now())
+
+  @@index([deviceId, occurredAt])
+  @@map("status_event")
+}
+
+model AppUser {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String   @default("user") // user | operator | super_admin
+  scopeSiteIds Json     @default("[]")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+
+  @@map("app_user")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique // sha256 of the opaque refresh token
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_token")
+}
+
+model AuditLog {
+  id       String   @id @default(cuid())
+  userId   String?
+  user     AppUser? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action   String
+  entity   String
+  entityId String?
+  before   Json?
+  after    Json?
+  ip       String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+  @@map("audit_log")
+}

@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnp.*
+
+# Build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Prisma generated client (regenerated via `prisma generate`)
+packages/server/src/generated/
+
+# Env & secrets — ignore every .env variant except the committed template
+.env
+.env.*
+!.env.example
+*.pem
+
+# Uploads (floorplans, custom icons) - persisted via Docker volume in prod
+uploads/
+apps/backend/uploads/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Docker
+caddy_data/
+caddy_config/
+
+# Dev-only scaffolding (preview mock API + agent/editor config)
+.preview/
+.claude/

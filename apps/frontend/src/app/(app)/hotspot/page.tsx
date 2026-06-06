@@ -1,0 +1,639 @@
+'use client';
+
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Fragment, useState } from 'react';
+import type { HotspotActive, HotspotProfile, HotspotUser, VoucherRow } from '@noc/shared';
+import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
+import { useRouters } from '@/lib/queries';
+import { Button, Card, Field, Select, Spinner, TextInput } from '@/components/ui';
+
+type Tab = 'users' | 'profiles' | 'active' | 'vouchers';
+
+function downloadCsv(rows: VoucherRow[]) {
+  const csv = [
+    'username,password,profile',
+    ...rows.map((r) => `${r.username},${r.password},${r.profile ?? ''}`),
+  ].join('\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'vouchers.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Parse a number input, clamping into [min,max]; empty/NaN falls back to min. */
+const clampInt = (v: string, min: number, max: number): number => {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n)) return min;
+  return Math.min(max, Math.max(min, n));
+};
+
+export default function HotspotPage() {
+  const { can } = useAuth();
+  const routers = useRouters();
+  const qc = useQueryClient();
+  const [routerId, setRouterId] = useState('');
+  const [tab, setTab] = useState<Tab>('users');
+
+  const canView = can('hotspot:view');
+  const canManage = can('hotspot:manage-users');
+  const canManageProfiles = can('hotspot:manage-profiles');
+  const canDisconnect = can('hotspot:disconnect');
+
+  const rid = routerId || routers.data?.[0]?.id || '';
+
+  const users = useQuery({
+    queryKey: ['hotspot', rid, 'users'],
+    queryFn: () => api.get<HotspotUser[]>(`/hotspot/${rid}/users`),
+    enabled: Boolean(rid) && canView && tab === 'users',
+  });
+  const profiles = useQuery({
+    queryKey: ['hotspot', rid, 'profiles'],
+    queryFn: () => api.get<HotspotProfile[]>(`/hotspot/${rid}/profiles`),
+    // profiles feed the dropdowns on the users/vouchers tabs too
+    enabled: Boolean(rid) && canView && tab !== 'active',
+  });
+  const sessions = useQuery({
+    queryKey: ['hotspot', rid, 'active'],
+    queryFn: () => api.get<HotspotActive[]>(`/hotspot/${rid}/active`),
+    enabled: Boolean(rid) && canView && tab === 'active',
+  });
+
+  const invalidateUsers = () => qc.invalidateQueries({ queryKey: ['hotspot', rid, 'users'] });
+  const invalidateProfiles = () => qc.invalidateQueries({ queryKey: ['hotspot', rid, 'profiles'] });
+
+  // ---- user state + mutations ----
+  const [newUser, setNewUser] = useState({ name: '', password: '', profile: '' });
+  const [editUser, setEditUser] = useState<
+    { id: string; profile: string; password: string; comment: string } | null
+  >(null);
+
+  const createUser = useMutation({
+    mutationFn: (body: { name: string; password?: string; profile?: string }) =>
+      api.post(`/hotspot/${rid}/users`, body),
+    onSuccess: () => {
+      setNewUser({ name: '', password: '', profile: '' });
+      invalidateUsers();
+    },
+  });
+  const updateUser = useMutation({
+    mutationFn: (body: { id: string; profile?: string; password?: string; comment?: string }) =>
+      api.post(`/hotspot/${rid}/users/update`, body),
+    onSuccess: () => {
+      setEditUser(null);
+      invalidateUsers();
+    },
+  });
+  const deleteUser = useMutation({
+    mutationFn: (id: string) => api.post(`/hotspot/${rid}/users/delete`, { id }),
+    onSuccess: invalidateUsers,
+  });
+  const disconnect = useMutation({
+    mutationFn: (id: string) => api.post(`/hotspot/${rid}/active/disconnect`, { id }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hotspot', rid, 'active'] }),
+  });
+
+  // ---- profile state + mutations ----
+  const emptyProfile = { name: '', rateLimit: '', sharedUsers: '', sessionTimeout: '' };
+  const [newProfile, setNewProfile] = useState(emptyProfile);
+  const [editProfile, setEditProfile] = useState<(typeof emptyProfile & { id: string }) | null>(null);
+  const upsertProfile = useMutation({
+    mutationFn: (body: Record<string, string | undefined>) =>
+      api.post(`/hotspot/${rid}/profiles`, body),
+    onSuccess: () => {
+      setNewProfile(emptyProfile);
+      setEditProfile(null);
+      invalidateProfiles();
+    },
+  });
+
+  // ---- vouchers ----
+  const [voucher, setVoucher] = useState({
+    count: 10,
+    prefix: '',
+    profile: '',
+    usernameLength: 6,
+    passwordLength: 6,
+    sameAsUsername: false,
+  });
+  const [voucherRows, setVoucherRows] = useState<VoucherRow[]>([]);
+  const genVouchers = useMutation({
+    mutationFn: () => api.post<{ vouchers: VoucherRow[] }>(`/hotspot/${rid}/vouchers`, voucher),
+    onSuccess: (d) => setVoucherRows(d.vouchers),
+  });
+
+  if (!canView)
+    return <div className="p-6 text-slate-400">You do not have access to hotspot management.</div>;
+
+  const profileNames = profiles.data?.map((p) => p.name) ?? [];
+  const profileSelect = (value: string, onChange: (v: string) => void) => (
+    <Select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">— default —</option>
+      {profileNames.map((n) => (
+        <option key={n} value={n}>
+          {n}
+        </option>
+      ))}
+    </Select>
+  );
+
+  return (
+    <div className="h-full overflow-y-auto p-4 sm:p-6">
+      <h1 className="mb-4 text-xl font-semibold text-slate-100">Hotspot</h1>
+
+      <div className="mb-4 max-w-xs">
+        <Field label="Router">
+          <Select value={rid} onChange={(e) => setRouterId(e.target.value)}>
+            {routers.data?.length ? (
+              routers.data.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} ({r.host})
+                </option>
+              ))
+            ) : (
+              <option value="">No routers available</option>
+            )}
+          </Select>
+        </Field>
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(['users', 'profiles', 'active', 'vouchers'] as Tab[]).map((t) => (
+          <Button key={t} variant={tab === t ? 'primary' : 'secondary'} onClick={() => setTab(t)}>
+            {t}
+          </Button>
+        ))}
+      </div>
+
+      {/* ---------------- USERS ---------------- */}
+      {tab === 'users' && (
+        <Card className="p-4">
+          {canManage && (
+            <div className="mb-4 flex flex-wrap items-end gap-2">
+              <Field label="Name">
+                <TextInput
+                  value={newUser.name}
+                  onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
+                />
+              </Field>
+              <Field label="Password">
+                <TextInput
+                  value={newUser.password}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                />
+              </Field>
+              <Field label="Profile">
+                {profileSelect(newUser.profile, (v) => setNewUser({ ...newUser, profile: v }))}
+              </Field>
+              <Button
+                onClick={() =>
+                  createUser.mutate({
+                    name: newUser.name,
+                    password: newUser.password || undefined,
+                    profile: newUser.profile || undefined,
+                  })
+                }
+                disabled={!newUser.name || createUser.isPending}
+              >
+                Add user
+              </Button>
+            </div>
+          )}
+          {users.isLoading ? (
+            <Spinner />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="py-1">Name</th>
+                    <th>Profile</th>
+                    <th>Uptime</th>
+                    <th>Bytes (in/out)</th>
+                    {canManage && <th className="text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.data?.map((u) => (
+                    <Fragment key={u['.id'] ?? u.name}>
+                      <tr className="border-t border-surface-border">
+                        <td className="py-1.5">{u.name}</td>
+                        <td>{u.profile}</td>
+                        <td>{u.uptime}</td>
+                        <td>
+                          {u['bytes-in'] ?? 0}/{u['bytes-out'] ?? 0}
+                        </td>
+                        {canManage && (
+                          <td className="space-x-3 py-1.5 text-right">
+                            <button
+                              className="text-blue-400 hover:text-blue-300"
+                              onClick={() =>
+                                u['.id'] &&
+                                setEditUser({
+                                  id: u['.id'],
+                                  profile: u.profile ?? '',
+                                  password: '',
+                                  comment: u.comment ?? '',
+                                })
+                              }
+                            >
+                              edit
+                            </button>
+                            <button
+                              className="text-red-400 hover:text-red-300"
+                              onClick={() => u['.id'] && deleteUser.mutate(u['.id'])}
+                            >
+                              delete
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                      {editUser && editUser.id === u['.id'] && (
+                        <tr className="border-t border-surface-border bg-surface">
+                          <td colSpan={5} className="p-3">
+                            <div className="flex flex-wrap items-end gap-2">
+                              <Field label="Profile">
+                                {profileSelect(editUser.profile, (v) =>
+                                  setEditUser((p) => (p ? { ...p, profile: v } : p)),
+                                )}
+                              </Field>
+                              <Field label="New password">
+                                <TextInput
+                                  placeholder="(unchanged)"
+                                  value={editUser.password}
+                                  onChange={(e) =>
+                                    setEditUser((p) => (p ? { ...p, password: e.target.value } : p))
+                                  }
+                                />
+                              </Field>
+                              <Field label="Comment">
+                                <TextInput
+                                  value={editUser.comment}
+                                  onChange={(e) =>
+                                    setEditUser((p) => (p ? { ...p, comment: e.target.value } : p))
+                                  }
+                                />
+                              </Field>
+                              <Button
+                                onClick={() => {
+                                  if (!editUser) return;
+                                  updateUser.mutate({
+                                    id: editUser.id,
+                                    profile: editUser.profile || undefined,
+                                    password: editUser.password || undefined,
+                                    comment: editUser.comment || undefined,
+                                  });
+                                }}
+                                disabled={updateUser.isPending}
+                              >
+                                Save
+                              </Button>
+                              <Button variant="ghost" onClick={() => setEditUser(null)}>
+                                Cancel
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))}
+                  {users.data?.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-3 text-slate-500">
+                        No hotspot users on this router.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* ---------------- PROFILES ---------------- */}
+      {tab === 'profiles' && (
+        <Card className="p-4">
+          {canManageProfiles ? (
+            <div className="mb-4 flex flex-wrap items-end gap-2">
+              <Field label="Name">
+                <TextInput
+                  value={newProfile.name}
+                  onChange={(e) => setNewProfile({ ...newProfile, name: e.target.value })}
+                  className="w-32"
+                />
+              </Field>
+              <Field label="Rate limit">
+                <TextInput
+                  placeholder="2M/2M"
+                  value={newProfile.rateLimit}
+                  onChange={(e) => setNewProfile({ ...newProfile, rateLimit: e.target.value })}
+                  className="w-28"
+                />
+              </Field>
+              <Field label="Shared users">
+                <TextInput
+                  placeholder="1"
+                  value={newProfile.sharedUsers}
+                  onChange={(e) => setNewProfile({ ...newProfile, sharedUsers: e.target.value })}
+                  className="w-24"
+                />
+              </Field>
+              <Field label="Session timeout">
+                <TextInput
+                  placeholder="1h"
+                  value={newProfile.sessionTimeout}
+                  onChange={(e) => setNewProfile({ ...newProfile, sessionTimeout: e.target.value })}
+                  className="w-24"
+                />
+              </Field>
+              <Button
+                onClick={() =>
+                  upsertProfile.mutate({
+                    name: newProfile.name,
+                    rateLimit: newProfile.rateLimit || undefined,
+                    sharedUsers: newProfile.sharedUsers || undefined,
+                    sessionTimeout: newProfile.sessionTimeout || undefined,
+                  })
+                }
+                disabled={!newProfile.name || upsertProfile.isPending}
+              >
+                Add profile
+              </Button>
+            </div>
+          ) : (
+            <p className="mb-3 text-xs text-slate-500">Read-only — you cannot manage profiles.</p>
+          )}
+          {profiles.isLoading ? (
+            <Spinner />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="py-1">Name</th>
+                    <th>Rate limit</th>
+                    <th>Shared</th>
+                    <th>Session timeout</th>
+                    {canManageProfiles && <th className="text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {profiles.data?.map((p) => (
+                    <Fragment key={p['.id'] ?? p.name}>
+                      <tr className="border-t border-surface-border">
+                        <td className="py-1.5">{p.name}</td>
+                        <td>{p['rate-limit'] ?? '—'}</td>
+                        <td>{p['shared-users'] ?? '—'}</td>
+                        <td>{p['session-timeout'] ?? '—'}</td>
+                        {canManageProfiles && (
+                          <td className="py-1.5 text-right">
+                            <button
+                              className="text-blue-400 hover:text-blue-300"
+                              onClick={() =>
+                                p['.id'] &&
+                                setEditProfile({
+                                  id: p['.id'],
+                                  name: p.name,
+                                  rateLimit: p['rate-limit'] ?? '',
+                                  sharedUsers: p['shared-users'] ?? '',
+                                  sessionTimeout: p['session-timeout'] ?? '',
+                                })
+                              }
+                            >
+                              edit
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                      {editProfile && editProfile.id === p['.id'] && (
+                        <tr className="border-t border-surface-border bg-surface">
+                          <td colSpan={5} className="p-3">
+                            <div className="flex flex-wrap items-end gap-2">
+                              <Field label="Rate limit">
+                                <TextInput
+                                  value={editProfile.rateLimit}
+                                  onChange={(e) =>
+                                    setEditProfile((p) =>
+                                      p ? { ...p, rateLimit: e.target.value } : p,
+                                    )
+                                  }
+                                  className="w-28"
+                                />
+                              </Field>
+                              <Field label="Shared users">
+                                <TextInput
+                                  value={editProfile.sharedUsers}
+                                  onChange={(e) =>
+                                    setEditProfile((p) =>
+                                      p ? { ...p, sharedUsers: e.target.value } : p,
+                                    )
+                                  }
+                                  className="w-24"
+                                />
+                              </Field>
+                              <Field label="Session timeout">
+                                <TextInput
+                                  value={editProfile.sessionTimeout}
+                                  onChange={(e) =>
+                                    setEditProfile((p) =>
+                                      p ? { ...p, sessionTimeout: e.target.value } : p,
+                                    )
+                                  }
+                                  className="w-24"
+                                />
+                              </Field>
+                              <Button
+                                onClick={() => {
+                                  if (!editProfile) return;
+                                  upsertProfile.mutate({
+                                    id: editProfile.id,
+                                    name: editProfile.name,
+                                    rateLimit: editProfile.rateLimit || undefined,
+                                    sharedUsers: editProfile.sharedUsers || undefined,
+                                    sessionTimeout: editProfile.sessionTimeout || undefined,
+                                  });
+                                }}
+                                disabled={upsertProfile.isPending}
+                              >
+                                Save
+                              </Button>
+                              <Button variant="ghost" onClick={() => setEditProfile(null)}>
+                                Cancel
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))}
+                  {profiles.data?.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-3 text-slate-500">
+                        No profiles on this router.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* ---------------- ACTIVE ---------------- */}
+      {tab === 'active' && (
+        <Card className="p-4">
+          {sessions.isLoading ? (
+            <Spinner />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="py-1">User</th>
+                    <th>Address</th>
+                    <th>MAC</th>
+                    <th>Uptime</th>
+                    {canDisconnect && <th className="text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.data?.map((a) => (
+                    <tr key={a['.id'] ?? a.address} className="border-t border-surface-border">
+                      <td className="py-1.5">{a.user}</td>
+                      <td>{a.address}</td>
+                      <td>{a['mac-address']}</td>
+                      <td>{a.uptime}</td>
+                      {canDisconnect && (
+                        <td className="py-1.5 text-right">
+                          <button
+                            className="text-red-400 hover:text-red-300"
+                            onClick={() => a['.id'] && disconnect.mutate(a['.id'])}
+                          >
+                            disconnect
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  {sessions.data?.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-3 text-slate-500">
+                        No active sessions.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* ---------------- VOUCHERS ---------------- */}
+      {tab === 'vouchers' && (
+        <Card className="p-4">
+          {!canManage ? (
+            <p className="text-slate-400">You cannot generate vouchers.</p>
+          ) : (
+            <>
+              <div className="mb-4 flex flex-wrap items-end gap-2">
+                <Field label="Count">
+                  <TextInput
+                    type="number"
+                    min={1}
+                    max={1000}
+                    value={voucher.count}
+                    onChange={(e) =>
+                      setVoucher({ ...voucher, count: clampInt(e.target.value, 1, 1000) })
+                    }
+                    className="w-20"
+                  />
+                </Field>
+                <Field label="Prefix">
+                  <TextInput
+                    value={voucher.prefix}
+                    onChange={(e) => setVoucher({ ...voucher, prefix: e.target.value })}
+                    className="w-24"
+                  />
+                </Field>
+                <Field label="Profile">
+                  {profileSelect(voucher.profile, (v) => setVoucher({ ...voucher, profile: v }))}
+                </Field>
+                <Field label="User len">
+                  <TextInput
+                    type="number"
+                    min={3}
+                    max={24}
+                    value={voucher.usernameLength}
+                    onChange={(e) =>
+                      setVoucher({ ...voucher, usernameLength: clampInt(e.target.value, 3, 24) })
+                    }
+                    className="w-16"
+                  />
+                </Field>
+                <Field label="Pass len">
+                  <TextInput
+                    type="number"
+                    min={3}
+                    max={24}
+                    value={voucher.passwordLength}
+                    onChange={(e) =>
+                      setVoucher({ ...voucher, passwordLength: clampInt(e.target.value, 3, 24) })
+                    }
+                    className="w-16"
+                    disabled={voucher.sameAsUsername}
+                  />
+                </Field>
+                <label className="flex items-center gap-1.5 pb-1.5 text-sm text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={voucher.sameAsUsername}
+                    onChange={(e) => setVoucher({ ...voucher, sameAsUsername: e.target.checked })}
+                  />
+                  pass = user
+                </label>
+                <Button onClick={() => genVouchers.mutate()} disabled={genVouchers.isPending}>
+                  {genVouchers.isPending ? 'Generating…' : 'Generate'}
+                </Button>
+                {voucherRows.length > 0 && (
+                  <Button variant="secondary" onClick={() => downloadCsv(voucherRows)}>
+                    Export CSV
+                  </Button>
+                )}
+              </div>
+              {genVouchers.isError && (
+                <p className="mb-3 text-sm text-red-400">{(genVouchers.error as Error).message}</p>
+              )}
+              {voucherRows.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="py-1">Username</th>
+                        <th>Password</th>
+                        <th>Profile</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {voucherRows.map((v) => (
+                        <tr key={v.username} className="border-t border-surface-border">
+                          <td className="py-1.5">{v.username}</td>
+                          <td>{v.password}</td>
+                          <td>{v.profile ?? ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </Card>
+      )}
+    </div>
+  );
+}

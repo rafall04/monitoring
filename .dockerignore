@@ -1,0 +1,17 @@
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+.git
+.gitignore
+*.md
+!README.md
+.env
+.env.*
+uploads
+logs
+caddy_data
+caddy_config
+npm-debug.log*
