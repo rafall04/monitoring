@@ -91,13 +91,17 @@ APP_BIND=""   # apps are always published on the custom host ports (direct acces
 CADDYFILE="./Caddyfile"
 CADDY_SITE_ADDRESS=":80"
 if [ -n "$FRONTEND_DOMAIN" ] && [ "$EXTERNAL" = "1" ]; then
-  # External proxy (Cloudflare Tunnel / own ingress): apps stay on the host ports,
-  # public URLs use the domains over HTTPS, and NO bundled Caddy runs.
+  # External proxy (Cloudflare Tunnel / own ingress): apps stay on the host ports
+  # and NO bundled Caddy runs. The frontend reverse-proxies /api, /ws and
+  # /uploads to the backend, so the browser only needs the FRONTEND hostname
+  # (same-origin) — ONE Cloudflare public hostname is enough. A separate backend
+  # domain is optional; if given it is whitelisted for direct access too.
   COMPOSE_PROFILE=""; LAYOUT="external"
   WEB_URL="https://${FRONTEND_DOMAIN}"
-  if [ -n "$BACKEND_DOMAIN" ]; then API_URL="https://${BACKEND_DOMAIN}"; WS_URL="wss://${BACKEND_DOMAIN}/ws"
-  else API_URL="https://${FRONTEND_DOMAIN}"; WS_URL="wss://${FRONTEND_DOMAIN}/ws"; fi
+  API_URL="https://${FRONTEND_DOMAIN}"
+  WS_URL="wss://${FRONTEND_DOMAIN}/ws"
   CORS_ORIGIN="${WEB_URL},http://${SERVER_IP}:${FRONTEND_PORT},http://localhost:${FRONTEND_PORT}"
+  [ -n "$BACKEND_DOMAIN" ] && CORS_ORIGIN="${CORS_ORIGIN},https://${BACKEND_DOMAIN}"
 elif [ -n "$FRONTEND_DOMAIN" ]; then
   COMPOSE_PROFILE="--profile proxy"
   [ "$TLS" = "1" ] && { SC="https"; WSC="wss"; } || { SC="http"; WSC="ws"; }
@@ -246,6 +250,20 @@ $SUDO docker compose ${COMPOSE_PROFILE} up -d --build
 PORTS_NOTE="${FRONTEND_PORT} and ${BACKEND_PORT}"
 [ -n "$FRONTEND_DOMAIN" ] && { PORTS_NOTE="${PORTS_NOTE}; proxy 80"; [ "$TLS" = "1" ] && PORTS_NOTE="${PORTS_NOTE} and 443"; }
 
+# DNS / tunnel guidance shown at the end (computed here to avoid nested heredocs).
+if [ "$LAYOUT" = "external" ]; then
+  DNS_NOTE=" Cloudflare Tunnel — add ONE public hostname (that is all you need):
+     ${FRONTEND_DOMAIN}  ->  http://localhost:${FRONTEND_PORT}
+   The frontend proxies /api + /uploads to the backend, so login and the whole
+   app work over that single hostname (no CORS, no separate API domain).
+   OPTIONAL (live auto-refresh over the domain): add a 2nd ingress on the SAME
+   hostname, ABOVE the catch-all, Path ^/ws  ->  http://localhost:${BACKEND_PORT}"
+elif [ -n "$FRONTEND_DOMAIN" ]; then
+  DNS_NOTE=" Point DNS: ${FRONTEND_DOMAIN}$([ -n "$BACKEND_DOMAIN" ] && echo " + ${BACKEND_DOMAIN}") -> ${SERVER_IP}"
+else
+  DNS_NOTE=" Direct access: http://${SERVER_IP}:${FRONTEND_PORT}"
+fi
+
 cat <<EOF
 
 ============================================================
@@ -257,7 +275,7 @@ cat <<EOF
 
  Migrations + seed run automatically on the backend container.
  Open the firewall for port(s): ${PORTS_NOTE}
-$([ -n "$FRONTEND_DOMAIN" ] && echo " Point DNS: ${FRONTEND_DOMAIN}$([ -n "$BACKEND_DOMAIN" ] && echo " + ${BACKEND_DOMAIN}") -> ${SERVER_IP}")
+${DNS_NOTE}
  Logs:   docker compose ${COMPOSE_PROFILE} logs -f
  Stop:   docker compose ${COMPOSE_PROFILE} down
  Update: git pull && sudo ./deploy.sh --yes        # reuse saved config

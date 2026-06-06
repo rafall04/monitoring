@@ -1,17 +1,17 @@
 import type { AppUserPublic } from '@noc/shared';
 
-// Resolve the API base at RUNTIME. When the app is opened via an IP/localhost
-// (e.g. http://172.17.11.12:3310), talk to the backend on that same host:port so
-// it works WITHOUT the public domain. Otherwise use the baked domain URL (e.g.
-// https://api-sf.raf.my.id behind Cloudflare).
+// Resolve the API base. In the BROWSER we always use a same-origin relative URL:
+// the Next.js server rewrites /api/* and /uploads/* to the backend (see
+// next.config.mjs), so there is no CORS and NO separate public "api-" domain is
+// required — one hostname (or a bare IP) serves the whole app. On the server
+// (SSR/build) we reach the backend directly over the internal Docker network.
 function apiBase(): string {
-  const baked = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
-  if (typeof window === 'undefined') return baked;
-  const host = window.location.hostname;
-  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host === 'localhost' || host === '127.0.0.1') {
-    return `http://${host}:${process.env.NEXT_PUBLIC_BACKEND_PORT || '4000'}`;
-  }
-  return baked;
+  if (typeof window !== 'undefined') return '';
+  return (
+    process.env.BACKEND_ORIGIN ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    'http://localhost:4000'
+  );
 }
 
 const ACCESS_KEY = 'noc_access';

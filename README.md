@@ -110,30 +110,42 @@ the **ports are always customizable**):
 
 1. **IP server** — auto-detected default.
 2. **Domain frontend** — blank = access via IP.
-3. **Domain backend/API** — blank = serve the API under the frontend domain (`/api`).
+3. **Domain backend/API** — **optional.** The frontend reverse-proxies `/api`,
+   `/ws` and `/uploads` to the backend (same-origin), so one hostname already
+   serves the whole app. A backend domain is only whitelisted for direct access.
 4. **Port frontend / web** — default **3600**.
 5. **Port backend / API** — default **3500**.
 
 …then **HTTPS?** if a domain was entered. The apps are **always** published on the
-two ports (direct access at `http://IP:port`); when a domain is set a bundled
-**Caddy** reverse proxy also serves it (auto **Let's Encrypt** TLS with HTTPS),
-and CORS is whitelisted to the frontend domain **+** the IP:port.
+two ports (direct access at `http://IP:port`). Because the frontend proxies the
+API to the backend over the internal network, the **browser only ever talks to
+the frontend's own origin** — no CORS, and a separate public API domain is never
+required. For a plain (non-Cloudflare) domain a bundled **Caddy** proxy serves it
+with auto **Let's Encrypt** TLS; with `--cloudflare` no local proxy runs and you
+expose a single tunnel hostname.
 
 | Inputs | Result |
 | --- | --- |
-| IP only | `http://IP:3600` (web) + `http://IP:3500` (api) |
-| frontend domain | `https://sf.raf.my.id` (API under `/api`) — apps also on IP:port |
-| frontend **+** backend domain | `https://sf.raf.my.id` + `https://api.sf.raf.my.id` (split; CORS whitelists frontend) |
+| IP only | `http://IP:3600` (web + API under `/api`, same origin) |
+| frontend domain | `https://sf.raf.my.id` (web + API under `/api`) — apps also on IP:port |
+| `--cloudflare` | one tunnel hostname `sf.raf.my.id -> localhost:3600`; login + API ride it |
 
 Same via flags (automation), e.g. `sudo ./deploy.sh --ip 172.17.11.12
 --frontend-domain sf.raf.my.id --backend-domain api.sf.raf.my.id --tls`. Use
 `--yes` to skip prompts and reuse the saved config. TLS needs the domains public
 + ports 80/443 reachable for the ACME challenge.
 
-Sign in with `admin@noc.local` / `ChangeMe123!` — **change it after the first
-login** (or set `SUPER_ADMIN_PASSWORD` before the first run). The DB starts
-**clean** (no demo data) unless you set `SEED_DEMO=true`; migrations + seed run
-automatically.
+Three accounts are seeded by default — **change the passwords after first login**
+(or set `SUPER_ADMIN_PASSWORD` before the first run):
+
+| Login | Password | Role |
+| --- | --- | --- |
+| `admin@noc.local` | `admin123` | super admin |
+| `operator@noc.local` | `operator123` | operator |
+| `demo@noc.local` | `demo123` | viewer |
+
+The DB starts **clean** (no demo data) unless you set `SEED_DEMO=true`; migrations
++ seed run automatically.
 
 Re-run `sudo ./deploy.sh …` with the **same flags** any time to update — it
 rebuilds, restarts, and keeps your secrets. Open the firewall for the chosen
@@ -145,8 +157,9 @@ docker compose down         # stop everything
 ```
 
 > Containers always listen on **4000** (backend) / **3000** (frontend)
-> internally; the flags only change how they are exposed. The frontend bakes the
-> backend URL at build time, so changing host/ports/mode rebuilds it automatically.
+> internally; the flags only change how they are exposed. The frontend proxies
+> `/api`, `/ws` and `/uploads` to `backend:4000` over the compose network
+> (`BACKEND_ORIGIN`), so the browser stays same-origin regardless of host/port.
 
 ---
 
