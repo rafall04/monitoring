@@ -3,6 +3,10 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Prisma's engines need OpenSSL; Alpine doesn't ship it by default (without this
+# `prisma migrate deploy` fails with "Could not parse schema engine response").
+RUN apk add --no-cache openssl
+
 # Install all workspace dependencies (tsx + prisma live at the root).
 COPY package.json ./
 COPY tsconfig.base.json ./
