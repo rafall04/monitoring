@@ -101,7 +101,8 @@ services:
       - backend
     restart: unless-stopped
 
-  # Optional single-port reverse proxy. Enable with: --profile proxy
+  # Reverse proxy for domain access (proxy profile). deploy.sh generates the
+  # Caddyfile (single- or split-domain) into .caddy/ and points CADDYFILE at it.
   caddy:
     image: caddy:2-alpine
     profiles: ['proxy']
@@ -111,7 +112,7 @@ services:
       - '${HTTP_PORT:-80}:80'
       - '${HTTPS_PORT:-443}:443'
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

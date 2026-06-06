@@ -102,33 +102,37 @@ stack (Postgres + Redis + backend + worker + frontend):
 ```bash
 git clone https://github.com/rafall04/monitoring.git
 cd monitoring
-sudo ./deploy.sh        # interactive: asks for the IP/domain, ports, and HTTPS
+sudo ./deploy.sh        # interactive — just answer the prompts
 ```
 
-The installer **auto-detects** whether you entered an IP or a domain and picks the
-right mode. Defaults: frontend **3600**, backend **3500** (both configurable).
-Prefer flags (for automation)? They still work:
+The installer asks **three things**, then configures everything (including the
+CORS whitelist) for you:
+
+1. **IP server** — auto-detected default.
+2. **Domain frontend** — leave blank to access via the IP.
+3. **Domain backend/API** — leave blank to serve the API under the same domain (`/api`).
+
+…then **HTTPS?** (only if you entered a domain). The combination decides the layout:
+
+| Inputs | Result |
+| --- | --- |
+| IP only | `http://IP:3600` (web) + `http://IP:3500` (api) — direct ports |
+| frontend domain only | `https://sf.raf.my.id` — API under `/api`, one origin |
+| frontend **+** backend domain | `https://sf.raf.my.id` + `https://api.sf.raf.my.id` — split; CORS whitelists the frontend |
+
+Ports default to frontend **3600** / backend **3500** (asked in IP mode). Domain
+modes use a bundled **Caddy** reverse proxy with automatic **Let's Encrypt** TLS
+(domains must resolve to the server and ports 80/443 reachable for the ACME
+challenge). The same choices are available as flags for automation:
 
 ```bash
-# IP with custom host ports (direct mode):
-sudo ./deploy.sh --host 172.17.11.12 --backend-port 3500 --frontend-port 3600
-# -> open http://172.17.11.12:3600
+# IP, custom ports:
+sudo ./deploy.sh --ip 172.17.11.12 --backend-port 3500 --frontend-port 3600
+# Split domains + HTTPS:
+sudo ./deploy.sh --ip 172.17.11.12 --frontend-domain sf.raf.my.id --backend-domain api.sf.raf.my.id --tls
+# Single domain (API under /api):
+sudo ./deploy.sh --frontend-domain sf.raf.my.id --tls
 ```
-
-**Domain via reverse proxy (one clean origin, no port in the URL)** — uses Caddy:
-
-```bash
-# Plain HTTP (internal/LAN, or before you have TLS):
-sudo ./deploy.sh --host sf.raf.my.id --proxy        # -> http://sf.raf.my.id
-
-# Automatic HTTPS (server reachable from the internet on 80/443):
-sudo ./deploy.sh --host sf.raf.my.id --proxy --tls  # -> https://sf.raf.my.id
-```
-
-In proxy mode Caddy serves everything under one origin (API + WebSocket + uploads
-+ the UI), the app ports are bound to localhost only, and `--tls` provisions a
-**Let's Encrypt** cert automatically — the domain must resolve to the server and
-ports **80/443** must be reachable from the internet for the ACME challenge.
 
 Sign in with `admin@noc.local` / `ChangeMe123!` — **change it after the first
 login** (or set `SUPER_ADMIN_PASSWORD` before the first run). The DB starts

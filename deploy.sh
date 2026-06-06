@@ -4,16 +4,19 @@
 #
 # Easiest: just run it and answer the prompts:
 #   sudo ./deploy.sh
-#     - it asks for the IP or domain, detects which one, and asks ports/HTTPS.
+#     1) IP server            (auto-detected default)
+#     2) Domain frontend      (blank = access via IP:port)
+#     3) Domain backend/API   (blank = same domain, served under /api)
+#     4) HTTPS? (only if a domain was entered)
 #
-# Non-interactive (automation) — pass flags instead:
-#   sudo ./deploy.sh --host 172.17.11.12                      # IP, ports 3500/3600
-#   sudo ./deploy.sh --host 172.17.11.12 --backend-port 3500 --frontend-port 3600
-#   sudo ./deploy.sh --host sf.raf.my.id --proxy              # domain, http://
-#   sudo ./deploy.sh --host sf.raf.my.id --proxy --tls        # domain, https:// (auto)
-#   sudo ./deploy.sh --host 172.17.11.12 --yes                # accept all defaults
+# Resulting layouts:
+#   - no domain            -> http://IP:3600 (web) + http://IP:3500 (api)   [direct]
+#   - frontend domain only -> https://sf.raf.my.id  (api under /api)         [single origin]
+#   - frontend + backend   -> https://sf.raf.my.id + https://api.sf.raf.my.id [split, CORS-whitelisted]
 #
-# Re-run any time to update — secrets + config are kept in .env.
+# Flags (automation): --ip, --frontend-domain, --backend-domain, --tls/--no-tls,
+#   --backend-port, --frontend-port, --yes. (--host/--proxy kept for compat.)
+# Re-run any time to update — config + secrets are kept in .env.
 # =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -22,81 +25,125 @@ SUDO=""
 [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
 getenv() { if [ -f .env ]; then grep -E "^$1=" .env | head -n1 | cut -d= -f2- || true; fi; }
-is_ip_or_local() { echo "$1" | grep -qE '^([0-9]{1,3}(\.[0-9]{1,3}){3}|localhost)$'; }
+is_ip()  { echo "$1" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; }
 
 # ---- start from existing .env / env (re-run keeps the previous config) ----
-PUBLIC_HOST="${PUBLIC_HOST:-$(getenv PUBLIC_HOST)}"
+SERVER_IP="${SERVER_IP:-$(getenv SERVER_IP)}"
+FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-$(getenv FRONTEND_DOMAIN)}"
+BACKEND_DOMAIN="${BACKEND_DOMAIN:-$(getenv BACKEND_DOMAIN)}"
 BACKEND_PORT="${BACKEND_PORT:-$(getenv BACKEND_PORT)}"
 FRONTEND_PORT="${FRONTEND_PORT:-$(getenv FRONTEND_PORT)}"
 HTTP_PORT="${HTTP_PORT:-$(getenv HTTP_PORT)}"
 HTTPS_PORT="${HTTPS_PORT:-$(getenv HTTPS_PORT)}"
-MODE="$(getenv DEPLOY_MODE)"
-TLS="$(getenv DEPLOY_TLS)"
+TLS="${TLS:-$(getenv DEPLOY_TLS)}"
 ASSUME_YES=0
+FORCE_PROXY=0
+HOST_FLAG=""
 
-# ---- flags (optional; override the above) ----
+# ---- flags ----
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) PUBLIC_HOST="$2"; shift 2 ;;
+    --ip) SERVER_IP="$2"; shift 2 ;;
+    --frontend-domain|--web-domain) FRONTEND_DOMAIN="$2"; shift 2 ;;
+    --backend-domain|--api-domain) BACKEND_DOMAIN="$2"; shift 2 ;;
+    --host) HOST_FLAG="$2"; shift 2 ;;
     --backend-port) BACKEND_PORT="$2"; shift 2 ;;
     --frontend-port) FRONTEND_PORT="$2"; shift 2 ;;
-    --proxy) MODE="proxy"; shift ;;
-    --tls) MODE="proxy"; TLS=1; shift ;;
-    --http-port) HTTP_PORT="$2"; MODE="proxy"; shift 2 ;;
+    --http-port) HTTP_PORT="$2"; FORCE_PROXY=1; shift 2 ;;
+    --proxy) FORCE_PROXY=1; shift ;;
+    --tls) TLS=1; shift ;;
+    --no-tls) TLS=0; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
     -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
 
-# ---- interactive setup (only when host is still unknown + a real terminal) ----
-if [ -z "$PUBLIC_HOST" ] && [ "$ASSUME_YES" != "1" ] && [ -t 0 ]; then
+# legacy --host: IP -> server ip, otherwise -> frontend domain
+if [ -n "$HOST_FLAG" ]; then
+  if is_ip "$HOST_FLAG"; then SERVER_IP="${SERVER_IP:-$HOST_FLAG}"; else FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-$HOST_FLAG}"; fi
+fi
+
+# ---- interactive setup (only when nothing decided + a real terminal) ----
+if [ -z "${SERVER_IP}${FRONTEND_DOMAIN}" ] && [ "$ASSUME_YES" != "1" ] && [ -t 0 ]; then
   echo "──────────── Instalasi MikroTik NOC ────────────"
   DEFAULT_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  read -rp "IP atau domain server [${DEFAULT_IP:-localhost}]: " A; PUBLIC_HOST="${A:-${DEFAULT_IP:-localhost}}"
-  if is_ip_or_local "$PUBLIC_HOST"; then
-    MODE="direct"
-    read -rp "Port web/frontend [${FRONTEND_PORT:-3600}]: " A; FRONTEND_PORT="${A:-${FRONTEND_PORT:-3600}}"
-    read -rp "Port API/backend  [${BACKEND_PORT:-3500}]: " A; BACKEND_PORT="${A:-${BACKEND_PORT:-3500}}"
-  else
-    MODE="proxy"
-    read -rp "Aktifkan HTTPS otomatis (Let's Encrypt — server harus publik & port 80/443 terbuka)? [y/T]: " A
+  read -rp "1) IP server [${DEFAULT_IP:-localhost}]: " A; SERVER_IP="${A:-${DEFAULT_IP:-localhost}}"
+  read -rp "2) Domain frontend (kosongkan = akses via IP): " A; FRONTEND_DOMAIN="${A:-}"
+  if [ -n "$FRONTEND_DOMAIN" ]; then
+    read -rp "3) Domain backend/API (kosongkan = pakai domain frontend + /api): " A; BACKEND_DOMAIN="${A:-}"
+    read -rp "4) HTTPS otomatis (Let's Encrypt — perlu server publik & port 80/443)? [y/T]: " A
     case "$A" in [Yy]*) TLS=1 ;; *) TLS=0 ;; esac
+  else
+    read -rp "   Port web/frontend [${FRONTEND_PORT:-3600}]: " A; FRONTEND_PORT="${A:-${FRONTEND_PORT:-3600}}"
+    read -rp "   Port API/backend  [${BACKEND_PORT:-3500}]: " A; BACKEND_PORT="${A:-${BACKEND_PORT:-3500}}"
   fi
   echo "────────────────────────────────────────────────"
 fi
 
 # ---- final defaults ----
-PUBLIC_HOST="${PUBLIC_HOST:-localhost}"
-MODE="${MODE:-direct}"
+SERVER_IP="${SERVER_IP:-localhost}"
 TLS="${TLS:-0}"
 BACKEND_PORT="${BACKEND_PORT:-3500}"
 FRONTEND_PORT="${FRONTEND_PORT:-3600}"
 HTTP_PORT="${HTTP_PORT:-80}"
 HTTPS_PORT="${HTTPS_PORT:-443}"
 
-# ---- mode-specific URLs (baked into the frontend + used for CORS) ----
-if [ "$MODE" = "proxy" ]; then
-  COMPOSE_PROFILE="--profile proxy"
-  APP_BIND="127.0.0.1:"          # apps reachable only via Caddy + localhost
-  if [ "$TLS" = "1" ]; then
-    CADDY_SITE_ADDRESS="$PUBLIC_HOST"
-    API_URL="https://${PUBLIC_HOST}"; WEB_URL="https://${PUBLIC_HOST}"; WS_URL="wss://${PUBLIC_HOST}/ws"
-  else
-    CADDY_SITE_ADDRESS=":${HTTP_PORT}"
+# ---- derive mode, URLs, and (for proxy) the Caddyfile ----
+CADDYFILE="./Caddyfile"
+CADDY_SITE_ADDRESS=":80"
+if [ -n "$FRONTEND_DOMAIN" ] || [ "$FORCE_PROXY" = "1" ]; then
+  MODE="proxy"; APP_BIND="127.0.0.1:"; COMPOSE_PROFILE="--profile proxy"
+  if [ "$TLS" = "1" ] && [ -n "$FRONTEND_DOMAIN" ]; then SC="https"; WSC="wss"; else SC="http"; WSC="ws"; TLS=0; fi
+
+  if [ -z "$FRONTEND_DOMAIN" ]; then
+    # --proxy with just an IP: single origin on HTTP_PORT
     SFX=""; [ "$HTTP_PORT" != "80" ] && SFX=":${HTTP_PORT}"
-    API_URL="http://${PUBLIC_HOST}${SFX}"; WEB_URL="http://${PUBLIC_HOST}${SFX}"; WS_URL="ws://${PUBLIC_HOST}${SFX}/ws"
+    FRONT_SITE=":${HTTP_PORT}"
+    WEB_URL="http://${SERVER_IP}${SFX}"; API_URL="$WEB_URL"; WS_URL="ws://${SERVER_IP}${SFX}/ws"
+    LAYOUT="single"
+  else
+    [ "$TLS" = "1" ] && { FRONT_SITE="$FRONTEND_DOMAIN"; BACK_SITE="$BACKEND_DOMAIN"; } || { FRONT_SITE="http://${FRONTEND_DOMAIN}"; BACK_SITE="http://${BACKEND_DOMAIN}"; }
+    WEB_URL="${SC}://${FRONTEND_DOMAIN}"
+    if [ -n "$BACKEND_DOMAIN" ]; then
+      LAYOUT="split"; API_URL="${SC}://${BACKEND_DOMAIN}"; WS_URL="${WSC}://${BACKEND_DOMAIN}/ws"
+    else
+      LAYOUT="single"; API_URL="${SC}://${FRONTEND_DOMAIN}"; WS_URL="${WSC}://${FRONTEND_DOMAIN}/ws"
+    fi
   fi
+
+  mkdir -p .caddy
+  if [ "$LAYOUT" = "split" ]; then
+    cat > .caddy/Caddyfile <<CADDY
+${FRONT_SITE} {
+	encode gzip
+	reverse_proxy frontend:3000
+}
+${BACK_SITE} {
+	encode gzip
+	reverse_proxy backend:4000
+}
+CADDY
+  else
+    cat > .caddy/Caddyfile <<CADDY
+${FRONT_SITE} {
+	encode gzip
+	handle /api/* { reverse_proxy backend:4000 }
+	handle /ws* { reverse_proxy backend:4000 }
+	handle /uploads/* { reverse_proxy backend:4000 }
+	handle { reverse_proxy frontend:3000 }
+}
+CADDY
+  fi
+  CADDYFILE="./.caddy/Caddyfile"
 else
-  COMPOSE_PROFILE=""
-  APP_BIND=""
-  CADDY_SITE_ADDRESS=":80"
-  API_URL="http://${PUBLIC_HOST}:${BACKEND_PORT}"
-  WEB_URL="http://${PUBLIC_HOST}:${FRONTEND_PORT}"
-  WS_URL="ws://${PUBLIC_HOST}:${BACKEND_PORT}/ws"
+  MODE="direct"; APP_BIND=""; COMPOSE_PROFILE=""; LAYOUT="direct"
+  WEB_URL="http://${SERVER_IP}:${FRONTEND_PORT}"
+  API_URL="http://${SERVER_IP}:${BACKEND_PORT}"
+  WS_URL="ws://${SERVER_IP}:${BACKEND_PORT}/ws"
 fi
 
-echo "==> mode=$MODE  web=$WEB_URL  api=$API_URL"
+echo "==> mode=$MODE/$LAYOUT  web=$WEB_URL  api=$API_URL"
 
 # ---- prerequisites ----
 for pkg in curl openssl; do
@@ -127,17 +174,22 @@ cat > .env <<EOF
 NODE_ENV=production
 LOG_LEVEL=info
 
-# ---- Deployment mode + public URL/ports ----
+# ---- Deployment (set by deploy.sh) ----
 DEPLOY_MODE=${MODE}
+DEPLOY_LAYOUT=${LAYOUT}
 DEPLOY_TLS=${TLS}
-PUBLIC_HOST=${PUBLIC_HOST}
+SERVER_IP=${SERVER_IP}
+FRONTEND_DOMAIN=${FRONTEND_DOMAIN}
+BACKEND_DOMAIN=${BACKEND_DOMAIN}
 BACKEND_PORT=${BACKEND_PORT}
 FRONTEND_PORT=${FRONTEND_PORT}
 HTTP_PORT=${HTTP_PORT}
 HTTPS_PORT=${HTTPS_PORT}
 APP_BIND=${APP_BIND}
+CADDYFILE=${CADDYFILE}
 CADDY_SITE_ADDRESS=${CADDY_SITE_ADDRESS}
 PUBLIC_BASE_URL=${API_URL}
+# CORS whitelist = the frontend origin(s) allowed to call the backend.
 CORS_ORIGIN=${WEB_URL}
 
 # ---- PostgreSQL ----
@@ -190,20 +242,24 @@ echo "==> wrote .env"
 # ---- build + start ----
 $SUDO docker compose ${COMPOSE_PROFILE} up -d --build
 
-PORTS_NOTE="${FRONTEND_PORT} and ${BACKEND_PORT}"
-[ "$MODE" = "proxy" ] && { PORTS_NOTE="${HTTP_PORT}"; [ "$TLS" = "1" ] && PORTS_NOTE="${HTTP_PORT} and ${HTTPS_PORT}"; }
+if [ "$MODE" = "proxy" ]; then
+  [ "$TLS" = "1" ] && PORTS_NOTE="80 and 443" || PORTS_NOTE="${HTTP_PORT}"
+else
+  PORTS_NOTE="${FRONTEND_PORT} and ${BACKEND_PORT}"
+fi
 
 cat <<EOF
 
 ============================================================
- MikroTik NOC deployed  (mode: ${MODE}$([ "$TLS" = "1" ] && echo " + TLS"))
+ MikroTik NOC deployed  (mode: ${MODE}/${LAYOUT}$([ "$TLS" = "1" ] && echo " + TLS"))
    Open     : ${WEB_URL}
    Backend  : ${API_URL}
    Login    : ${SUPER_ADMIN_EMAIL} / ${SUPER_ADMIN_PASSWORD}
 
  Migrations + seed run automatically on the backend container.
  Open the firewall for port(s): ${PORTS_NOTE}
-$([ "$TLS" = "1" ] && echo " HTTPS needs ${PUBLIC_HOST} to resolve to this server and ports 80/443 reachable for Let's Encrypt.")
+$([ -n "$FRONTEND_DOMAIN" ] && echo " Point DNS: ${FRONTEND_DOMAIN}$([ -n "$BACKEND_DOMAIN" ] && echo " + ${BACKEND_DOMAIN}") -> ${SERVER_IP}")
+$([ "$TLS" = "1" ] && echo " HTTPS needs those domains public + ports 80/443 reachable for Let's Encrypt.")
  Logs:   docker compose ${COMPOSE_PROFILE} logs -f
  Stop:   docker compose ${COMPOSE_PROFILE} down
  Update: git pull && sudo ./deploy.sh        # re-uses your saved .env config

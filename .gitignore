@@ -41,3 +41,6 @@ caddy_config/
 # Dev-only scaffolding (preview mock API + agent/editor config)
 .preview/
 .claude/
+
+# Generated at deploy time (reverse-proxy config written by deploy.sh)
+.caddy/
