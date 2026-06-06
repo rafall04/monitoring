@@ -1,29 +1,27 @@
-# Reverse proxy for the all-in-one deployment.
-# Browser hits http://localhost:8080. Caddy routes API/WS/uploads to the backend
-# and everything else to the Next.js frontend.
+# Reverse proxy for PROXY mode (single origin). Used only with the `proxy`
+# compose profile. The site address comes from CADDY_SITE_ADDRESS, which
+# deploy.sh sets:
+#   :80            -> plain HTTP on port 80 (any host)         [--proxy]
+#   sf.raf.my.id   -> domain with automatic HTTPS via ACME     [--proxy --tls]
 #
-# For production with a real domain + automatic HTTPS, replace ":80" with your
-# domain (e.g. noc.example.com) and Caddy will provision a TLS cert for you.
+# Caddy routes the API / WebSocket / uploads to the backend and everything else
+# to the Next.js frontend, all under one origin.
 
-:80 {
+{$CADDY_SITE_ADDRESS::80} {
 	encode gzip
 
-	# Backend REST API
 	handle /api/* {
 		reverse_proxy backend:4000
 	}
 
-	# WebSocket (upgrade handled automatically by Caddy)
 	handle /ws* {
 		reverse_proxy backend:4000
 	}
 
-	# Uploaded assets (floorplans, custom icons) served by the backend
 	handle /uploads/* {
 		reverse_proxy backend:4000
 	}
 
-	# Everything else -> Next.js
 	handle {
 		reverse_proxy frontend:3000
 	}

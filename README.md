@@ -105,33 +105,45 @@ cd monitoring
 sudo ./deploy.sh --host <SERVER_IP_OR_DOMAIN>
 ```
 
-**Custom ports** — the backend and frontend host ports are configurable (flags
-or env):
+**Direct mode (custom ports)** — frontend + backend each on their own host port:
 
 ```bash
-sudo ./deploy.sh --host noc.example.com --backend-port 5000 --frontend-port 8080
-# or:
-sudo PUBLIC_HOST=203.0.113.10 BACKEND_PORT=5000 FRONTEND_PORT=8080 ./deploy.sh
+sudo ./deploy.sh --host 172.17.11.12 --backend-port 5000 --frontend-port 8080
+# -> open http://172.17.11.12:8080
 ```
 
-Open **http://&lt;host&gt;:&lt;frontend-port&gt;** (default `:3000`) and sign in with
-`admin@noc.local` / `ChangeMe123!` — **change it after the first login** (or set
-`SUPER_ADMIN_PASSWORD` before the first run). The DB starts **clean** (no demo
-data) unless you set `SEED_DEMO=true`; migrations + seed run automatically.
-
-Re-run `sudo ./deploy.sh` any time to update — it rebuilds, restarts, and keeps
-your secrets. Open the firewall for the chosen ports. Handy commands:
+**Domain via reverse proxy (one clean origin, no port in the URL)** — uses Caddy:
 
 ```bash
-docker compose logs -f                    # tail logs
-docker compose down                       # stop everything
-docker compose --profile proxy up -d      # optional single-port Caddy proxy (:8080)
+# Plain HTTP (internal/LAN, or before you have TLS):
+sudo ./deploy.sh --host sf.raf.my.id --proxy        # -> http://sf.raf.my.id
+
+# Automatic HTTPS (server reachable from the internet on 80/443):
+sudo ./deploy.sh --host sf.raf.my.id --proxy --tls  # -> https://sf.raf.my.id
+```
+
+In proxy mode Caddy serves everything under one origin (API + WebSocket + uploads
++ the UI), the app ports are bound to localhost only, and `--tls` provisions a
+**Let's Encrypt** cert automatically — the domain must resolve to the server and
+ports **80/443** must be reachable from the internet for the ACME challenge.
+
+Sign in with `admin@noc.local` / `ChangeMe123!` — **change it after the first
+login** (or set `SUPER_ADMIN_PASSWORD` before the first run). The DB starts
+**clean** (no demo data) unless you set `SEED_DEMO=true`; migrations + seed run
+automatically.
+
+Re-run `sudo ./deploy.sh …` with the **same flags** any time to update — it
+rebuilds, restarts, and keeps your secrets. Open the firewall for the chosen
+port(s).
+
+```bash
+docker compose logs -f      # tail logs   (add --profile proxy in proxy mode)
+docker compose down         # stop everything
 ```
 
 > Containers always listen on **4000** (backend) / **3000** (frontend)
-> internally; `BACKEND_PORT` / `FRONTEND_PORT` only change the **host** mapping.
-> The frontend bakes the backend URL at build time, so changing host/ports
-> rebuilds it automatically.
+> internally; the flags only change how they are exposed. The frontend bakes the
+> backend URL at build time, so changing host/ports/mode rebuilds it automatically.
 
 ---
 
