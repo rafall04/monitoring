@@ -10,6 +10,23 @@ import { PollScheduler } from './scheduler';
 
 async function main() {
   const logger = createLogger('worker');
+
+  // A monitoring poller must never die because one router is unreachable.
+  // node-routeros can emit async socket errors (e.g. SOCKTMOUT on a timeout)
+  // OUTSIDE the awaited path, which Node turns into an uncaught exception. The
+  // scheduler's circuit breaker already handles the real per-router failure, so
+  // here we log the stray event and keep the process alive instead of letting it
+  // crash-loop.
+  process.on('unhandledRejection', (reason) => {
+    logger.error(
+      { reason: (reason as Error)?.message ?? String(reason) },
+      'unhandledRejection (continuing)',
+    );
+  });
+  process.on('uncaughtException', (err) => {
+    logger.error({ err: (err as Error)?.message ?? String(err) }, 'uncaughtException (continuing)');
+  });
+
   const redisPub = createRedis('worker-pub');
   const deps: StatusEngineDeps = { prisma, redisPub, logger };
 

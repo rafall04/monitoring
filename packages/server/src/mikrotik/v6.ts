@@ -50,6 +50,16 @@ export class RouterOsV6Client implements MikrotikClient {
       // transit. Pin a CA here if your routers use one.
       ...(this.cfg.useTls ? { tls: { rejectUnauthorized: false } } : {}),
     });
+    // node-routeros can emit an async 'error' (e.g. SOCKTMOUT) from a socket
+    // timeout timer, outside the connect()/write() promise chain. Without a
+    // listener Node treats it as fatal. Absorb it here — the awaited call still
+    // rejects and the caller handles the real failure.
+    (conn as unknown as { on?: (ev: string, cb: (e: unknown) => void) => void }).on?.(
+      'error',
+      () => {
+        this.connected = false;
+      },
+    );
     await conn.connect();
     this.conn = conn;
     this.connected = true;
