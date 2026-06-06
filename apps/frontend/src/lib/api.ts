@@ -1,6 +1,18 @@
 import type { AppUserPublic } from '@noc/shared';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000';
+// Resolve the API base at RUNTIME. When the app is opened via an IP/localhost
+// (e.g. http://172.17.11.12:3310), talk to the backend on that same host:port so
+// it works WITHOUT the public domain. Otherwise use the baked domain URL (e.g.
+// https://api-sf.raf.my.id behind Cloudflare).
+function apiBase(): string {
+  const baked = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+  if (typeof window === 'undefined') return baked;
+  const host = window.location.hostname;
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host === 'localhost' || host === '127.0.0.1') {
+    return `http://${host}:${process.env.NEXT_PUBLIC_BACKEND_PORT || '4000'}`;
+  }
+  return baked;
+}
 
 const ACCESS_KEY = 'noc_access';
 const REFRESH_KEY = 'noc_refresh';
@@ -52,7 +64,7 @@ async function tryRefresh(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
   try {
-    const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+    const res = await fetch(`${apiBase()}/api/v1/auth/refresh`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
@@ -75,7 +87,7 @@ async function request<T>(path: string, init: RequestInit, retry = true): Promis
   const token = getAccessToken();
   if (token) headers.set('authorization', `Bearer ${token}`);
 
-  const res = await fetch(`${API_BASE}/api/v1${path}`, { ...init, headers });
+  const res = await fetch(`${apiBase()}/api/v1${path}`, { ...init, headers });
 
   if (res.status === 401 && retry && !path.startsWith('/auth/')) {
     if (await tryRefresh()) return request<T>(path, init, false);

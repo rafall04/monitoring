@@ -4,7 +4,17 @@ import { useEffect, useRef } from 'react';
 import type { WsServerEvent } from '@noc/shared';
 import { getAccessToken } from './api';
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:4000/ws';
+// Resolve the WS URL at runtime (mirrors api.ts): IP/localhost -> same host:port;
+// otherwise the baked wss:// domain URL.
+function wsUrl(): string {
+  const baked = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4000/ws';
+  if (typeof window === 'undefined') return baked;
+  const host = window.location.hostname;
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host === 'localhost' || host === '127.0.0.1') {
+    return `ws://${host}:${process.env.NEXT_PUBLIC_BACKEND_PORT || '4000'}/ws`;
+  }
+  return baked;
+}
 
 /**
  * Subscribe to a single site's realtime events. Reconnects with backoff and
@@ -27,7 +37,7 @@ export function useSiteSocket(
     const connect = () => {
       const token = getAccessToken();
       if (!token) return;
-      socket = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}`);
+      socket = new WebSocket(`${wsUrl()}?token=${encodeURIComponent(token)}`);
 
       socket.onopen = () => {
         attempts = 0;

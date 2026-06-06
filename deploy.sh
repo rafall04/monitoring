@@ -236,6 +236,7 @@ SUPER_ADMIN_NAME=${SUPER_ADMIN_NAME}
 # ---- Frontend (baked into the build) ----
 NEXT_PUBLIC_API_BASE_URL=${API_URL}
 NEXT_PUBLIC_WS_URL=${WS_URL}
+NEXT_PUBLIC_BACKEND_PORT=${BACKEND_PORT}
 EOF
 echo "==> wrote .env"
 
