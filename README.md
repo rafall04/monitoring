@@ -105,27 +105,30 @@ cd monitoring
 sudo ./deploy.sh        # interactive — just answer the prompts
 ```
 
-By default it asks just three simple things — so the **ports are always
-customizable**, even on re-run (press Enter to keep the current value):
+It asks five things on **every** run (press Enter to keep the current value, so
+the **ports are always customizable**):
 
-1. **Alamat akses** — the server IP (or a domain).
-2. **Port frontend / web** — default **3600**.
-3. **Port backend / API** — default **3500**.
+1. **IP server** — auto-detected default.
+2. **Domain frontend** — blank = access via IP.
+3. **Domain backend/API** — blank = serve the API under the frontend domain (`/api`).
+4. **Port frontend / web** — default **3600**.
+5. **Port backend / API** — default **3500**.
 
-→ opens `http://<host>:<frontend-port>`. Add `--yes` to skip the prompts on an
-update and reuse the saved config.
+…then **HTTPS?** if a domain was entered. The apps are **always** published on the
+two ports (direct access at `http://IP:port`); when a domain is set a bundled
+**Caddy** reverse proxy also serves it (auto **Let's Encrypt** TLS with HTTPS),
+and CORS is whitelisted to the frontend domain **+** the IP:port.
 
-**Domain + automatic HTTPS** (bundled **Caddy** reverse proxy, **Let's Encrypt**)
-is opt-in via flags:
-
-| Command | Result |
+| Inputs | Result |
 | --- | --- |
-| `sudo ./deploy.sh --ip 172.17.11.12 --backend-port 3500 --frontend-port 3600` | direct, custom ports |
-| `sudo ./deploy.sh --frontend-domain sf.raf.my.id --tls` | `https://sf.raf.my.id` — API under `/api` (one origin) |
-| `sudo ./deploy.sh --frontend-domain sf.raf.my.id --backend-domain api.sf.raf.my.id --tls` | split origins; CORS whitelists the frontend |
+| IP only | `http://IP:3600` (web) + `http://IP:3500` (api) |
+| frontend domain | `https://sf.raf.my.id` (API under `/api`) — apps also on IP:port |
+| frontend **+** backend domain | `https://sf.raf.my.id` + `https://api.sf.raf.my.id` (split; CORS whitelists frontend) |
 
-TLS needs the domains public + ports 80/443 reachable for the ACME challenge;
-drop `--tls` for plain HTTP.
+Same via flags (automation), e.g. `sudo ./deploy.sh --ip 172.17.11.12
+--frontend-domain sf.raf.my.id --backend-domain api.sf.raf.my.id --tls`. Use
+`--yes` to skip prompts and reuse the saved config. TLS needs the domains public
++ ports 80/443 reachable for the ACME challenge.
 
 Sign in with `admin@noc.local` / `ChangeMe123!` — **change it after the first
 login** (or set `SUPER_ADMIN_PASSWORD` before the first run). The DB starts
