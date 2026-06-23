@@ -6,7 +6,7 @@ import type { AppUserPublic } from '@noc/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useToast } from '@/lib/toast';
-import { Button, Card, Field, Spinner, TextInput } from '@/components/ui';
+import { Button, Card, Field, Loading, Page, PageBody, PageHeader, TextInput } from '@/components/ui';
 
 export default function ProfilePage() {
   const { user, setUser } = useAuth();
@@ -39,9 +39,12 @@ export default function ProfilePage() {
 
   if (!user) {
     return (
-      <div className="p-6">
-        <Spinner />
-      </div>
+      <Page>
+        <PageHeader title="My profile" />
+        <PageBody>
+          <Loading />
+        </PageBody>
+      </Page>
     );
   }
 
@@ -50,10 +53,10 @@ export default function ProfilePage() {
   const canChangePw = !!pw.current && pw.next.length >= 8 && !pwMismatch;
 
   return (
-    <div className="h-full space-y-6 overflow-y-auto p-6">
-      <h1 className="text-xl font-semibold text-slate-100">My profile</h1>
-
-      {/* ---- Identity ---- */}
+    <Page>
+      <PageHeader title="My profile" subtitle="Kelola identitas dan password akun Anda." />
+      <PageBody>
+        {/* ---- Identity ---- */}
       <Card className="space-y-3 p-4">
         <h2 className="font-semibold text-slate-200">Identitas</h2>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -120,6 +123,7 @@ export default function ProfilePage() {
           </span>
         </div>
       </Card>
-    </div>
+      </PageBody>
+    </Page>
   );
 }

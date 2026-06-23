@@ -22,7 +22,7 @@ import { useConfirm, useToast } from '@/lib/toast';
 import { useSiteSocket } from '@/lib/ws';
 import LineView from '@/components/LineView';
 import MarkerPanel from '@/components/MarkerPanel';
-import { Button, Legend, Spinner } from '@/components/ui';
+import { Button, ErrorState, Legend, Page, PageHeader, Spinner, Tabs } from '@/components/ui';
 
 // Leaflet touches `window`, so the map must be client-only.
 const MapView = dynamic(() => import('@/components/MapView'), {
@@ -33,6 +33,11 @@ const MapView = dynamic(() => import('@/components/MapView'), {
     </div>
   ),
 });
+
+const VIEW_TABS: { value: 'line' | 'denah'; label: string }[] = [
+  { value: 'line', label: 'Line / Area' },
+  { value: 'denah', label: 'Denah' },
+];
 
 export default function SiteMapPage() {
   const params = useParams<{ siteId: string }>();
@@ -71,28 +76,44 @@ export default function SiteMapPage() {
   const canManageStructure = can('site:manage');
   const editable = editMode && canEditPos;
 
+  // A failed fetch must not be mistaken for "not found / no access" below — show
+  // a distinct error with retry so a server/network problem is diagnosable.
+  if (site.isError || devices.isError)
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <ErrorState
+          onRetry={() => {
+            void site.refetch();
+            void devices.refetch();
+          }}
+        >
+          Gagal memuat data site. Coba lagi, atau pastikan Anda punya akses.
+        </ErrorState>
+      </div>
+    );
   if (site.isLoading || devices.isLoading)
     return (
-      <div className="p-6">
+      <div className="flex h-full items-center justify-center">
         <Spinner />
       </div>
     );
   if (!site.data)
-    return <div className="p-6 text-slate-400">Site not found or you do not have access.</div>;
+    return (
+      <div className="flex h-full items-center justify-center text-slate-400">
+        Site not found or you do not have access.
+      </div>
+    );
 
   const s = summary.data;
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-surface-border px-5 py-3">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-100">{site.data.name}</h1>
-          <p className="text-xs text-slate-400">
-            {site.data.region ? `${site.data.region} · ` : ''}
-            {devices.data?.length ?? 0} devices
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
+    <Page>
+      <PageHeader
+        width="full"
+        title={site.data.name}
+        subtitle={`${site.data.region ? `${site.data.region} · ` : ''}${devices.data?.length ?? 0} devices`}
+        actions={
+          <div className="flex flex-wrap items-center gap-4">
           {s && (
             <div className="flex items-center gap-3 text-sm">
               <span className="text-emerald-400">{s.up} up</span>
@@ -101,19 +122,7 @@ export default function SiteMapPage() {
               <span className="font-semibold text-slate-100">{s.availabilityPct}%</span>
             </div>
           )}
-          <div className="flex overflow-hidden rounded-md border border-surface-border">
-            {(['line', 'denah'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`px-3 py-1 text-xs font-medium ${
-                  tab === t ? 'bg-accent text-white' : 'text-slate-400 hover:bg-slate-800'
-                }`}
-              >
-                {t === 'line' ? 'Line / Area' : 'Denah'}
-              </button>
-            ))}
-          </div>
+          <Tabs tabs={VIEW_TABS} value={tab} onChange={setTab} />
           {tab === 'denah' && <Legend />}
           {canCreate && (
             <Button
@@ -137,8 +146,9 @@ export default function SiteMapPage() {
               {editMode ? 'Done editing' : 'Edit'}
             </Button>
           )}
-        </div>
-      </header>
+          </div>
+        }
+      />
 
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
@@ -255,6 +265,6 @@ export default function SiteMapPage() {
           />
         )}
       </div>
-    </div>
+    </Page>
   );
 }

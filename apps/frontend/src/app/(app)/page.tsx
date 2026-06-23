@@ -5,7 +5,7 @@ import { useQueries } from '@tanstack/react-query';
 import type { Site, SiteSummary } from '@noc/shared';
 import { api } from '@/lib/api';
 import { qk, useSites } from '@/lib/queries';
-import { Card, Spinner } from '@/components/ui';
+import { Card, ErrorState, Loading, Page, PageBody, PageHeader, Spinner } from '@/components/ui';
 
 function SiteCard({ site, summary }: { site: Site; summary?: SiteSummary }) {
   const s = summary;
@@ -55,11 +55,14 @@ export default function OverviewPage() {
   const sites = useSites();
   const list = sites.data ?? [];
 
-  // Fetch every site's summary so we can show per-factory cards AND per-region rollups.
+  // Fetch every site's summary so we can show per-factory cards AND per-region
+  // rollups. This page has no per-site WebSocket subscription, so poll on an
+  // interval to keep the overview counts from going stale.
   const summaries = useQueries({
     queries: list.map((s) => ({
       queryKey: qk.siteSummary(s.id),
       queryFn: () => api.get<SiteSummary>(`/sites/${s.id}/summary`),
+      refetchInterval: 20000,
     })),
   });
   const summaryById = new Map<string, SiteSummary>();
@@ -91,16 +94,19 @@ export default function OverviewPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <h1 className="mb-1 text-xl font-semibold text-slate-100">Overview</h1>
-      <p className="mb-5 text-sm text-slate-400">Status across all sites you can access.</p>
-      {sites.isLoading && <Spinner />}
-      {!sites.isLoading && list.length === 0 && (
-        <p className="text-slate-400">No sites assigned. Ask an admin to grant access.</p>
-      )}
+    <Page>
+      <PageHeader title="Overview" subtitle="Status across all sites you can access." />
+      <PageBody>
+        {sites.isLoading && <Loading />}
+        {sites.isError && (
+          <ErrorState onRetry={() => void sites.refetch()}>Gagal memuat daftar site.</ErrorState>
+        )}
+        {!sites.isLoading && !sites.isError && list.length === 0 && (
+          <p className="text-slate-400">No sites assigned. Ask an admin to grant access.</p>
+        )}
 
-      <div className="space-y-6">
-        {[...groups.entries()].map(([region, sitesIn]) => {
+        <div className="space-y-6">
+          {[...groups.entries()].map(([region, sitesIn]) => {
           const r = regionRollup(sitesIn);
           return (
             <section key={region}>
@@ -125,7 +131,8 @@ export default function OverviewPage() {
             </section>
           );
         })}
-      </div>
-    </div>
+        </div>
+      </PageBody>
+    </Page>
   );
 }

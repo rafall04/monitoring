@@ -6,7 +6,7 @@ import { ROLES, type AppUserPublic, type Role, type Site } from '@noc/shared';
 import { api } from '@/lib/api';
 import { qk, useAppUsers, useSites } from '@/lib/queries';
 import { useConfirm, useToast } from '@/lib/toast';
-import { Button, Card, Field, Select, Spinner, TextInput } from '@/components/ui';
+import { Button, Card, Field, Loading, Page, PageBody, PageHeader, Select, TextInput } from '@/components/ui';
 
 export default function AdminUsersPage() {
   const qc = useQueryClient();
@@ -66,10 +66,10 @@ export default function AdminUsersPage() {
     }));
 
   return (
-    <div className="h-full space-y-6 overflow-y-auto p-6">
-      <h1 className="text-xl font-semibold text-slate-100">App Users &amp; Roles</h1>
-
-      <Card className="p-4">
+    <Page>
+      <PageHeader title="App Users & Roles" subtitle="Kelola akun, peran, dan cakupan site." />
+      <PageBody>
+        <Card className="p-4">
         <h2 className="mb-3 font-semibold text-slate-200">New user</h2>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Field label="Name"><TextInput value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
@@ -107,7 +107,7 @@ export default function AdminUsersPage() {
       <Card className="p-4">
         <h2 className="mb-3 font-semibold text-slate-200">Users</h2>
         {users.isLoading ? (
-          <Spinner />
+          <Loading />
         ) : (
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase text-slate-500">
@@ -169,8 +169,9 @@ export default function AdminUsersPage() {
             </tbody>
           </table>
         )}
-      </Card>
-    </div>
+        </Card>
+      </PageBody>
+    </Page>
   );
 }
 

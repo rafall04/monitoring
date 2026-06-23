@@ -7,9 +7,29 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useRouters } from '@/lib/queries';
 import { useConfirm, useToast } from '@/lib/toast';
-import { Button, Card, Field, Select, Spinner, TextInput } from '@/components/ui';
+import {
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  Field,
+  Loading,
+  Page,
+  PageBody,
+  PageHeader,
+  Select,
+  Tabs,
+  TextInput,
+} from '@/components/ui';
 
 type Tab = 'users' | 'profiles' | 'active' | 'vouchers';
+
+const HOTSPOT_TABS: { value: Tab; label: string }[] = [
+  { value: 'users', label: 'Users' },
+  { value: 'profiles', label: 'Profiles' },
+  { value: 'active', label: 'Active' },
+  { value: 'vouchers', label: 'Vouchers' },
+];
 
 function downloadCsv(rows: VoucherRow[]) {
   const csv = [
@@ -139,7 +159,14 @@ export default function HotspotPage() {
   });
 
   if (!canView)
-    return <div className="p-6 text-slate-400">You do not have access to hotspot management.</div>;
+    return (
+      <Page>
+        <PageHeader title="Hotspot" />
+        <PageBody>
+          <EmptyState>You do not have access to hotspot management.</EmptyState>
+        </PageBody>
+      </Page>
+    );
 
   const profileNames = profiles.data?.map((p) => p.name) ?? [];
   const profileSelect = (value: string, onChange: (v: string) => void) => (
@@ -154,10 +181,14 @@ export default function HotspotPage() {
   );
 
   return (
-    <div className="h-full overflow-y-auto p-4 sm:p-6">
-      <h1 className="mb-4 text-xl font-semibold text-slate-100">Hotspot</h1>
-
-      <div className="mb-4 max-w-xs">
+    <Page>
+      <PageHeader
+        title="Hotspot"
+        subtitle="Kelola user, profil, sesi aktif, dan voucher."
+        actions={<Tabs tabs={HOTSPOT_TABS} value={tab} onChange={setTab} />}
+      />
+      <PageBody>
+        <div className="max-w-xs">
         <Field label="Router">
           <Select value={rid} onChange={(e) => setRouterId(e.target.value)}>
             {routers.data?.length ? (
@@ -171,15 +202,7 @@ export default function HotspotPage() {
             )}
           </Select>
         </Field>
-      </div>
-
-      <div className="mb-4 flex flex-wrap gap-2">
-        {(['users', 'profiles', 'active', 'vouchers'] as Tab[]).map((t) => (
-          <Button key={t} variant={tab === t ? 'primary' : 'secondary'} onClick={() => setTab(t)}>
-            {t}
-          </Button>
-        ))}
-      </div>
+        </div>
 
       {/* ---------------- USERS ---------------- */}
       {tab === 'users' && (
@@ -215,8 +238,12 @@ export default function HotspotPage() {
               </Button>
             </div>
           )}
-          {users.isLoading ? (
-            <Spinner />
+          {users.isError ? (
+            <ErrorState onRetry={() => void users.refetch()}>
+              Gagal memuat user — router mungkin tak terjangkau.
+            </ErrorState>
+          ) : users.isLoading ? (
+            <Loading />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -380,8 +407,12 @@ export default function HotspotPage() {
           ) : (
             <p className="mb-3 text-xs text-slate-500">Read-only — you cannot manage profiles.</p>
           )}
-          {profiles.isLoading ? (
-            <Spinner />
+          {profiles.isError ? (
+            <ErrorState onRetry={() => void profiles.refetch()}>
+              Gagal memuat profil — router mungkin tak terjangkau.
+            </ErrorState>
+          ) : profiles.isLoading ? (
+            <Loading />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -500,8 +531,12 @@ export default function HotspotPage() {
       {/* ---------------- ACTIVE ---------------- */}
       {tab === 'active' && (
         <Card className="p-4">
-          {sessions.isLoading ? (
-            <Spinner />
+          {sessions.isError ? (
+            <ErrorState onRetry={() => void sessions.refetch()}>
+              Gagal memuat sesi — router mungkin tak terjangkau.
+            </ErrorState>
+          ) : sessions.isLoading ? (
+            <Loading />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -648,6 +683,7 @@ export default function HotspotPage() {
           )}
         </Card>
       )}
-    </div>
+      </PageBody>
+    </Page>
   );
 }

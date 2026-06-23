@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useSites } from '@/lib/queries';
-import { Card, Field, Select, Spinner } from '@/components/ui';
+import { Card, EmptyState, ErrorState, Field, Loading, Page, PageBody, PageHeader, Select } from '@/components/ui';
 
 interface UptimeRow {
   deviceId: string;
@@ -42,27 +42,39 @@ export default function ReportsPage() {
   });
 
   if (!canView)
-    return <div className="p-6 text-slate-400">You do not have access to reports.</div>;
+    return (
+      <Page>
+        <PageHeader title="Uptime / SLA" />
+        <PageBody>
+          <EmptyState>You do not have access to reports.</EmptyState>
+        </PageBody>
+      </Page>
+    );
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <h1 className="mb-4 text-xl font-semibold text-slate-100">Uptime / SLA (last 30 days)</h1>
-      <div className="mb-4 max-w-xs">
-        <Field label="Site filter">
-          <Select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
-            <option value="">All sites</option>
-            {sites.data?.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-      <Card className="p-4">
-        {report.isLoading ? (
-          <Spinner />
-        ) : (
+    <Page>
+      <PageHeader title="Uptime / SLA" subtitle="Ketersediaan perangkat 30 hari terakhir." />
+      <PageBody>
+        <div className="max-w-xs">
+          <Field label="Site filter">
+            <Select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+              <option value="">All sites</option>
+              {sites.data?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <Card className="p-4">
+          {report.isError ? (
+            <ErrorState onRetry={() => void report.refetch()}>
+              Gagal memuat laporan uptime.
+            </ErrorState>
+          ) : report.isLoading ? (
+            <Loading />
+          ) : (
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase text-slate-500">
               <tr>
@@ -98,7 +110,8 @@ export default function ReportsPage() {
             </tbody>
           </table>
         )}
-      </Card>
-    </div>
+        </Card>
+      </PageBody>
+    </Page>
   );
 }

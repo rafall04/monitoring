@@ -5,7 +5,7 @@ import { useState } from 'react';
 import type { AuditLogRow, Incident, StatusEventRow } from '@noc/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { Button, Card, Select, Spinner } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorState, Loading, Page, PageBody, PageHeader, Select, Tabs } from '@/components/ui';
 
 type Tab = 'open' | 'timeline' | 'audit';
 
@@ -15,40 +15,25 @@ export default function AlertsPage() {
   const canAudit = can('audit:view');
   const [tab, setTab] = useState<Tab>('open');
 
-  return (
-    <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-surface-border px-5 py-3">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-100">Alerts &amp; Incidents</h1>
-          <p className="text-xs text-slate-400">
-            Pusat insiden, timeline event, dan audit log.
-          </p>
-        </div>
-        <div className="flex overflow-hidden rounded-md border border-surface-border text-xs font-medium">
-          {[
-            { k: 'open', l: 'Open incidents' },
-            { k: 'timeline', l: 'Event timeline' },
-            ...(canAudit ? [{ k: 'audit', l: 'Audit log' }] : []),
-          ].map((t) => (
-            <button
-              key={t.k}
-              onClick={() => setTab(t.k as Tab)}
-              className={`px-3 py-1 ${
-                tab === t.k ? 'bg-accent text-white' : 'text-slate-400 hover:bg-slate-800'
-              }`}
-            >
-              {t.l}
-            </button>
-          ))}
-        </div>
-      </header>
+  const tabs: { value: Tab; label: string }[] = [
+    { value: 'open', label: 'Open incidents' },
+    { value: 'timeline', label: 'Event timeline' },
+    ...(canAudit ? [{ value: 'audit' as Tab, label: 'Audit log' }] : []),
+  ];
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+  return (
+    <Page>
+      <PageHeader
+        title="Alerts & Incidents"
+        subtitle="Pusat insiden, timeline event, dan audit log."
+        actions={<Tabs tabs={tabs} value={tab} onChange={setTab} />}
+      />
+      <PageBody>
         {tab === 'open' && <OpenIncidents canAck={canAck} />}
         {tab === 'timeline' && <EventTimeline />}
         {tab === 'audit' && canAudit && <AuditLog />}
-      </div>
-    </div>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -80,12 +65,13 @@ function OpenIncidents({ canAck }: { canAck: boolean }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['incidents'] }),
   });
 
-  if (q.isLoading)
+  if (q.isError)
     return (
-      <div className="flex justify-center py-10">
-        <Spinner />
-      </div>
+      <ErrorState onRetry={() => void q.refetch()}>
+        Gagal memuat insiden — jangan anggap aman. Coba lagi.
+      </ErrorState>
     );
+  if (q.isLoading) return <Loading />;
   const rows = q.data ?? [];
   const critical = rows.filter((r) => r.isCritical).length;
 
@@ -111,9 +97,7 @@ function OpenIncidents({ canAck }: { canAck: boolean }) {
       </div>
 
       {rows.length === 0 ? (
-        <Card className="p-6 text-center text-sm text-slate-400">
-          Tidak ada insiden terbuka. 🎉
-        </Card>
+        <EmptyState>Tidak ada insiden terbuka. 🎉</EmptyState>
       ) : (
         <Card className="p-0">
           <table className="w-full text-sm">
@@ -291,12 +275,12 @@ function EventTimeline() {
         </label>
       </div>
 
-      {q.isLoading ? (
-        <div className="flex justify-center py-10">
-          <Spinner />
-        </div>
+      {q.isError ? (
+        <ErrorState onRetry={() => void q.refetch()}>Gagal memuat event.</ErrorState>
+      ) : q.isLoading ? (
+        <Loading />
       ) : (q.data?.events.length ?? 0) === 0 ? (
-        <Card className="p-6 text-center text-sm text-slate-400">Belum ada event.</Card>
+        <EmptyState>Belum ada event.</EmptyState>
       ) : (
         <Card className="p-0">
           <ul className="divide-y divide-surface-border">
@@ -357,12 +341,12 @@ function AuditLog() {
         </Select>
       </div>
 
-      {q.isLoading ? (
-        <div className="flex justify-center py-10">
-          <Spinner />
-        </div>
+      {q.isError ? (
+        <ErrorState onRetry={() => void q.refetch()}>Gagal memuat audit log.</ErrorState>
+      ) : q.isLoading ? (
+        <Loading />
       ) : (q.data?.logs.length ?? 0) === 0 ? (
-        <Card className="p-6 text-center text-sm text-slate-400">Tidak ada entri.</Card>
+        <EmptyState>Tidak ada entri.</EmptyState>
       ) : (
         <Card className="p-0">
           <table className="w-full text-sm">

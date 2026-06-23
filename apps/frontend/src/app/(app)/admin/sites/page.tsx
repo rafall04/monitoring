@@ -6,7 +6,7 @@ import type { Company, RouterPublic, RouterResource, Site } from '@noc/shared';
 import { api } from '@/lib/api';
 import { qk, useRouters, useSites } from '@/lib/queries';
 import { useConfirm, usePrompt, useToast } from '@/lib/toast';
-import { Button, Card, Field, Select, Spinner, TextInput } from '@/components/ui';
+import { Button, Card, Field, Page, PageBody, PageHeader, Select, Spinner, TextInput } from '@/components/ui';
 
 export default function AdminSitesPage() {
   const qc = useQueryClient();
@@ -147,11 +147,11 @@ export default function AdminSitesPage() {
   const routersBySite = (sid: string) => routers.data?.filter((r) => r.siteId === sid) ?? [];
 
   return (
-    <div className="h-full space-y-6 overflow-y-auto p-6">
-      <h1 className="text-xl font-semibold text-slate-100">Sites &amp; Routers</h1>
-
-      {/* Companies */}
-      <Card className="p-4">
+    <Page>
+      <PageHeader title="Sites & Routers" subtitle="Kelola company, site, router, dan Netwatch." />
+      <PageBody>
+        {/* Companies */}
+        <Card className="p-4">
         <h2 className="mb-3 font-semibold text-slate-200">Companies</h2>
         <div className="mb-3 flex items-end gap-2">
           <Field label="New company">
@@ -273,7 +273,8 @@ export default function AdminSitesPage() {
           <pre className="overflow-x-auto rounded bg-surface p-3 text-xs text-slate-200">{scriptFor.cli}</pre>
         </Card>
       )}
-    </div>
+      </PageBody>
+    </Page>
   );
 }
 

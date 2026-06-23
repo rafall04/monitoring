@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { ALERT_PLACEHOLDERS, type Settings } from '@noc/shared';
 import { api } from '@/lib/api';
-import { Button, Card, Field, Select, Spinner, Textarea, TextInput } from '@/components/ui';
+import { Button, Card, Field, Loading, Page, PageBody, PageHeader, Select, Textarea, TextInput } from '@/components/ui';
 
 // Sensible accent presets so admins do not need to think in RGB triplets.
 const ACCENT_PRESETS: Array<{ name: string; rgb: string; hex: string }> = [
@@ -77,26 +77,45 @@ export default function AdminSettingsPage() {
     }
   };
 
-  if (q.isLoading || !form) {
+  // Check the error state BEFORE the `!form` guard: on a failed load `form` is
+  // never populated (it is only set from q.data), so a loading-first check would
+  // pin the page on the spinner forever instead of surfacing the error.
+  if (q.isError) {
     return (
-      <div className="p-6">
-        <Spinner />
-      </div>
+      <Page>
+        <PageHeader title="Settings" />
+        <PageBody>
+          <Card className="p-6 text-sm text-red-400">
+            Tidak bisa memuat Settings: {(q.error as Error).message}
+          </Card>
+        </PageBody>
+      </Page>
     );
   }
-  if (q.isError) {
-    return <div className="p-6 text-red-400">Tidak bisa memuat Settings: {(q.error as Error).message}</div>;
+  if (q.isLoading || !form) {
+    return (
+      <Page>
+        <PageHeader title="Settings" />
+        <PageBody>
+          <Loading />
+        </PageBody>
+      </Page>
+    );
   }
 
   return (
-    <div className="h-full space-y-6 overflow-y-auto p-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-100">Settings</h1>
-        <span className="text-xs text-slate-500">Pembaruan: {new Date(form.updatedAt).toLocaleString()}</span>
-      </div>
-
-      {/* ---- Branding ---- */}
-      <Card className="space-y-4 p-4">
+    <Page>
+      <PageHeader
+        title="Settings"
+        actions={
+          <span className="text-xs text-slate-500">
+            Pembaruan: {new Date(form.updatedAt).toLocaleString()}
+          </span>
+        }
+      />
+      <PageBody>
+        {/* ---- Branding ---- */}
+        <Card className="space-y-4 p-4">
         <h2 className="font-semibold text-slate-200">Branding (white-label)</h2>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -310,7 +329,7 @@ export default function AdminSettingsPage() {
         </p>
       </Card>
 
-      <div className="sticky bottom-0 -mx-6 flex items-center gap-3 border-t border-surface-border bg-surface-raised/95 px-6 py-3 backdrop-blur">
+      <div className="sticky bottom-0 -mx-5 flex items-center gap-3 border-t border-surface-border bg-surface-raised/95 px-5 py-3 backdrop-blur sm:-mx-6 sm:px-6">
         <Button onClick={() => save.mutate()} disabled={save.isPending}>
           {save.isPending ? 'Menyimpan…' : 'Simpan perubahan'}
         </Button>
@@ -321,6 +340,7 @@ export default function AdminSettingsPage() {
         )}
         {savedMsg && <span className="text-sm text-emerald-400">{savedMsg}</span>}
       </div>
-    </div>
+      </PageBody>
+    </Page>
   );
 }
