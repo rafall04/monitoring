@@ -1,4 +1,5 @@
 import {
+  applyDeviceStatus,
   env,
   prisma,
   updateRouterStatus,
@@ -38,6 +39,9 @@ export class PollScheduler {
   private readonly reloadMs = 60000;
   private readonly concurrency = 8;
   private readonly maxBackoffMs = 300000;
+  // Consecutive poll failures before we declare the router's devices stale and
+  // flip them to `unknown`. >1 so a single transient timeout doesn't flap.
+  private readonly reconcileAfterFailures = 2;
 
   public stats: SchedulerStats = { lastTick: 0, routerCount: 0, polling: false };
 
@@ -137,9 +141,37 @@ export class PollScheduler {
         'router poll failed (circuit breaker engaged)',
       );
       await updateRouterStatus(this.deps, router, 'offline', null).catch(() => undefined);
+      // Once the router is confirmed offline (not a one-off timeout), its
+      // devices' real status is unknowable — leaving them green would make the
+      // dashboard lie during the exact event operators care about. Flip them to
+      // `unknown` exactly once on crossing the threshold; recovery polls restore
+      // real up/down from Netwatch. The status engine no-ops unchanged status.
+      if (st.failures === this.reconcileAfterFailures) {
+        await this.reconcileDevicesUnknown(router).catch((e) =>
+          this.logger.warn(
+            { routerId: router.id, err: (e as Error)?.message ?? String(e) },
+            'device reconciliation failed',
+          ),
+        );
+      }
     } finally {
       st.lastPolled = Date.now();
       this.state.set(router.id, st);
     }
+  }
+
+  /** Mark a dead router's currently up/down devices as `unknown`. */
+  private async reconcileDevicesUnknown(router: RouterMikrotik): Promise<void> {
+    const devices = await prisma.device.findMany({
+      where: { routerId: router.id, status: { in: ['up', 'down'] } },
+    });
+    if (devices.length === 0) return;
+    for (const device of devices) {
+      await applyDeviceStatus(this.deps, device, 'unknown', 'polling');
+    }
+    this.logger.info(
+      { routerId: router.id, count: devices.length },
+      'reconciled devices to unknown (router offline)',
+    );
   }
 }
