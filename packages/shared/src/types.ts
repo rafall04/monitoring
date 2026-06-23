@@ -340,3 +340,58 @@ export interface VoucherRow {
   password: string;
   profile?: string;
 }
+
+// ---- Ruijie / Reyee Cloud (read models) --------------------------------------
+
+/** A Reyee router/AP, polled from Ruijie Cloud (status + connected-client count). */
+export interface RuijieRouterPublic {
+  id: string;
+  accountId: string;
+  cloudSerial: string;
+  cloudGroupId: string; // BUILDING group — used for the client drill-down
+  groupName: string; // project/room, for grouping in the UI
+  name: string;
+  model: string | null;
+  online: boolean;
+  clientCount: number; // staNums
+  activeClients: number; // staActiveNums
+  localIp: string | null;
+  wanIp: string | null;
+  mac: string | null;
+  firmware: string | null;
+  lastSeenAt: string | null;
+  updatedAt: string;
+}
+
+/** A Ruijie Cloud account (creds never exposed — only `hasAppSecret`). */
+export interface RuijieAccountPublic {
+  id: string;
+  label: string;
+  appId: string;
+  baseUrl: string;
+  pollIntervalSec: number | null;
+  hasAppSecret: boolean;
+  lastPolledAt: string | null;
+  lastError: string | null;
+  routerCount: number;
+  createdAt: string;
+}
+
+/** One connected client station (on-demand drill-down for a router). */
+export interface RuijieStationDTO {
+  mac: string;
+  ip: string | null;
+  hostname: string | null;
+  apName: string | null;
+  apSerial: string | null;
+  ssid: string | null;
+  band: string | null;
+  rssi: number | null;
+  channel: string | null;
+  flowUp: number | null;
+  flowDown: number | null;
+  onlineSince: number | null;
+  manufacturer: string | null;
+  os: string | null;
+  category: string | null;
+}

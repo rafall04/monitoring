@@ -255,3 +255,52 @@ model Setting {
 
   @@map("setting")
 }
+
+// =============================================================================
+// Ruijie / Reyee Cloud integration (separate from the MikroTik spine).
+// A cloud ACCOUNT (one app_id/secret) exposes many devices; the worker polls it
+// READ-ONLY for per-router online status + connected-client counts. Different
+// vendor/ecosystem from RouterMikrotik (no Netwatch/webhook/binary-API), so it
+// gets its own models rather than overloading RouterMikrotik.
+// =============================================================================
+model RuijieAccount {
+  id                 String    @id @default(cuid())
+  label              String    @default("Ruijie Cloud")
+  appId              String
+  appSecretEncrypted String // AES-256-GCM, never exposed to clients
+  baseUrl            String    @default("https://cloud-as.ruijienetworks.com")
+  pollIntervalSec    Int? // null = use the default
+  lastPolledAt       DateTime?
+  lastError          String? // last poll failure message, for the admin UI
+  createdAt          DateTime  @default(now())
+
+  routers RuijieRouter[]
+
+  @@map("ruijie_account")
+}
+
+model RuijieRouter {
+  id        String        @id @default(cuid())
+  accountId String
+  account   RuijieAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  cloudSerial   String // serialNumber in Ruijie Cloud (stable id)
+  cloudGroupId  String // BUILDING group_id — used for the on-demand client drill-down
+  groupName     String // project/room name, for grouping in the UI
+  name          String // aliasName
+  model         String? // productClass, e.g. EW1300G
+  online        Boolean   @default(false)
+  clientCount   Int       @default(0) // staNums
+  activeClients Int       @default(0) // staActiveNums
+  localIp       String?
+  wanIp         String?
+  mac           String?
+  firmware      String?
+  lastSeenAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([accountId, cloudSerial])
+  @@index([accountId])
+  @@map("ruijie_router")
+}

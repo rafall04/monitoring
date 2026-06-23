@@ -25,6 +25,8 @@ export const PERMISSIONS = [
   'audit:view', // read audit log
   'settings:manage', // edit global branding + defaults
   'alerts:manage', // ack / silence incidents
+  'ruijie:view', // see Ruijie/Reyee routers + connected-client counts
+  'ruijie:manage', // add/remove Ruijie Cloud accounts (credentials)
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -43,9 +45,10 @@ const OPERATOR_PERMISSIONS: Permission[] = [
   'hotspot:disconnect',
   'reports:view',
   'alerts:manage',
+  'ruijie:view',
 ];
 
-const USER_PERMISSIONS: Permission[] = ['map:view', 'device:view'];
+const USER_PERMISSIONS: Permission[] = ['map:view', 'device:view', 'ruijie:view'];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   user: USER_PERMISSIONS,

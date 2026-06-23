@@ -10,9 +10,13 @@ import type {
   AppUserPublic,
   Area,
   CreateDeviceInput,
+  CreateRuijieAccountInput,
   Device,
   PatchDevicePositionInput,
   RouterPublic,
+  RuijieAccountPublic,
+  RuijieRouterPublic,
+  RuijieStationDTO,
   Site,
   SiteSummary,
   UpdateDeviceInput,
@@ -28,6 +32,9 @@ export const qk = {
   siteAreas: (id: string) => ['site', id, 'areas'] as const,
   routers: (siteId?: string) => ['routers', siteId ?? 'all'] as const,
   users: ['users'] as const,
+  ruijieRouters: ['ruijie', 'routers'] as const,
+  ruijieAccounts: ['ruijie', 'accounts'] as const,
+  ruijieClients: (id: string) => ['ruijie', 'routers', id, 'clients'] as const,
 };
 
 export function useSites() {
@@ -62,6 +69,47 @@ export function useRouters(siteId?: string) {
 }
 export function useAppUsers() {
   return useQuery({ queryKey: qk.users, queryFn: () => api.get<AppUserPublic[]>('/users') });
+}
+
+// ---- Ruijie / Reyee Cloud ----------------------------------------------------
+// Data is mirrored into our DB by the worker poller; the UI polls our API for
+// fresh counts (the worker, not each browser, talks to Ruijie's rate-limited API).
+
+export function useRuijieRouters() {
+  return useQuery({
+    queryKey: qk.ruijieRouters,
+    queryFn: () => api.get<RuijieRouterPublic[]>('/ruijie/routers'),
+    refetchInterval: 30_000,
+  });
+}
+export function useRuijieAccounts() {
+  return useQuery({
+    queryKey: qk.ruijieAccounts,
+    queryFn: () => api.get<RuijieAccountPublic[]>('/ruijie/accounts'),
+  });
+}
+/** On-demand client drill-down for one router; live-refreshes only while open. */
+export function useRuijieRouterClients(routerId: string | null) {
+  return useQuery({
+    queryKey: qk.ruijieClients(routerId ?? ''),
+    queryFn: () => api.get<RuijieStationDTO[]>(`/ruijie/routers/${routerId}/clients`),
+    enabled: Boolean(routerId),
+    refetchInterval: routerId ? 60_000 : false,
+  });
+}
+export function useCreateRuijieAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateRuijieAccountInput) => api.post('/ruijie/accounts', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.ruijieAccounts }),
+  });
+}
+export function useDeleteRuijieAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.del(`/ruijie/accounts/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.ruijieAccounts }),
+  });
 }
 
 /** Apply a realtime event into the query cache (granular, per-device updates). */

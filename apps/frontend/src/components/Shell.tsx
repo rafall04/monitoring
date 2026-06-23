@@ -93,6 +93,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {(can('hotspot:view') || can('reports:view') || can('map:view')) && sectionLabel('Operations')}
           {can('map:view') && item('/alerts', 'Alerts')}
           {can('hotspot:view') && item('/hotspot', 'Hotspot')}
+          {can('ruijie:view') && item('/ruijie', 'Ruijie WiFi')}
           {can('reports:view') && item('/reports', 'Reports')}
           {showAdmin && (
             <>

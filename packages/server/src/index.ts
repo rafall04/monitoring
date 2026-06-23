@@ -8,3 +8,4 @@ export * from './settings';
 export * from './notify';
 export * from './status-engine';
 export * from './mikrotik';
+export * from './ruijie';

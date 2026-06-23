@@ -7,6 +7,7 @@ import {
 } from '@noc/server';
 import { startHealthServer } from './health';
 import { RetentionSweeper } from './retention';
+import { RuijiePoller } from './ruijie-poller';
 import { PollScheduler } from './scheduler';
 
 async function main() {
@@ -33,12 +34,17 @@ async function main() {
 
   const scheduler = new PollScheduler(deps, logger);
   const retention = new RetentionSweeper(logger);
+  // The Ruijie poller is NOT sharded — run it only on the primary shard so
+  // multiple worker instances never double-poll the shared daily API quota.
+  const ruijie = env.WORKER_SHARD_INDEX === 0 ? new RuijiePoller(logger) : null;
   const health = startHealthServer(env.WORKER_HEALTH_PORT, () => ({
     scheduler: scheduler.stats,
     retention: retention.stats,
+    ruijie: ruijie?.stats ?? 'disabled (non-primary shard)',
   }));
   scheduler.start();
   retention.start();
+  ruijie?.start();
 
   logger.info(
     {
@@ -53,6 +59,7 @@ async function main() {
     logger.info({ signal }, 'shutting down worker');
     scheduler.stop();
     retention.stop();
+    ruijie?.stop();
     health.close();
     await redisPub.quit().catch(() => undefined);
     await prisma.$disconnect().catch(() => undefined);

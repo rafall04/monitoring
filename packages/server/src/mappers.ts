@@ -19,6 +19,8 @@ import type {
   RouterResource,
   RouterStatus,
   Role,
+  RuijieAccountPublic,
+  RuijieRouterPublic,
   Site as SiteDTO,
   TelegramMode,
 } from '@noc/shared';
@@ -29,6 +31,8 @@ import type {
   Device,
   Line,
   RouterMikrotik,
+  RuijieAccount,
+  RuijieRouter,
   Site,
 } from '@prisma/client';
 
@@ -138,5 +142,41 @@ export function toAreaDto(a: Area & { lines?: Line[] }): AreaDTO {
     orderIndex: a.orderIndex,
     createdAt: a.createdAt.toISOString(),
     lines: (a.lines ?? []).map(toLineDto),
+  };
+}
+
+export function toRuijieRouterPublic(r: RuijieRouter): RuijieRouterPublic {
+  return {
+    id: r.id,
+    accountId: r.accountId,
+    cloudSerial: r.cloudSerial,
+    cloudGroupId: r.cloudGroupId,
+    groupName: r.groupName,
+    name: r.name,
+    model: r.model,
+    online: r.online,
+    clientCount: r.clientCount,
+    activeClients: r.activeClients,
+    localIp: r.localIp,
+    wanIp: r.wanIp,
+    mac: r.mac,
+    firmware: r.firmware,
+    lastSeenAt: r.lastSeenAt ? r.lastSeenAt.toISOString() : null,
+    updatedAt: r.updatedAt.toISOString(),
+  };
+}
+
+export function toRuijieAccountPublic(a: RuijieAccount, routerCount = 0): RuijieAccountPublic {
+  return {
+    id: a.id,
+    label: a.label,
+    appId: a.appId,
+    baseUrl: a.baseUrl,
+    pollIntervalSec: a.pollIntervalSec,
+    hasAppSecret: Boolean(a.appSecretEncrypted),
+    lastPolledAt: a.lastPolledAt ? a.lastPolledAt.toISOString() : null,
+    lastError: a.lastError,
+    routerCount,
+    createdAt: a.createdAt.toISOString(),
   };
 }

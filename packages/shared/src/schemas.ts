@@ -324,3 +324,21 @@ export const uptimeReportQuerySchema = z.object({
   to: z.string().datetime().optional(),
 });
 export type UptimeReportQuery = z.infer<typeof uptimeReportQuerySchema>;
+
+// ---- Ruijie / Reyee Cloud ----------------------------------------------------
+
+export const createRuijieAccountSchema = z.object({
+  label: z.string().min(1).max(120).default('Ruijie Cloud'),
+  appId: z.string().min(1).max(255),
+  appSecret: z.string().min(1).max(512), // plaintext in; stored encrypted
+  baseUrl: z.string().url().max(255).default('https://cloud-as.ruijienetworks.com'),
+  // min 30s: per-account daily quota is 5,000 — polling faster than ~30s risks it.
+  pollIntervalSec: z.number().int().min(30).max(3600).nullable().optional(),
+});
+export type CreateRuijieAccountInput = z.infer<typeof createRuijieAccountSchema>;
+
+// On update appSecret is optional: omit/empty = keep existing.
+export const updateRuijieAccountSchema = createRuijieAccountSchema
+  .partial()
+  .extend({ appSecret: z.string().max(512).optional() });
+export type UpdateRuijieAccountInput = z.infer<typeof updateRuijieAccountSchema>;
