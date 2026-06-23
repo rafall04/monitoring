@@ -1,13 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  discoverRuijieProjects,
   encryptSecret,
+  pollRuijieAccount,
   prisma,
   ruijieClientForAccount,
   toRuijieAccountPublic,
   toRuijieRouterPublic,
 } from '@noc/server';
-import { createRuijieAccountSchema, idParamSchema } from '@noc/shared';
-import { notFound } from '../lib/errors';
+import { createRuijieAccountSchema, idParamSchema, ruijieMonitoredGroupsSchema } from '@noc/shared';
+import { badGateway, conflict, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import { authenticate, requirePermission } from '../plugins/rbac';
 
@@ -67,6 +69,10 @@ export async function ruijieRoutes(app: FastifyInstance) {
 
   app.post('/accounts', manageGuard, async (req) => {
     const body = createRuijieAccountSchema.parse(req.body);
+    // Single-account by design: the owner's one personal Ruijie account.
+    if ((await prisma.ruijieAccount.count()) > 0) {
+      throw conflict('Sudah ada akun Ruijie — hapus yang lama dulu (hanya 1 akun didukung).');
+    }
     const a = await prisma.ruijieAccount.create({
       data: {
         label: body.label,
@@ -100,6 +106,42 @@ export async function ruijieRoutes(app: FastifyInstance) {
     } finally {
       await client.close().catch(() => undefined);
     }
+  });
+
+  // Live-discover every project/group in the account so the admin can choose
+  // which to monitor. super_admin only — it hits the live API and reveals the
+  // owner's personal (non-NOC) sites too.
+  app.get('/accounts/:id/projects', manageGuard, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const acc = await prisma.ruijieAccount.findUnique({ where: { id } });
+    if (!acc) throw notFound('Ruijie account not found');
+    try {
+      return await discoverRuijieProjects(acc);
+    } catch (e) {
+      throw badGateway(`Ruijie: ${(e as Error).message}`);
+    }
+  });
+
+  // Save the monitor allowlist, then poll once so de-selected routers are pruned
+  // and newly-selected projects appear immediately (no wait for the worker tick).
+  app.put('/accounts/:id/projects', manageGuard, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const { monitoredGroupIds } = ruijieMonitoredGroupsSchema.parse(req.body);
+    const acc = await prisma.ruijieAccount.findUnique({ where: { id } });
+    if (!acc) throw notFound('Ruijie account not found');
+    const updated = await prisma.ruijieAccount.update({
+      where: { id },
+      data: { monitoredGroupIds },
+    });
+    await writeAudit(req, {
+      action: 'update',
+      entity: 'ruijie_account',
+      entityId: id,
+      after: { monitoredGroupIds },
+    });
+    const poll = await pollRuijieAccount(updated);
+    const routerCount = await prisma.ruijieRouter.count({ where: { accountId: id } });
+    return { account: toRuijieAccountPublic(updated, routerCount), poll };
   });
 
   app.delete('/accounts/:id', manageGuard, async (req, reply) => {

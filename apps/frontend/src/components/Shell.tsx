@@ -93,7 +93,6 @@ export function Shell({ children }: { children: ReactNode }) {
           {(can('hotspot:view') || can('reports:view') || can('map:view')) && sectionLabel('Operations')}
           {can('map:view') && item('/alerts', 'Alerts')}
           {can('hotspot:view') && item('/hotspot', 'Hotspot')}
-          {can('ruijie:view') && item('/ruijie', 'Ruijie WiFi')}
           {can('reports:view') && item('/reports', 'Reports')}
           {showAdmin && (
             <>
@@ -101,6 +100,7 @@ export function Shell({ children }: { children: ReactNode }) {
               {can('site:manage') && item('/admin/sites', 'Sites & Routers')}
               {can('appuser:manage') && item('/admin/users', 'Users')}
               {can('settings:manage') && item('/admin/settings', 'Settings')}
+              {can('ruijie:view') && item('/ruijie', 'Ruijie WiFi')}
             </>
           )}
         </nav>

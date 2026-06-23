@@ -15,6 +15,7 @@ import type {
   PatchDevicePositionInput,
   RouterPublic,
   RuijieAccountPublic,
+  RuijieProjectDTO,
   RuijieRouterPublic,
   RuijieStationDTO,
   Site,
@@ -35,6 +36,7 @@ export const qk = {
   ruijieRouters: ['ruijie', 'routers'] as const,
   ruijieAccounts: ['ruijie', 'accounts'] as const,
   ruijieClients: (id: string) => ['ruijie', 'routers', id, 'clients'] as const,
+  ruijieProjects: (accountId: string) => ['ruijie', 'accounts', accountId, 'projects'] as const,
 };
 
 export function useSites() {
@@ -109,6 +111,29 @@ export function useDeleteRuijieAccount() {
   return useMutation({
     mutationFn: (id: string) => api.del(`/ruijie/accounts/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.ruijieAccounts }),
+  });
+}
+/** Live-discover the account's projects (hits the Ruijie API; load only when the picker opens). */
+export function useRuijieProjects(accountId: string | null) {
+  return useQuery({
+    queryKey: qk.ruijieProjects(accountId ?? ''),
+    queryFn: () => api.get<RuijieProjectDTO[]>(`/ruijie/accounts/${accountId}/projects`),
+    enabled: Boolean(accountId),
+    staleTime: 0,
+  });
+}
+/** Save which projects the account monitors; backend re-polls so routers update at once. */
+export function useSaveRuijieMonitored() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; monitoredGroupIds: string[] }) =>
+      api.put<{ poll?: { devices?: number } }>(`/ruijie/accounts/${v.id}/projects`, {
+        monitoredGroupIds: v.monitoredGroupIds,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.ruijieAccounts });
+      qc.invalidateQueries({ queryKey: qk.ruijieRouters });
+    },
   });
 }
 

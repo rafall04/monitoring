@@ -270,6 +270,10 @@ model RuijieAccount {
   appSecretEncrypted String // AES-256-GCM, never exposed to clients
   baseUrl            String    @default("https://cloud-as.ruijienetworks.com")
   pollIntervalSec    Int? // null = use the default
+  // Ruijie group_ids the NOC monitors. The account is the owner's PERSONAL one and
+  // mixes many sites; the poller only stores devices in these groups (e.g. the
+  // school), so non-NOC sites never reach our DB/UI. Empty = monitor nothing.
+  monitoredGroupIds  String[]  @default([])
   lastPolledAt       DateTime?
   lastError          String? // last poll failure message, for the admin UI
   createdAt          DateTime  @default(now())

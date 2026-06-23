@@ -177,6 +177,7 @@ export function toRuijieAccountPublic(a: RuijieAccount, routerCount = 0): Ruijie
     lastPolledAt: a.lastPolledAt ? a.lastPolledAt.toISOString() : null,
     lastError: a.lastError,
     routerCount,
+    monitoredGroupIds: a.monitoredGroupIds,
     createdAt: a.createdAt.toISOString(),
   };
 }

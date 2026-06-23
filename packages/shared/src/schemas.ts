@@ -342,3 +342,11 @@ export const updateRuijieAccountSchema = createRuijieAccountSchema
   .partial()
   .extend({ appSecret: z.string().max(512).optional() });
 export type UpdateRuijieAccountInput = z.infer<typeof updateRuijieAccountSchema>;
+
+// The monitor allowlist: which Ruijie project/group ids the NOC tracks. The
+// worker only stores devices in these groups (so the personal account's non-NOC
+// sites never reach our DB or the UI). Empty array = monitor nothing.
+export const ruijieMonitoredGroupsSchema = z.object({
+  monitoredGroupIds: z.array(z.string().min(1).max(64)).max(500),
+});
+export type RuijieMonitoredGroupsInput = z.infer<typeof ruijieMonitoredGroupsSchema>;

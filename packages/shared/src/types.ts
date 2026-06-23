@@ -374,7 +374,23 @@ export interface RuijieAccountPublic {
   lastPolledAt: string | null;
   lastError: string | null;
   routerCount: number;
+  /** Ruijie group_ids this account monitors. Empty = nothing selected yet. */
+  monitoredGroupIds: string[];
   createdAt: string;
+}
+
+/**
+ * A Ruijie project/group discovered live from the account, for the super_admin's
+ * monitor-allowlist picker. The personal account mixes many sites (factory, home,
+ * school); the admin ticks only the ones the NOC should monitor (e.g. the school).
+ */
+export interface RuijieProjectDTO {
+  groupId: string;
+  groupName: string;
+  deviceCount: number;
+  onlineCount: number;
+  clientCount: number;
+  monitored: boolean; // already in the account's allowlist
 }
 
 /** One connected client station (on-demand drill-down for a router). */
