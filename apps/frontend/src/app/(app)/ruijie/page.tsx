@@ -148,46 +148,37 @@ function ClientDrill({ routerId, online, count }: { routerId: string; online: bo
   if (!online || count === 0) {
     return <div className="px-4 pb-3 text-xs text-slate-500">Tidak ada client terkoneksi.</div>;
   }
+  const clients = q.data ?? [];
   return (
-    <div className="px-4 pb-3">
+    <div className="px-3 pb-3 sm:px-4">
       {q.isError ? (
         <ErrorState onRetry={() => void q.refetch()}>Gagal memuat daftar client.</ErrorState>
       ) : q.isLoading ? (
         <Loading />
+      ) : clients.length === 0 ? (
+        <p className="py-2 text-xs text-slate-500">Detail client tidak tersedia.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs uppercase text-slate-500">
-              <tr>
-                <th className="py-1">Device</th>
-                <th>IP</th>
-                <th>MAC</th>
-                <th>SSID</th>
-                <th>Band</th>
-                <th>RSSI</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(q.data ?? []).map((s) => (
-                <tr key={s.mac} className="border-t border-surface-border">
-                  <td className="py-1.5">{s.hostname ?? s.os ?? '—'}</td>
-                  <td>{s.ip ?? '—'}</td>
-                  <td className="font-mono text-[11px] text-slate-400">{s.mac}</td>
-                  <td className="text-slate-400">{s.ssid ?? '—'}</td>
-                  <td>{s.band ?? '—'}</td>
-                  <td>{s.rssi ?? '—'}</td>
-                </tr>
-              ))}
-              {(q.data?.length ?? 0) === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-2 text-slate-500">
-                    Detail client tidak tersedia.
-                  </td>
-                </tr>
+        // Responsive list (not a wide table) so it stays tidy on a phone: each
+        // client wraps to its own lines on narrow screens, one row on desktop.
+        <ul className="divide-y divide-surface-border overflow-hidden rounded-md border border-surface-border">
+          {clients.map((s) => (
+            <li key={s.mac} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+              <span className="text-sm font-medium text-slate-100">{s.hostname ?? s.os ?? '?'}</span>
+              {s.band && (
+                <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] text-slate-400">
+                  {s.band}
+                  {s.rssi != null ? ` · ${s.rssi}dBm` : ''}
+                </span>
               )}
-            </tbody>
-          </table>
-        </div>
+              {s.ssid && <span className="truncate text-xs text-slate-500">{s.ssid}</span>}
+              {s.apName && <span className="text-[10px] text-slate-500">via {s.apName}</span>}
+              <span className="ml-auto text-right text-xs leading-tight text-slate-400">
+                <span className="block">{s.ip ?? '—'}</span>
+                <span className="block font-mono text-[10px] text-slate-500">{s.mac}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -275,6 +266,7 @@ function AccountsPanel() {
       {accounts.isLoading ? (
         <Loading />
       ) : accounts.data?.length ? (
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-left text-xs uppercase text-slate-500">
             <tr>
@@ -315,6 +307,7 @@ function AccountsPanel() {
             ))}
           </tbody>
         </table>
+        </div>
       ) : (
         <p className="text-xs text-slate-500">
           Belum ada akun. Tambahkan App ID + Secret (read-only) dari Ruijie Cloud → worker poll tiap ~60 dtk.

@@ -44,9 +44,12 @@ export async function ruijieRoutes(app: FastifyInstance) {
     const client = ruijieClientForAccount(router.account);
     try {
       const all = await client.getClients(router.cloudGroupId);
+      // Clients come per BUILDING group (which may hold >1 router). Prefer the
+      // ones served by this router's AP; if that linkage yields nothing (single-
+      // router group, or a different serial format) fall back to the whole group
+      // rather than silently hiding clients — each row carries its serving AP.
       const mine = all.filter((s) => s.apSerial === router.cloudSerial);
-      // fall back to the whole group if the AP-serial linkage is absent
-      return mine.length || all.every((s) => s.apSerial) ? mine : all;
+      return mine.length > 0 ? mine : all;
     } finally {
       await client.close().catch(() => undefined);
     }
