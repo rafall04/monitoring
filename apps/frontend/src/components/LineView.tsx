@@ -11,7 +11,7 @@ import {
   type Line,
   type Site,
 } from '@noc/shared';
-import { deviceSvg } from '@/lib/icons';
+import { deviceSvg, escapeHtml } from '@/lib/icons';
 import { useAreaMutations, useReorderDevices } from '@/lib/queries';
 import { Button, Select, TextInput } from './ui';
 
@@ -65,7 +65,7 @@ function Rollup({ devs }: { devs: Device[] }) {
 
 function glyph(d: Device): string {
   if (d.iconUrl)
-    return `<img src="${d.iconUrl}" width="16" height="16" style="object-fit:contain;display:block" />`;
+    return `<img src="${escapeHtml(d.iconUrl)}" width="16" height="16" style="object-fit:contain;display:block" />`;
   return deviceSvg((d.iconKey as DeviceType) || d.type, 16);
 }
 

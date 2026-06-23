@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { WsServerEvent } from '@noc/shared';
-import { getAccessToken } from './api';
+import { getAccessToken, tryRefresh } from './api';
 
 // Resolve the WS URL at runtime. Next.js rewrites can't proxy WebSocket upgrades,
 // so the socket must reach the backend directly:
@@ -54,10 +54,24 @@ export function useSiteSocket(
           /* ignore malformed */
         }
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (closed) return;
         attempts++;
-        timer = setTimeout(connect, Math.min(10000, 1000 * attempts));
+        // Exponential backoff (1s→10s) with 50–100% jitter so many tabs don't
+        // reconnect in lockstep after a backend blip (thundering herd).
+        const base = Math.min(10000, 1000 * 2 ** Math.min(attempts - 1, 5));
+        const delay = base * (0.5 + Math.random() / 2);
+        // 1008 = the server rejected the upgrade as unauthorized (expired token).
+        // A long-lived NOC tab whose only activity is this socket never triggers
+        // an HTTP 401, so refresh the access token once before reconnecting —
+        // otherwise it would loop forever with the same stale token.
+        if (event.code === 1008) {
+          void tryRefresh().finally(() => {
+            if (!closed) timer = setTimeout(connect, delay);
+          });
+        } else {
+          timer = setTimeout(connect, delay);
+        }
       };
       socket.onerror = () => socket?.close();
     };

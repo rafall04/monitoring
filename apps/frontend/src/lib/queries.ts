@@ -68,6 +68,12 @@ export function useAppUsers() {
 export function applyWsEvent(qc: QueryClient, ev: WsServerEvent): void {
   const upd = (siteId: string, fn: (old: Device[] | undefined) => Device[] | undefined) =>
     qc.setQueryData<Device[]>(qk.siteDevices(siteId), fn);
+  // Any device change can shift the site's up/down/unknown/maintenance counts.
+  // The backend also pushes an explicit `site.summary`, but invalidating here
+  // keeps the header KPIs honest even if that event is dropped or arrives out of
+  // order — otherwise the map can show a red marker while the header says 0 down.
+  const touchSummary = (siteId: string) =>
+    void qc.invalidateQueries({ queryKey: qk.siteSummary(siteId) });
 
   switch (ev.type) {
     case 'device.status':
@@ -76,15 +82,23 @@ export function applyWsEvent(qc: QueryClient, ev: WsServerEvent): void {
           d.id === ev.deviceId ? { ...d, status: ev.status, statusSince: ev.statusSince } : d,
         ),
       );
+      touchSummary(ev.siteId);
       break;
     case 'device.updated':
       upd(ev.siteId, (old) => old?.map((d) => (d.id === ev.deviceId ? ev.device : d)));
+      touchSummary(ev.siteId);
       break;
     case 'device.created':
-      upd(ev.siteId, (old) => (old ? [...old, ev.device] : [ev.device]));
+      // Dedup by id: the creating client already appended via the mutation's
+      // onSuccess, so the broadcast echo must not add a second copy.
+      upd(ev.siteId, (old) =>
+        old?.some((d) => d.id === ev.device.id) ? old : [...(old ?? []), ev.device],
+      );
+      touchSummary(ev.siteId);
       break;
     case 'device.deleted':
       upd(ev.siteId, (old) => old?.filter((d) => d.id !== ev.deviceId));
+      touchSummary(ev.siteId);
       break;
     case 'site.summary':
       qc.setQueryData(qk.siteSummary(ev.siteId), ev.summary);

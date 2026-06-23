@@ -60,7 +60,7 @@ export class ApiError extends Error {
   }
 }
 
-async function tryRefresh(): Promise<boolean> {
+export async function tryRefresh(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
   try {
