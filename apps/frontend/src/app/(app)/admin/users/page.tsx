@@ -104,7 +104,7 @@ export default function AdminUsersPage() {
         </div>
       </Card>
 
-      <Card className="p-4">
+      <Card className="overflow-x-auto p-4">
         <h2 className="mb-3 font-semibold text-slate-200">Users</h2>
         {users.isLoading ? (
           <Loading />

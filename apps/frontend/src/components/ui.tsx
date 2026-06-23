@@ -141,13 +141,13 @@ export function PageHeader({
   return (
     <header className="shrink-0 border-b border-surface-border bg-surface-raised">
       <div
-        className={`mx-auto flex w-full ${PAGE_WIDTHS[width]} flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3 sm:px-6`}
+        className={`mx-auto flex w-full ${PAGE_WIDTHS[width]} flex-col gap-x-4 gap-y-2 px-5 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-6`}
       >
         <div className="min-w-0">
           <h1 className="truncate text-lg font-semibold text-slate-100">{title}</h1>
           {subtitle && <p className="mt-0.5 truncate text-xs text-slate-400">{subtitle}</p>}
         </div>
-        {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
     </header>
   );

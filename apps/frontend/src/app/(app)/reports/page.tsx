@@ -67,7 +67,7 @@ export default function ReportsPage() {
             </Select>
           </Field>
         </div>
-        <Card className="p-4">
+        <Card className="overflow-x-auto p-4">
           {report.isError ? (
             <ErrorState onRetry={() => void report.refetch()}>
               Gagal memuat laporan uptime.

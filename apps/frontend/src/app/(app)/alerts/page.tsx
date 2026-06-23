@@ -99,7 +99,7 @@ function OpenIncidents({ canAck }: { canAck: boolean }) {
       {rows.length === 0 ? (
         <EmptyState>Tidak ada insiden terbuka. 🎉</EmptyState>
       ) : (
-        <Card className="p-0">
+        <Card className="overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase text-slate-500">
               <tr>
@@ -282,7 +282,7 @@ function EventTimeline() {
       ) : (q.data?.events.length ?? 0) === 0 ? (
         <EmptyState>Belum ada event.</EmptyState>
       ) : (
-        <Card className="p-0">
+        <Card className="overflow-x-auto p-0">
           <ul className="divide-y divide-surface-border">
             {q.data?.events.map((e) => (
               <li key={e.id} className="flex items-center gap-3 px-3 py-2 text-sm">
@@ -348,7 +348,7 @@ function AuditLog() {
       ) : (q.data?.logs.length ?? 0) === 0 ? (
         <EmptyState>Tidak ada entri.</EmptyState>
       ) : (
-        <Card className="p-0">
+        <Card className="overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase text-slate-500">
               <tr>
