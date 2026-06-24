@@ -1,4 +1,4 @@
-# MikroTik NOC — Monitoring & Hotspot Management
+# RAF NOC — Monitoring & Hotspot Management
 
 An all-in-one Network Operations Center for fleets of MikroTik routers spread
 across many sites. Status comes from **RouterOS Netwatch** (the server does **no**

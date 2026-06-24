@@ -6,7 +6,7 @@ import type { BrandingPublic } from '@noc/shared';
 import { api } from './api';
 
 const DEFAULT_BRANDING: BrandingPublic = {
-  orgName: 'MikroTik NOC',
+  orgName: 'RAF NOC',
   logoUrl: null,
   accentRgb: '59 130 246',
   themeDefault: 'dark',

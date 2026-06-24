@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# MikroTik NOC — installer for Ubuntu 20.04+ (Docker based).
+# RAF NOC — installer for Ubuntu 20.04+ (Docker based).
 #
 # Just run it and answer the prompts (asked every run; press Enter to keep the
 # current value, so the ports are always customizable):
@@ -62,7 +62,7 @@ done
 # ---- interactive: 3 inputs (IP, frontend domain, backend domain) + 2 ports,
 # asked on EVERY run with the current values pre-filled. ----
 if [ "$ASSUME_YES" != "1" ] && [ -t 0 ]; then
-  echo "──────────── Instalasi MikroTik NOC ────────────"
+  echo "──────────── Instalasi RAF NOC ────────────"
   DI="${SERVER_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"; DI="${DI:-localhost}"
   read -rp "1) IP server [${DI}]: " A; SERVER_IP="${A:-$DI}"
   read -rp "2) Domain frontend (Enter=tetap, - =hapus)${FRONTEND_DOMAIN:+ [$FRONTEND_DOMAIN]}: " A; A="${A:-$FRONTEND_DOMAIN}"; [ "$A" = "-" ] && A=""; FRONTEND_DOMAIN="$A"
@@ -267,7 +267,7 @@ fi
 cat <<EOF
 
 ============================================================
- MikroTik NOC deployed  (${LAYOUT}$([ "$TLS" = "1" ] && echo " + TLS"))
+ RAF NOC deployed  (${LAYOUT}$([ "$TLS" = "1" ] && echo " + TLS"))
    Open     : ${WEB_URL}
    Backend  : ${API_URL}
    Direct   : http://${SERVER_IP}:${FRONTEND_PORT} (web) · http://${SERVER_IP}:${BACKEND_PORT} (api)

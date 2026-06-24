@@ -224,7 +224,7 @@ model AuditLog {
 // defaults (poll interval, retention, default map view).
 model Setting {
   id                 String   @id @default("global")
-  orgName            String   @default("MikroTik NOC")
+  orgName            String   @default("RAF NOC")
   logoUrl            String?
   // RGB channel triplet e.g. "59 130 246" — consumed via CSS var --accent so
   // alpha utilities (bg-accent/20) keep working.

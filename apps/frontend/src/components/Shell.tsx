@@ -133,6 +133,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <button onClick={() => void logout()} className="text-red-400 hover:text-red-300">
             Sign out
           </button>
+          <div className="mt-3 text-[10px] text-slate-600">© {new Date().getFullYear()} RAF</div>
         </div>
       </aside>
 

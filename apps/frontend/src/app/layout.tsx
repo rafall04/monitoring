@@ -4,8 +4,8 @@ import type { ReactNode } from 'react';
 import { Providers } from './providers';
 
 export const metadata: Metadata = {
-  title: 'MikroTik NOC',
-  description: 'Network Operations Center — monitoring & hotspot management',
+  title: 'RAF NOC',
+  description: 'RAF NOC — Network Operations Center',
 };
 
 // Set the theme class before paint to avoid a flash. Defaults to dark (the NOC

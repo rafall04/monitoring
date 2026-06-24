@@ -98,7 +98,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return { status: ok ? 'ok' : 'degraded', checks };
   });
 
-  app.get('/', async () => ({ name: 'MikroTik NOC API', version: '0.1.0' }));
+  app.get('/', async () => ({ name: 'RAF NOC API', version: '0.1.0' }));
 
   await app.register(apiRoutes, { prefix: '/api/v1' });
   await registerWebsocketHub(app);
