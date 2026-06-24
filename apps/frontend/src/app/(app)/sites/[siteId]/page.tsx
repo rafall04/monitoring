@@ -22,6 +22,7 @@ import {
 } from '@/lib/queries';
 import { useConfirm, useToast } from '@/lib/toast';
 import { useSiteSocket } from '@/lib/ws';
+import InspectPanel from '@/components/InspectPanel';
 import LineView from '@/components/LineView';
 import MarkerPanel from '@/components/MarkerPanel';
 import { Button, ErrorState, Legend, Page, PageHeader, Spinner, Tabs } from '@/components/ui';
@@ -214,7 +215,16 @@ export default function SiteMapPage() {
           )}
         </div>
 
-        {(selected || adding) && (
+        {selected && !editMode && !adding ? (
+          <InspectPanel
+            device={selected}
+            routers={routers.data ?? []}
+            areas={areas.data ?? []}
+            canEdit={canEditAttr}
+            onEdit={() => setEditMode(true)}
+            onClose={() => setSelected(null)}
+          />
+        ) : selected || adding ? (
           <MarkerPanel
             site={site.data}
             mode={adding ? 'add' : 'edit'}
@@ -282,7 +292,7 @@ export default function SiteMapPage() {
               }
             }}
           />
-        )}
+        ) : null}
       </div>
     </Page>
   );
