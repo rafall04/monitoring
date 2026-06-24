@@ -51,6 +51,16 @@ const clampInt = (v: string, min: number, max: number): number => {
   return Math.min(max, Math.max(min, n));
 };
 
+/** Humanize a raw byte count (RouterOS returns strings) into B/KB/MB/GB/TB. */
+const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
+function formatBytes(v: string | number | null | undefined): string {
+  const n = typeof v === 'string' ? Number(v) : (v ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return '0';
+  const i = Math.min(UNITS.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  const val = n / 1024 ** i;
+  return `${val >= 10 || i === 0 ? Math.round(val) : val.toFixed(1)} ${UNITS[i]}`;
+}
+
 export default function HotspotPage() {
   const { can } = useAuth();
   const routers = useRouters();
@@ -252,7 +262,7 @@ export default function HotspotPage() {
                     <th className="py-1">Name</th>
                     <th>Profile</th>
                     <th>Uptime</th>
-                    <th>Bytes (in/out)</th>
+                    <th>Traffic (in/out)</th>
                     {canManage && <th className="text-right">Actions</th>}
                   </tr>
                 </thead>
@@ -263,8 +273,8 @@ export default function HotspotPage() {
                         <td data-label="Name" className="py-1.5">{u.name}</td>
                         <td data-label="Profile">{u.profile}</td>
                         <td data-label="Uptime">{u.uptime}</td>
-                        <td data-label="Bytes">
-                          {u['bytes-in'] ?? 0}/{u['bytes-out'] ?? 0}
+                        <td data-label="Traffic">
+                          {formatBytes(u['bytes-in'])} / {formatBytes(u['bytes-out'])}
                         </td>
                         {canManage && (
                           <td className="space-x-3 py-1.5 text-right">
