@@ -48,19 +48,26 @@ const OPERATOR_PERMISSIONS: Permission[] = [
   'ruijie:view', // see Ruijie/Reyee WiFi monitoring (read-only)
 ];
 
-// Ruijie WiFi *monitoring* (`ruijie:view`) is open to operator+ for the
-// IT-Support ops console; *account/credential management* (`ruijie:manage`)
-// stays super_admin-only. Viewer (user) still sees only the map + device detail.
-const USER_PERMISSIONS: Permission[] = ['map:view', 'device:view'];
+// Viewer = read-only monitor: the map + device detail, Ruijie WiFi monitoring,
+// and the reports/alerts pages — but NO mutations. Operator+ adds the write
+// actions; account/credential management stays super_admin-only.
+const VIEWER_PERMISSIONS: Permission[] = [
+  'map:view',
+  'device:view',
+  'ruijie:view',
+  'reports:view',
+];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
-  user: USER_PERMISSIONS,
+  viewer: VIEWER_PERMISSIONS,
   operator: OPERATOR_PERMISSIONS,
   super_admin: PERMISSIONS, // everything
 };
 
 export function hasPermission(role: Role, permission: Permission): boolean {
-  return ROLE_PERMISSIONS[role].includes(permission);
+  // Defensive `?? []`: a stale/unknown role (e.g. an old session from before a
+  // role rename) yields no permissions instead of throwing.
+  return (ROLE_PERMISSIONS[role] ?? []).includes(permission);
 }
 
 /** Minimal user shape needed for authorization decisions. */

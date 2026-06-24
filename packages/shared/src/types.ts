@@ -3,7 +3,7 @@
 // Isomorphic: must NOT import any node-only modules.
 // =============================================================================
 
-export const ROLES = ['user', 'operator', 'super_admin'] as const;
+export const ROLES = ['viewer', 'operator', 'super_admin'] as const;
 export type Role = (typeof ROLES)[number];
 
 /** Real status as reported by Netwatch. */

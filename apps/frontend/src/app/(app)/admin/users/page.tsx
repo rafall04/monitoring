@@ -21,14 +21,14 @@ export default function AdminUsersPage() {
     name: '',
     email: '',
     password: '',
-    role: 'user' as Role,
+    role: 'viewer' as Role,
     scopeSiteIds: [] as string[],
   });
 
   const addUser = useMutation({
     mutationFn: () => api.post('/users', form),
     onSuccess: () => {
-      setForm({ name: '', email: '', password: '', role: 'user', scopeSiteIds: [] });
+      setForm({ name: '', email: '', password: '', role: 'viewer', scopeSiteIds: [] });
       toast.ok('User dibuat');
       refresh();
     },

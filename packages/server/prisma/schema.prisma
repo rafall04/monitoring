@@ -178,7 +178,7 @@ model AppUser {
   name         String
   email        String   @unique
   passwordHash String
-  role         String   @default("user") // user | operator | super_admin
+  role         String   @default("viewer") // viewer | operator | super_admin
   scopeSiteIds Json     @default("[]")
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())

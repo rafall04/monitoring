@@ -14,7 +14,7 @@ async function ensureUser(
   email: string,
   name: string,
   password: string,
-  role: 'super_admin' | 'operator' | 'user',
+  role: 'super_admin' | 'operator' | 'viewer',
   scopeSiteIds: string[] = [],
 ) {
   await prisma.appUser.upsert({
@@ -39,7 +39,7 @@ async function main() {
 
   await ensureUser(adminEmail, adminName, adminPassword, 'super_admin');
   await ensureUser('operator@noc.local', 'Operator', 'operator123', 'operator');
-  await ensureUser('demo@noc.local', 'Demo Viewer', 'demo123', 'user');
+  await ensureUser('demo@noc.local', 'Demo Viewer', 'demo123', 'viewer');
   console.log('✓ default accounts ready:');
   console.log(`   ${adminEmail} / ${adminPassword}  (super_admin)`);
   console.log('   operator@noc.local / operator123  (operator)');

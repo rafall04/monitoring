@@ -199,7 +199,7 @@ export const createAppUserSchema = z.object({
   name: z.string().min(1).max(120),
   email: z.string().email(),
   password: z.string().min(8).max(255),
-  role: zEnum(ROLES).default('user'),
+  role: zEnum(ROLES).default('viewer'),
   scopeSiteIds: z.array(z.string()).default([]),
   isActive: z.boolean().default(true),
 });
