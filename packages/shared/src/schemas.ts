@@ -350,3 +350,11 @@ export const ruijieMonitoredGroupsSchema = z.object({
   monitoredGroupIds: z.array(z.string().min(1).max(64)).max(500),
 });
 export type RuijieMonitoredGroupsInput = z.infer<typeof ruijieMonitoredGroupsSchema>;
+
+// Map each Ruijie project (keyed by groupName) to a NOC site, so the Site page
+// can surface that project's AP + connected-client counts. Unassigned projects
+// are simply omitted from the map.
+export const ruijieSiteMapSchema = z.object({
+  groupSiteMap: z.record(z.string().min(1).max(200), z.string().min(1).max(64)),
+});
+export type RuijieSiteMapInput = z.infer<typeof ruijieSiteMapSchema>;

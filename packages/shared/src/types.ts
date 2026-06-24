@@ -350,6 +350,7 @@ export interface RuijieRouterPublic {
   cloudSerial: string;
   cloudGroupId: string; // BUILDING group — used for the client drill-down
   groupName: string; // project/room, for grouping in the UI
+  siteId: string | null; // NOC Site this router's project is mapped to (or null)
   name: string;
   model: string | null;
   online: boolean;
@@ -376,6 +377,8 @@ export interface RuijieAccountPublic {
   routerCount: number;
   /** Ruijie group_ids this account monitors. Empty = nothing selected yet. */
   monitoredGroupIds: string[];
+  /** Map of Ruijie project (keyed by groupName) -> NOC siteId. */
+  groupSiteMap: Record<string, string>;
   createdAt: string;
 }
 

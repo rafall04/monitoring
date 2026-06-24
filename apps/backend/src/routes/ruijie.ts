@@ -8,7 +8,12 @@ import {
   toRuijieAccountPublic,
   toRuijieRouterPublic,
 } from '@noc/server';
-import { createRuijieAccountSchema, idParamSchema, ruijieMonitoredGroupsSchema } from '@noc/shared';
+import {
+  createRuijieAccountSchema,
+  idParamSchema,
+  ruijieMonitoredGroupsSchema,
+  ruijieSiteMapSchema,
+} from '@noc/shared';
 import { badGateway, conflict, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import { authenticate, requirePermission } from '../plugins/rbac';
@@ -28,10 +33,14 @@ export async function ruijieRoutes(app: FastifyInstance) {
   // ---- routers (read; data is mirrored in our DB by the worker) -------------
 
   app.get('/routers', viewGuard, async () => {
-    const rows = await prisma.ruijieRouter.findMany({
-      orderBy: [{ groupName: 'asc' }, { name: 'asc' }],
-    });
-    return rows.map(toRuijieRouterPublic);
+    const [rows, account] = await Promise.all([
+      prisma.ruijieRouter.findMany({ orderBy: [{ groupName: 'asc' }, { name: 'asc' }] }),
+      prisma.ruijieAccount.findFirst(), // single-account by design
+    ]);
+    // Resolve each router's NOC site from the account's project->site map so the
+    // Site page can show its WiFi (keyed by groupName, matching the UI grouping).
+    const map = (account?.groupSiteMap as Record<string, string> | null) ?? {};
+    return rows.map((r) => toRuijieRouterPublic(r, map[r.groupName] ?? null));
   });
 
   // On-demand drill-down: live client list for one router. Clients are returned
@@ -142,6 +151,27 @@ export async function ruijieRoutes(app: FastifyInstance) {
     const poll = await pollRuijieAccount(updated);
     const routerCount = await prisma.ruijieRouter.count({ where: { accountId: id } });
     return { account: toRuijieAccountPublic(updated, routerCount), poll };
+  });
+
+  // Map Ruijie projects (by groupName) to NOC sites so each site page can
+  // surface its project's AP + connected-client counts. Replaces the whole map.
+  app.put('/accounts/:id/site-map', manageGuard, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const { groupSiteMap } = ruijieSiteMapSchema.parse(req.body);
+    const acc = await prisma.ruijieAccount.findUnique({ where: { id } });
+    if (!acc) throw notFound('Ruijie account not found');
+    const updated = await prisma.ruijieAccount.update({
+      where: { id },
+      data: { groupSiteMap },
+    });
+    await writeAudit(req, {
+      action: 'update',
+      entity: 'ruijie_account',
+      entityId: id,
+      after: { groupSiteMap },
+    });
+    const routerCount = await prisma.ruijieRouter.count({ where: { accountId: id } });
+    return toRuijieAccountPublic(updated, routerCount);
   });
 
   app.delete('/accounts/:id', manageGuard, async (req, reply) => {

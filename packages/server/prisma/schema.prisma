@@ -274,6 +274,9 @@ model RuijieAccount {
   // mixes many sites; the poller only stores devices in these groups (e.g. the
   // school), so non-NOC sites never reach our DB/UI. Empty = monitor nothing.
   monitoredGroupIds  String[]  @default([])
+  // Map of Ruijie project (groupName) -> NOC siteId, so the Site page can
+  // surface that project's AP + connected-client counts. {} = none mapped.
+  groupSiteMap       Json      @default("{}")
   lastPolledAt       DateTime?
   lastError          String? // last poll failure message, for the admin UI
   createdAt          DateTime  @default(now())

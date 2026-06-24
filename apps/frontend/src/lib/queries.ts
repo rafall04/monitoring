@@ -77,11 +77,12 @@ export function useAppUsers() {
 // Data is mirrored into our DB by the worker poller; the UI polls our API for
 // fresh counts (the worker, not each browser, talks to Ruijie's rate-limited API).
 
-export function useRuijieRouters() {
+export function useRuijieRouters(enabled = true) {
   return useQuery({
     queryKey: qk.ruijieRouters,
     queryFn: () => api.get<RuijieRouterPublic[]>('/ruijie/routers'),
     refetchInterval: 30_000,
+    enabled,
   });
 }
 export function useRuijieAccounts() {
@@ -122,6 +123,21 @@ export function useRuijieProjects(accountId: string | null) {
     staleTime: 0,
   });
 }
+/** Save the Ruijie project -> NOC site mapping (super_admin). */
+export function useSaveRuijieSiteMap() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; groupSiteMap: Record<string, string> }) =>
+      api.put<RuijieAccountPublic>(`/ruijie/accounts/${v.id}/site-map`, {
+        groupSiteMap: v.groupSiteMap,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.ruijieAccounts });
+      qc.invalidateQueries({ queryKey: qk.ruijieRouters });
+    },
+  });
+}
+
 /** Save which projects the account monitors; backend re-polls so routers update at once. */
 export function useSaveRuijieMonitored() {
   const qc = useQueryClient();

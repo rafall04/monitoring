@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { RuijieAccountPublic } from '@noc/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -9,7 +9,10 @@ import {
   useDeleteRuijieAccount,
   useRuijieAccounts,
   useRuijieProjects,
+  useRuijieRouters,
   useSaveRuijieMonitored,
+  useSaveRuijieSiteMap,
+  useSites,
 } from '@/lib/queries';
 import { useConfirm, useToast } from '@/lib/toast';
 import {
@@ -22,6 +25,7 @@ import {
   Page,
   PageBody,
   PageHeader,
+  Select,
   TextInput,
 } from '@/components/ui';
 
@@ -48,6 +52,7 @@ export default function AdminRuijiePage() {
       />
       <PageBody>
         <AccountsPanel />
+        <SiteMappingPanel />
       </PageBody>
     </Page>
   );
@@ -281,6 +286,81 @@ function ProjectPicker({ account, onClose }: { account: RuijieAccountPublic; onC
         </span>
       </div>
     </div>
+  );
+}
+
+// Map each monitored Ruijie project (groupName) to a NOC site. The grouping
+// mirrors the monitoring view; saving pushes the whole map to the account.
+function SiteMappingPanel() {
+  const accounts = useRuijieAccounts();
+  const routers = useRuijieRouters();
+  const sites = useSites();
+  const save = useSaveRuijieSiteMap();
+  const toast = useToast();
+  const account = accounts.data?.[0];
+
+  const projects = useMemo(() => {
+    const names = new Set<string>();
+    for (const r of routers.data ?? []) names.add(r.groupName);
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [routers.data]);
+
+  const [map, setMap] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (account) setMap(account.groupSiteMap ?? {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.id]);
+
+  if (!account || projects.length === 0) return null;
+
+  const setSite = (group: string, siteId: string) =>
+    setMap((m) => {
+      const n = { ...m };
+      if (siteId) n[group] = siteId;
+      else delete n[group];
+      return n;
+    });
+
+  const onSave = () =>
+    save.mutate(
+      { id: account.id, groupSiteMap: map },
+      {
+        onSuccess: () => toast.ok('Pemetaan site tersimpan.'),
+        onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+      },
+    );
+
+  return (
+    <Card className="space-y-3 p-4">
+      <div>
+        <h2 className="font-semibold text-slate-200">Pemetaan project → Site</h2>
+        <p className="mt-0.5 text-xs text-slate-500">
+          Hubungkan tiap project Ruijie ke Site NOC — jumlah AP &amp; client-nya akan muncul di halaman Site.
+        </p>
+      </div>
+      <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
+        {projects.map((g) => (
+          <li key={g} className="flex flex-wrap items-center gap-2 px-3 py-2">
+            <span className="min-w-0 flex-1 truncate text-sm text-slate-200">{g}</span>
+            <Select
+              value={map[g] ?? ''}
+              onChange={(e) => setSite(g, e.target.value)}
+              className="w-full sm:w-56"
+            >
+              <option value="">— belum di-link —</option>
+              {sites.data?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </li>
+        ))}
+      </ul>
+      <Button onClick={onSave} disabled={save.isPending}>
+        {save.isPending ? 'Menyimpan…' : 'Simpan pemetaan'}
+      </Button>
+    </Card>
   );
 }
 

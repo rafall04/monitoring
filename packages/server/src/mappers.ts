@@ -145,13 +145,17 @@ export function toAreaDto(a: Area & { lines?: Line[] }): AreaDTO {
   };
 }
 
-export function toRuijieRouterPublic(r: RuijieRouter): RuijieRouterPublic {
+export function toRuijieRouterPublic(
+  r: RuijieRouter,
+  siteId: string | null = null,
+): RuijieRouterPublic {
   return {
     id: r.id,
     accountId: r.accountId,
     cloudSerial: r.cloudSerial,
     cloudGroupId: r.cloudGroupId,
     groupName: r.groupName,
+    siteId,
     name: r.name,
     model: r.model,
     online: r.online,
@@ -178,6 +182,7 @@ export function toRuijieAccountPublic(a: RuijieAccount, routerCount = 0): Ruijie
     lastError: a.lastError,
     routerCount,
     monitoredGroupIds: a.monitoredGroupIds,
+    groupSiteMap: (a.groupSiteMap as Record<string, string> | null) ?? {},
     createdAt: a.createdAt.toISOString(),
   };
 }

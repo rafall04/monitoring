@@ -45,11 +45,12 @@ const OPERATOR_PERMISSIONS: Permission[] = [
   'hotspot:disconnect',
   'reports:view',
   'alerts:manage',
+  'ruijie:view', // see Ruijie/Reyee WiFi monitoring (read-only)
 ];
 
-// Ruijie WiFi monitoring is admin-only ("khusus di halaman admin"): neither
-// operator nor viewer gets `ruijie:view` — only super_admin has it (via the
-// full PERMISSIONS list), and the backend route guard enforces the same.
+// Ruijie WiFi *monitoring* (`ruijie:view`) is open to operator+ for the
+// IT-Support ops console; *account/credential management* (`ruijie:manage`)
+// stays super_admin-only. Viewer (user) still sees only the map + device detail.
 const USER_PERMISSIONS: Permission[] = ['map:view', 'device:view'];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
