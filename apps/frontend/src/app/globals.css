@@ -95,3 +95,40 @@ html:not(.dark) .text-slate-500 {
   background: #1e293b;
   border-radius: 6px;
 }
+
+/* Responsive data tables: on phones, stack each row into label/value cards.
+   Opt in with class "r-table" on a <table> and data-label="…" on its data <td>s;
+   cells without data-label (actions, inline edit forms) stay full-width. */
+@media (max-width: 639px) {
+  table.r-table thead {
+    display: none;
+  }
+  table.r-table tbody tr {
+    display: block;
+    border: 1px solid rgb(var(--surface-border));
+    border-radius: 8px;
+    margin-bottom: 8px;
+    padding: 2px 0;
+  }
+  table.r-table tbody td {
+    display: block;
+    padding: 5px 12px;
+  }
+  table.r-table tbody td[data-label] {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    text-align: right;
+  }
+  table.r-table tbody td[data-label]::before {
+    content: attr(data-label);
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-align: left;
+    white-space: nowrap;
+  }
+}

@@ -358,3 +358,14 @@ export const ruijieSiteMapSchema = z.object({
   groupSiteMap: z.record(z.string().min(1).max(200), z.string().min(1).max(64)),
 });
 export type RuijieSiteMapInput = z.infer<typeof ruijieSiteMapSchema>;
+
+// ---- Audit log query ---------------------------------------------------------
+
+export const auditQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  action: z.string().min(1).max(64).optional(),
+  entity: z.string().min(1).max(64).optional(),
+  userId: z.string().min(1).max(64).optional(),
+});
+export type AuditQuery = z.infer<typeof auditQuerySchema>;

@@ -4,6 +4,7 @@
 
 import type {
   AppUserPublic,
+  AuditLogPublic,
   Area as AreaDTO,
   AreaKind,
   Company as CompanyDTO,
@@ -26,6 +27,7 @@ import type {
 } from '@noc/shared';
 import type {
   AppUser,
+  AuditLog,
   Area,
   Company,
   Device,
@@ -184,5 +186,21 @@ export function toRuijieAccountPublic(a: RuijieAccount, routerCount = 0): Ruijie
     monitoredGroupIds: a.monitoredGroupIds,
     groupSiteMap: (a.groupSiteMap as Record<string, string> | null) ?? {},
     createdAt: a.createdAt.toISOString(),
+  };
+}
+
+export function toAuditLogPublic(a: AuditLog & { user: AppUser | null }): AuditLogPublic {
+  return {
+    id: a.id,
+    createdAt: a.createdAt.toISOString(),
+    action: a.action,
+    entity: a.entity,
+    entityId: a.entityId,
+    ip: a.ip,
+    user: a.user
+      ? { id: a.user.id, name: a.user.name, email: a.user.email, role: a.user.role as Role }
+      : null,
+    before: a.before ?? null,
+    after: a.after ?? null,
   };
 }

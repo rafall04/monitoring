@@ -36,7 +36,11 @@ export function Shell({ children }: { children: ReactNode }) {
   if (!user) return null;
 
   const showAdmin =
-    can('site:manage') || can('appuser:manage') || can('settings:manage') || can('ruijie:manage');
+    can('site:manage') ||
+    can('appuser:manage') ||
+    can('settings:manage') ||
+    can('ruijie:manage') ||
+    can('audit:view');
 
   const item = (href: string, label: string) => (
     <Link
@@ -104,6 +108,7 @@ export function Shell({ children }: { children: ReactNode }) {
               {can('appuser:manage') && item('/admin/users', 'Users')}
               {can('settings:manage') && item('/admin/settings', 'Settings')}
               {can('ruijie:manage') && item('/admin/ruijie', 'Ruijie Cloud')}
+              {can('audit:view') && item('/admin/audit', 'Aktivitas')}
             </>
           )}
         </nav>

@@ -109,7 +109,7 @@ export default function AdminUsersPage() {
         {users.isLoading ? (
           <Loading />
         ) : (
-          <table className="w-full text-sm">
+          <table className="r-table w-full text-sm">
             <thead className="text-left text-xs uppercase text-slate-500">
               <tr>
                 <th className="py-1">Name</th>
@@ -124,13 +124,13 @@ export default function AdminUsersPage() {
               {users.data?.map((u) => (
                 <Fragment key={u.id}>
                   <tr className="border-t border-surface-border">
-                    <td className="py-1.5">{u.name}</td>
-                    <td>{u.email}</td>
-                    <td>{u.role}</td>
-                    <td className="text-xs text-slate-400">
+                    <td data-label="Name" className="py-1.5">{u.name}</td>
+                    <td data-label="Email">{u.email}</td>
+                    <td data-label="Role">{u.role}</td>
+                    <td data-label="Scope" className="text-xs text-slate-400">
                       {u.role === 'super_admin' ? 'all' : `${u.scopeSiteIds.length} sites`}
                     </td>
-                    <td>
+                    <td data-label="Active">
                       <button
                         className={u.isActive ? 'text-emerald-400' : 'text-slate-500'}
                         onClick={() => toggleActive.mutate({ id: u.id, isActive: !u.isActive })}

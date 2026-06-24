@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-query';
 import type {
   AppUserPublic,
+  AuditLogPage,
   Area,
   CreateDeviceInput,
   CreateRuijieAccountInput,
@@ -37,6 +38,7 @@ export const qk = {
   ruijieAccounts: ['ruijie', 'accounts'] as const,
   ruijieClients: (id: string) => ['ruijie', 'routers', id, 'clients'] as const,
   ruijieProjects: (accountId: string) => ['ruijie', 'accounts', accountId, 'projects'] as const,
+  audit: (query: string) => ['audit', query] as const,
 };
 
 export function useSites() {
@@ -150,6 +152,27 @@ export function useSaveRuijieMonitored() {
       qc.invalidateQueries({ queryKey: qk.ruijieAccounts });
       qc.invalidateQueries({ queryKey: qk.ruijieRouters });
     },
+  });
+}
+
+// ---- Audit log ---------------------------------------------------------------
+
+/** Paginated audit trail (super_admin). Keeps the prior page visible while the
+ *  next loads so paging/filtering doesn't flash a spinner. */
+export function useAuditLog(
+  params: { page: number; pageSize?: number; action?: string; entity?: string },
+  enabled = true,
+) {
+  const qs = new URLSearchParams({ page: String(params.page) });
+  if (params.pageSize) qs.set('pageSize', String(params.pageSize));
+  if (params.action) qs.set('action', params.action);
+  if (params.entity) qs.set('entity', params.entity);
+  const query = qs.toString();
+  return useQuery({
+    queryKey: qk.audit(query),
+    queryFn: () => api.get<AuditLogPage>(`/audit?${query}`),
+    enabled,
+    placeholderData: (prev) => prev,
   });
 }
 

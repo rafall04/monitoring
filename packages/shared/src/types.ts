@@ -414,3 +414,27 @@ export interface RuijieStationDTO {
   os: string | null;
   category: string | null;
 }
+
+// ---- Audit log (super_admin activity trail) ---------------------------------
+
+/** One audit-trail entry with the acting user joined (null if system/deleted). */
+export interface AuditLogPublic {
+  id: string;
+  createdAt: string;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  ip: string | null;
+  user: { id: string; name: string; email: string; role: Role } | null;
+  before: unknown;
+  after: unknown;
+}
+
+/** Paginated audit response + filter facets (distinct entities/actions). */
+export interface AuditLogPage {
+  items: AuditLogPublic[];
+  total: number;
+  page: number;
+  pageSize: number;
+  facets: { entities: string[]; actions: string[] };
+}

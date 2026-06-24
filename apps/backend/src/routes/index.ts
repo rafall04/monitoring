@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { alertRoutes } from './alerts';
+import { auditRoutes } from './audit';
 import { authRoutes } from './auth';
 import { companyRoutes } from './companies';
 import { deviceRoutes } from './devices';
@@ -26,6 +27,7 @@ export async function apiRoutes(app: FastifyInstance) {
   await app.register(userRoutes, { prefix: '/users' });
   await app.register(settingsRoutes, { prefix: '/settings' });
   await app.register(alertRoutes, { prefix: '/alerts' });
+  await app.register(auditRoutes, { prefix: '/audit' });
   await app.register(ruijieRoutes, { prefix: '/ruijie' });
   await app.register(uploadRoutes, { prefix: '/uploads' });
   await app.register(webhookRoutes, { prefix: '/webhook' });

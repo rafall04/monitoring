@@ -246,7 +246,7 @@ export default function HotspotPage() {
             <Loading />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="r-table w-full text-sm">
                 <thead className="text-left text-xs uppercase text-slate-500">
                   <tr>
                     <th className="py-1">Name</th>
@@ -260,10 +260,10 @@ export default function HotspotPage() {
                   {users.data?.map((u) => (
                     <Fragment key={u['.id'] ?? u.name}>
                       <tr className="border-t border-surface-border">
-                        <td className="py-1.5">{u.name}</td>
-                        <td>{u.profile}</td>
-                        <td>{u.uptime}</td>
-                        <td>
+                        <td data-label="Name" className="py-1.5">{u.name}</td>
+                        <td data-label="Profile">{u.profile}</td>
+                        <td data-label="Uptime">{u.uptime}</td>
+                        <td data-label="Bytes">
                           {u['bytes-in'] ?? 0}/{u['bytes-out'] ?? 0}
                         </td>
                         {canManage && (
@@ -415,7 +415,7 @@ export default function HotspotPage() {
             <Loading />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="r-table w-full text-sm">
                 <thead className="text-left text-xs uppercase text-slate-500">
                   <tr>
                     <th className="py-1">Name</th>
@@ -429,10 +429,10 @@ export default function HotspotPage() {
                   {profiles.data?.map((p) => (
                     <Fragment key={p['.id'] ?? p.name}>
                       <tr className="border-t border-surface-border">
-                        <td className="py-1.5">{p.name}</td>
-                        <td>{p['rate-limit'] ?? '—'}</td>
-                        <td>{p['shared-users'] ?? '—'}</td>
-                        <td>{p['session-timeout'] ?? '—'}</td>
+                        <td data-label="Name" className="py-1.5">{p.name}</td>
+                        <td data-label="Rate limit">{p['rate-limit'] ?? '—'}</td>
+                        <td data-label="Shared">{p['shared-users'] ?? '—'}</td>
+                        <td data-label="Session timeout">{p['session-timeout'] ?? '—'}</td>
                         {canManageProfiles && (
                           <td className="py-1.5 text-right">
                             <button
@@ -539,7 +539,7 @@ export default function HotspotPage() {
             <Loading />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="r-table w-full text-sm">
                 <thead className="text-left text-xs uppercase text-slate-500">
                   <tr>
                     <th className="py-1">User</th>
@@ -552,10 +552,10 @@ export default function HotspotPage() {
                 <tbody>
                   {sessions.data?.map((a) => (
                     <tr key={a['.id'] ?? a.address} className="border-t border-surface-border">
-                      <td className="py-1.5">{a.user}</td>
-                      <td>{a.address}</td>
-                      <td>{a['mac-address']}</td>
-                      <td>{a.uptime}</td>
+                      <td data-label="User" className="py-1.5">{a.user}</td>
+                      <td data-label="Address">{a.address}</td>
+                      <td data-label="MAC">{a['mac-address']}</td>
+                      <td data-label="Uptime">{a.uptime}</td>
                       {canDisconnect && (
                         <td className="py-1.5 text-right">
                           <button
@@ -659,7 +659,7 @@ export default function HotspotPage() {
               )}
               {voucherRows.length > 0 && (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="r-table w-full text-sm">
                     <thead className="text-left text-xs uppercase text-slate-500">
                       <tr>
                         <th className="py-1">Username</th>
@@ -670,9 +670,9 @@ export default function HotspotPage() {
                     <tbody>
                       {voucherRows.map((v) => (
                         <tr key={v.username} className="border-t border-surface-border">
-                          <td className="py-1.5">{v.username}</td>
-                          <td>{v.password}</td>
-                          <td>{v.profile ?? ''}</td>
+                          <td data-label="Username" className="py-1.5">{v.username}</td>
+                          <td data-label="Password">{v.password}</td>
+                          <td data-label="Profile">{v.profile ?? ''}</td>
                         </tr>
                       ))}
                     </tbody>
