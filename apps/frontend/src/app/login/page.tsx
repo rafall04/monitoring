@@ -9,7 +9,7 @@ export default function LoginPage() {
   const { login } = useAuth();
   const branding = useBranding();
   const router = useRouter();
-  const [email, setEmail] = useState('admin@noc.local');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
