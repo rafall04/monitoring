@@ -35,7 +35,8 @@ export function Shell({ children }: { children: ReactNode }) {
     );
   if (!user) return null;
 
-  const showAdmin = can('site:manage') || can('appuser:manage') || can('settings:manage');
+  const showAdmin =
+    can('site:manage') || can('appuser:manage') || can('settings:manage') || can('ruijie:manage');
 
   const item = (href: string, label: string) => (
     <Link
@@ -90,8 +91,10 @@ export function Shell({ children }: { children: ReactNode }) {
           ) : (
             <div className="px-3 py-1 text-xs text-slate-500">No sites</div>
           )}
-          {(can('hotspot:view') || can('reports:view') || can('map:view')) && sectionLabel('Operations')}
+          {(can('hotspot:view') || can('reports:view') || can('map:view') || can('ruijie:view')) &&
+            sectionLabel('Operations')}
           {can('map:view') && item('/alerts', 'Alerts')}
+          {can('ruijie:view') && item('/ruijie', 'Ruijie WiFi')}
           {can('hotspot:view') && item('/hotspot', 'Hotspot')}
           {can('reports:view') && item('/reports', 'Reports')}
           {showAdmin && (
@@ -100,7 +103,7 @@ export function Shell({ children }: { children: ReactNode }) {
               {can('site:manage') && item('/admin/sites', 'Sites & Routers')}
               {can('appuser:manage') && item('/admin/users', 'Users')}
               {can('settings:manage') && item('/admin/settings', 'Settings')}
-              {can('ruijie:view') && item('/ruijie', 'Ruijie WiFi')}
+              {can('ruijie:manage') && item('/admin/ruijie', 'Ruijie Cloud')}
             </>
           )}
         </nav>
