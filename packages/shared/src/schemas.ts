@@ -23,8 +23,17 @@ export const siteIdParamSchema = z.object({ siteId: z.string().min(1) });
 
 // ---- Auth --------------------------------------------------------------------
 
+// Login identifier: an email OR a plain username (no spaces). The DB column is
+// still `email` (unique), but operators can use short usernames like "aldi".
+export const loginId = z
+  .string()
+  .trim()
+  .min(3, 'Min. 3 karakter')
+  .max(255)
+  .regex(/^\S+$/, 'Tanpa spasi');
+
 export const loginSchema = z.object({
-  email: z.string().email(),
+  email: loginId,
   password: z.string().min(1),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
@@ -197,7 +206,7 @@ export type PatchDevicePositionInput = z.infer<typeof patchDevicePositionSchema>
 
 export const createAppUserSchema = z.object({
   name: z.string().min(1).max(120),
-  email: z.string().email(),
+  email: loginId,
   password: z.string().min(8).max(255),
   role: zEnum(ROLES).default('viewer'),
   scopeSiteIds: z.array(z.string()).default([]),

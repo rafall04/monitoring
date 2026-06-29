@@ -199,7 +199,7 @@ function AddUserModal({ sites, onClose, onDone }: { sites: Site[]; onClose: () =
       <div className="space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Nama"><TextInput value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-          <Field label="Email"><TextInput type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
+          <Field label="Email / Username"><TextInput type="text" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="email atau username (tanpa spasi)" /></Field>
           <Field label="Password">
             <TextInput type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="min. 8 karakter" />
           </Field>
@@ -234,6 +234,7 @@ function AddUserModal({ sites, onClose, onDone }: { sites: Site[]; onClose: () =
 // ---- inline edit ------------------------------------------------------------
 
 function EditUserForm({ user, sites, onDone }: { user: AppUserPublic; sites: Site[]; onDone: () => void }) {
+  const toast = useToast();
   const [form, setForm] = useState({
     name: user.name,
     email: user.email,
@@ -253,7 +254,11 @@ function EditUserForm({ user, sites, onDone }: { user: AppUserPublic; sites: Sit
         isActive: form.isActive,
         ...(form.password ? { password: form.password } : {}),
       }),
-    onSuccess: onDone,
+    onSuccess: () => {
+      toast.ok('Perubahan user disimpan');
+      onDone();
+    },
+    onError: (e) => toast.error(`Gagal menyimpan: ${(e as Error).message}`),
   });
 
   const pwTooShort = form.password.length > 0 && form.password.length < 8;

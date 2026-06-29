@@ -15,6 +15,24 @@ interface RouterState {
   nextAllowed: number; // circuit-breaker: do not poll before this time
 }
 
+/**
+ * Reject if `p` does not settle within `ms`. The underlying promise is left to
+ * resolve/reject on its own (and any socket it holds will be GC'd) — the point
+ * is that the *caller* is freed so a hung router poll can't block the scheduler.
+ */
+function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} exceeded ${ms}ms deadline`)),
+      ms,
+    );
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 export interface SchedulerStats {
   lastTick: number;
   routerCount: number;
@@ -33,12 +51,24 @@ export class PollScheduler {
   private readonly state = new Map<string, RouterState>();
   private lastReload = 0;
   private running = false;
+  private runningSince = 0;
   private timer: NodeJS.Timeout | null = null;
+  private watchdog: NodeJS.Timeout | null = null;
 
   private readonly tickMs = 5000;
   private readonly reloadMs = 60000;
   private readonly concurrency = 8;
   private readonly maxBackoffMs = 300000;
+  // Hard ceiling for a single router poll. node-routeros only bounds the connect
+  // phase; an already-connected command whose socket dies mid-flight can hang
+  // forever (its Channel promise never settles), which would freeze the whole
+  // scheduler via the `running` guard. This deadline guarantees every poll
+  // settles so a dead router can never wedge the loop.
+  private readonly pollDeadlineMs = 25000;
+  // Watchdog: if a tick somehow stays `running` far past the deadline, force it
+  // free so the scheduler self-heals instead of freezing permanently.
+  private readonly watchdogMs = 30000;
+  private readonly stuckMs = 120000;
   // Consecutive poll failures before we declare the router's devices stale and
   // flip them to `unknown`. >1 so a single transient timeout doesn't flap.
   private readonly reconcileAfterFailures = 2;
@@ -52,12 +82,28 @@ export class PollScheduler {
 
   start(): void {
     this.timer = setInterval(() => void this.tick(), this.tickMs);
+    this.watchdog = setInterval(() => this.checkStuck(), this.watchdogMs);
     void this.tick();
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.watchdog) clearInterval(this.watchdog);
     this.timer = null;
+    this.watchdog = null;
+  }
+
+  /** Defense-in-depth: a poll should never outlast its deadline, but if one
+   *  somehow does, unstick the scheduler so it keeps polling other routers. */
+  private checkStuck(): void {
+    if (this.running && Date.now() - this.runningSince > this.stuckMs) {
+      this.logger.error(
+        { stuckMs: Date.now() - this.runningSince },
+        'scheduler tick stuck past deadline — forcing it free (watchdog)',
+      );
+      this.running = false;
+      this.stats.polling = false;
+    }
   }
 
   private inShard(id: string): boolean {
@@ -84,6 +130,7 @@ export class PollScheduler {
   private async tick(): Promise<void> {
     if (this.running) return;
     this.running = true;
+    this.runningSince = Date.now();
     this.stats.polling = true;
     try {
       const now = Date.now();
@@ -122,7 +169,11 @@ export class PollScheduler {
       nextAllowed: 0,
     };
     try {
-      const { devicesSeen } = await pollRouter(this.deps, router);
+      const { devicesSeen } = await withDeadline(
+        pollRouter(this.deps, router),
+        this.pollDeadlineMs,
+        `poll ${router.host}`,
+      );
       st.failures = 0;
       st.nextAllowed = 0;
       this.logger.debug({ routerId: router.id, devicesSeen }, 'polled router');

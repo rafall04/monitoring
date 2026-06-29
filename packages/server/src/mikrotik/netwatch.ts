@@ -69,7 +69,11 @@ export function fetchScript(p: NetwatchScriptParams, status: 'up' | 'down'): str
   return [
     `/tool fetch url="${webhookUrl(p, status)}"`,
     `http-method=post`,
-    `http-header-field="X-Webhook-Token: ${p.token}"`,
+    // RouterOS `/tool fetch http-method=post` defaults to Content-Type:
+    // application/octet-stream, which Fastify rejects with 415 (no parser). We
+    // send no body — all params are in the query string — so pin a Content-Type
+    // the backend accepts. (The backend also tolerates any type defensively.)
+    `http-header-field="X-Webhook-Token: ${p.token},Content-Type: text/plain"`,
     `keep-result=no`,
   ].join(' ');
 }
