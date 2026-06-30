@@ -9,8 +9,8 @@ import {
   toDeviceDto,
   toSiteDto,
 } from '@noc/server';
-import type { ImageBounds } from '@noc/shared';
-import { createSiteSchema, idParamSchema, updateSiteSchema } from '@noc/shared';
+import type { ImageBounds, SiteWifiMap } from '@noc/shared';
+import { REDIS_KEYS, createSiteSchema, idParamSchema, updateSiteSchema } from '@noc/shared';
 import { badGateway, badRequest, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import { saveUpload } from '../lib/uploads';
@@ -64,6 +64,21 @@ export async function siteRoutes(app: FastifyInstance) {
     const { id } = idParamSchema.parse(req.params);
     assertSiteAccess(req.appUser, id);
     return computeSiteSummary(prisma, id);
+  });
+
+  // Device⇄WiFi correlation (which Ruijie AP each device is on). Read-only cache
+  // built by the worker; viewers may read it. Empty map until the first enrich.
+  app.get('/:id/wifi', view, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    assertSiteAccess(req.appUser, id);
+    const raw = await app.redisPub.get(REDIS_KEYS.siteWifi(id));
+    const empty: SiteWifiMap = { updatedAt: null, links: {} };
+    if (!raw) return empty;
+    try {
+      return JSON.parse(raw) as SiteWifiMap;
+    } catch {
+      return empty;
+    }
   });
 
   // Factory structure: areas (with their ordered lines) for the swimlane view.

@@ -18,6 +18,7 @@ import {
   useSiteAreas,
   useSiteDevices,
   useSiteSummary,
+  useSiteWifi,
   useUpdateDevice,
 } from '@/lib/queries';
 import { useConfirm, useToast } from '@/lib/toast';
@@ -54,6 +55,8 @@ export default function SiteMapPage() {
   const routers = useRouters(siteId);
   const areas = useSiteAreas(siteId);
   const ruijie = useRuijieRouters(can('ruijie:view'));
+  const wifi = useSiteWifi(siteId);
+  const wifiLinks = wifi.data?.links ?? {};
 
   const [tab, setTab] = useState<'line' | 'denah'>('line');
   const [editMode, setEditMode] = useState(false);
@@ -190,6 +193,7 @@ export default function SiteMapPage() {
               <MapView
                 site={site.data}
                 devices={devices.data ?? []}
+                wifiLinks={wifiLinks}
                 editable={editable}
                 onSelect={(d) => {
                   setAdding(null);
@@ -220,6 +224,7 @@ export default function SiteMapPage() {
             device={selected}
             routers={routers.data ?? []}
             areas={areas.data ?? []}
+            wifi={wifiLinks[selected.id] ?? null}
             canEdit={canEditAttr}
             onEdit={() => setEditMode(true)}
             onClose={() => setSelected(null)}

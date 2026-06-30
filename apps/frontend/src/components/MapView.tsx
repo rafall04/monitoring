@@ -15,14 +15,17 @@ import {
   STATUS_LABELS,
   effectiveStatus,
   type Device,
+  type DeviceWifiLink,
   type PatchDevicePositionInput,
   type Site,
 } from '@noc/shared';
 import { markerHtml } from '@/lib/icons';
+import { rssiQuality } from '@/lib/wifi';
 
 interface MapViewProps {
   site: Site;
   devices: Device[];
+  wifiLinks?: Record<string, DeviceWifiLink>;
   editable: boolean;
   onSelect: (device: Device) => void;
   onMove: (id: string, pos: PatchDevicePositionInput) => void;
@@ -66,18 +69,21 @@ function ClickToAdd({
 function DeviceMarker({
   device,
   site,
+  wifi,
   editable,
   onSelect,
   onMove,
 }: {
   device: Device;
   site: Site;
+  wifi?: DeviceWifiLink | null;
   editable: boolean;
   onSelect: (d: Device) => void;
   onMove: (id: string, pos: PatchDevicePositionInput) => void;
 }) {
   const status = effectiveStatus(device.status, device.manualOverride);
   const position = toLatLng(device, site);
+  const wifiColor = wifi ? rssiQuality(wifi.rssi).color : null;
   const icon = useMemo(
     () =>
       L.divIcon({
@@ -88,13 +94,14 @@ function DeviceMarker({
           status,
           name: device.name,
           critical: device.isCritical,
+          wifiColor,
         }),
         className: '',
         iconSize: [140, 50],
         iconAnchor: [70, 16],
         popupAnchor: [0, -18],
       }),
-    [device.type, device.iconKey, device.iconUrl, device.name, device.isCritical, status],
+    [device.type, device.iconKey, device.iconUrl, device.name, device.isCritical, status, wifiColor],
   );
 
   return (
@@ -121,6 +128,13 @@ function DeviceMarker({
           {device.statusSince && (
             <div>Since: {new Date(device.statusSince).toLocaleString()}</div>
           )}
+          {wifi && (
+            <div>
+              WiFi: {wifi.apName ?? '—'}
+              {wifi.ssid ? ` (${wifi.ssid})` : ''}
+              {wifi.rssi != null ? ` · ${wifi.rssi} dBm` : ''}
+            </div>
+          )}
           {device.isCritical && <div>⚠ critical device</div>}
         </div>
       </Popup>
@@ -131,6 +145,7 @@ function DeviceMarker({
 export default function MapView({
   site,
   devices,
+  wifiLinks,
   editable,
   onSelect,
   onMove,
@@ -141,6 +156,7 @@ export default function MapView({
       key={d.id}
       device={d}
       site={site}
+      wifi={wifiLinks?.[d.id] ?? null}
       editable={editable}
       onSelect={onSelect}
       onMove={onMove}

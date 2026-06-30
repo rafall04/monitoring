@@ -59,6 +59,8 @@ export const REDIS_CHANNELS = {
 export const REDIS_KEYS = {
   deviceStatus: (deviceId: string) => `noc:device:${deviceId}:status`,
   routerStatus: (routerId: string) => `noc:router:${routerId}:status`,
+  /** Per-site device→WiFi correlation, refreshed by the worker's WiFi enricher. */
+  siteWifi: (siteId: string) => `noc:site:${siteId}:wifi`,
   /** Idempotency guard for webhook dedup (value = last event hash). */
   webhookDedup: (routerId: string, host: string) =>
     `noc:webhook:${routerId}:${host}`,

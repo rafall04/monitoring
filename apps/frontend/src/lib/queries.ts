@@ -21,6 +21,7 @@ import type {
   RuijieStationDTO,
   Site,
   SiteSummary,
+  SiteWifiMap,
   UpdateDeviceInput,
   WsServerEvent,
 } from '@noc/shared';
@@ -31,6 +32,7 @@ export const qk = {
   site: (id: string) => ['site', id] as const,
   siteDevices: (id: string) => ['site', id, 'devices'] as const,
   siteSummary: (id: string) => ['site', id, 'summary'] as const,
+  siteWifi: (id: string) => ['site', id, 'wifi'] as const,
   siteAreas: (id: string) => ['site', id, 'areas'] as const,
   routers: (siteId?: string) => ['routers', siteId ?? 'all'] as const,
   users: ['users'] as const,
@@ -63,6 +65,16 @@ export function useSiteSummary(id: string | undefined) {
     queryKey: qk.siteSummary(id ?? ''),
     queryFn: () => api.get<SiteSummary>(`/sites/${id}/summary`),
     enabled: Boolean(id),
+  });
+}
+export function useSiteWifi(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: qk.siteWifi(id ?? ''),
+    queryFn: () => api.get<SiteWifiMap>(`/sites/${id}/wifi`),
+    enabled: Boolean(id) && enabled,
+    // Worker refreshes the cache every ~5 min; poll a bit faster so the drawer/map
+    // reflect roaming without a manual reload.
+    refetchInterval: 120_000,
   });
 }
 export function useRouters(siteId?: string) {

@@ -52,6 +52,8 @@ export function markerHtml(opts: {
   status: DisplayStatus;
   name: string;
   critical: boolean;
+  /** When set, a small WiFi badge (this color) is shown — device is on WiFi. */
+  wifiColor?: string | null;
 }): string {
   const color = STATUS_COLORS[opts.status];
   const ring = opts.critical ? `box-shadow:0 0 0 3px ${color}55;` : '';
@@ -60,10 +62,15 @@ export function markerHtml(opts: {
   const glyph = opts.iconUrl
     ? `<img src="${escapeHtml(opts.iconUrl)}" alt="" width="18" height="18" style="object-fit:contain;display:block" />`
     : deviceSvg((opts.iconKey as DeviceType) || opts.type);
+  const wifiBadge = opts.wifiColor
+    ? `<span style="position:absolute;top:-3px;right:-3px;width:14px;height:14px;border-radius:50%;background:#0b1220;border:1px solid ${opts.wifiColor};color:${opts.wifiColor};display:flex;align-items:center;justify-content:center" title="Terhubung WiFi">
+         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12.55a11 11 0 0 1 14 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+       </span>`
+    : '';
   return `
     <div class="noc-marker">
-      <div style="width:32px;height:32px;border-radius:50%;background:#0b1220;border:2px solid ${color};color:${color};display:flex;align-items:center;justify-content:center;${ring}${pulse}">
-        ${glyph}
+      <div style="position:relative;width:32px;height:32px;border-radius:50%;background:#0b1220;border:2px solid ${color};color:${color};display:flex;align-items:center;justify-content:center;${ring}${pulse}">
+        ${glyph}${wifiBadge}
       </div>
       <div class="noc-marker__label">${escapeHtml(opts.name)} · ${STATUS_LABELS[opts.status]}</div>
     </div>`;

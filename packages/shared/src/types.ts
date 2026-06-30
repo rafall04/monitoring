@@ -415,6 +415,26 @@ export interface RuijieStationDTO {
   category: string | null;
 }
 
+// ---- Device ⇄ WiFi correlation (worker-built, read-only on the site page) -----
+
+/** The WiFi AP a registered NOC device is currently connected to, resolved by
+ *  matching the device's IP to a Ruijie client station (strongest RSSI wins). */
+export interface DeviceWifiLink {
+  apName: string | null; // serving Ruijie AP, e.g. "ASS-IN-A"
+  ssid: string | null;
+  band: string | null; // "2.4G" | "5G"
+  rssi: number | null; // dBm (negative; closer to 0 = stronger)
+  hostname: string | null;
+  mac: string;
+  onlineSince: number | null; // epoch ms
+}
+
+/** Cached per-site correlation: deviceId → its current WiFi link. */
+export interface SiteWifiMap {
+  updatedAt: string | null; // ISO; null when nothing cached yet
+  links: Record<string, DeviceWifiLink>;
+}
+
 // ---- Audit log (super_admin activity trail) ---------------------------------
 
 /** One audit-trail entry with the acting user joined (null if system/deleted). */

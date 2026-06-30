@@ -1,14 +1,22 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { effectiveStatus, type Area, type Device, type RouterPublic } from '@noc/shared';
+import {
+  effectiveStatus,
+  type Area,
+  type Device,
+  type DeviceWifiLink,
+  type RouterPublic,
+} from '@noc/shared';
 import { deviceSvg } from '@/lib/icons';
+import { rssiQuality } from '@/lib/wifi';
 import { Button, StatusPill } from './ui';
 
 interface InspectPanelProps {
   device: Device;
   routers: RouterPublic[];
   areas: Area[];
+  wifi?: DeviceWifiLink | null;
   canEdit: boolean;
   onEdit: () => void;
   onClose: () => void;
@@ -21,6 +29,7 @@ export default function InspectPanel({
   device,
   routers,
   areas,
+  wifi,
   canEdit,
   onEdit,
   onClose,
@@ -85,6 +94,29 @@ export default function InspectPanel({
           <Row label="Status sejak">{device.statusSince ? fmt(device.statusSince) : '—'}</Row>
           {device.note && <Row label="Catatan">{device.note}</Row>}
         </div>
+
+        {/* WiFi connection (Ruijie correlation, read-only) */}
+        {wifi && (
+          <div className="rounded-lg border border-surface-border bg-surface/40 p-3">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                Koneksi WiFi
+              </span>
+              <SignalBars rssi={wifi.rssi} />
+            </div>
+            <div className="divide-y divide-surface-border">
+              <Row label="Access Point">{wifi.apName ?? '—'}</Row>
+              <Row label="SSID">{wifi.ssid ?? '—'}</Row>
+              <Row label="Band">{wifi.band ?? '—'}</Row>
+              <Row label="Sinyal">
+                {wifi.rssi != null ? `${wifi.rssi} dBm · ${rssiQuality(wifi.rssi).label}` : '—'}
+              </Row>
+              {wifi.onlineSince != null && (
+                <Row label="Terhubung">{since(new Date(wifi.onlineSince).toISOString())}</Row>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {canEdit && (
@@ -95,6 +127,25 @@ export default function InspectPanel({
         </div>
       )}
     </div>
+  );
+}
+
+/** Four signal bars colored by RSSI quality. */
+function SignalBars({ rssi }: { rssi: number | null }) {
+  const q = rssiQuality(rssi);
+  return (
+    <span className="flex items-end gap-0.5" title={`${rssi ?? '—'} dBm · ${q.label}`}>
+      {[1, 2, 3, 4].map((b) => (
+        <span
+          key={b}
+          className="w-1 rounded-sm"
+          style={{
+            height: `${b * 3 + 2}px`,
+            backgroundColor: b <= q.bars ? q.color : 'rgb(51 65 85)',
+          }}
+        />
+      ))}
+    </span>
   );
 }
 
