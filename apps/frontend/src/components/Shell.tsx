@@ -42,23 +42,31 @@ export function Shell({ children }: { children: ReactNode }) {
     can('ruijie:manage') ||
     can('audit:view');
 
-  const item = (href: string, label: string) => (
-    <Link
-      key={href}
-      href={href}
-      onClick={() => setNavOpen(false)}
-      className={`block truncate rounded px-3 py-2 text-sm ${
-        pathname === href
-          ? 'bg-accent text-white'
-          : 'text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800/60'
-      }`}
-    >
-      {label}
-    </Link>
-  );
+  const item = (href: string, label: string, icon: keyof typeof NAV_ICONS = 'dot') => {
+    const active = pathname === href;
+    return (
+      <Link
+        key={href}
+        href={href}
+        onClick={() => setNavOpen(false)}
+        className={`group flex items-center gap-2.5 truncate rounded-lg px-3 py-2 text-sm transition ${
+          active
+            ? 'noc-accent-grad font-medium text-white shadow-sm shadow-accent/30'
+            : 'text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800/60'
+        }`}
+      >
+        <span className={active ? 'text-white' : 'text-slate-500 group-hover:text-accent'}>
+          {NAV_ICONS[icon]}
+        </span>
+        <span className="truncate">{label}</span>
+      </Link>
+    );
+  };
 
   const sectionLabel = (label: string) => (
-    <div className="px-3 pb-1 pt-3 text-xs uppercase tracking-wide text-slate-500">{label}</div>
+    <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      {label}
+    </div>
   );
 
   return (
@@ -88,27 +96,27 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-2">
-          {item('/', 'Overview')}
+          {item('/', 'Overview', 'overview')}
           {sectionLabel('Sites')}
           {sites.data?.length ? (
-            sites.data.map((s) => item(`/sites/${s.id}`, s.name))
+            sites.data.map((s) => item(`/sites/${s.id}`, s.name, 'site'))
           ) : (
             <div className="px-3 py-1 text-xs text-slate-500">No sites</div>
           )}
           {(can('hotspot:view') || can('reports:view') || can('map:view') || can('ruijie:view')) &&
             sectionLabel('Operations')}
-          {can('map:view') && item('/alerts', 'Alerts')}
-          {can('ruijie:view') && item('/ruijie', 'Ruijie WiFi')}
-          {can('hotspot:view') && item('/hotspot', 'Hotspot')}
-          {can('reports:view') && item('/reports', 'Reports')}
+          {can('map:view') && item('/alerts', 'Alerts', 'alerts')}
+          {can('ruijie:view') && item('/ruijie', 'Ruijie WiFi', 'wifi')}
+          {can('hotspot:view') && item('/hotspot', 'Hotspot', 'hotspot')}
+          {can('reports:view') && item('/reports', 'Reports', 'reports')}
           {showAdmin && (
             <>
               {sectionLabel('Admin')}
-              {can('site:manage') && item('/admin/sites', 'Sites & Routers')}
-              {can('appuser:manage') && item('/admin/users', 'Users')}
-              {can('settings:manage') && item('/admin/settings', 'Settings')}
-              {can('ruijie:manage') && item('/admin/ruijie', 'Ruijie Cloud')}
-              {can('audit:view') && item('/admin/audit', 'Aktivitas')}
+              {can('site:manage') && item('/admin/sites', 'Sites & Routers', 'server')}
+              {can('appuser:manage') && item('/admin/users', 'Users', 'users')}
+              {can('settings:manage') && item('/admin/settings', 'Settings', 'settings')}
+              {can('ruijie:manage') && item('/admin/ruijie', 'Ruijie Cloud', 'cloud')}
+              {can('audit:view') && item('/admin/audit', 'Aktivitas', 'activity')}
             </>
           )}
         </nav>
@@ -195,3 +203,26 @@ function MoonIcon() {
     </svg>
   );
 }
+
+function I({ children }: { children: ReactNode }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {children}
+    </svg>
+  );
+}
+
+const NAV_ICONS = {
+  dot: <span className="ml-1.5 mr-0.5 inline-block h-1.5 w-1.5 rounded-full bg-current opacity-60" />,
+  overview: <I><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></I>,
+  site: <I><path d="M3 21V9l6-4 6 4M3 21h18M15 21V11l6 4v6" /></I>,
+  alerts: <I><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></I>,
+  wifi: <I><path d="M5 12.55a11 11 0 0 1 14 0" /><path d="M1.42 9a16 16 0 0 1 21.16 0" /><path d="M8.53 16.11a6 6 0 0 1 6.95 0" /><line x1="12" y1="20" x2="12.01" y2="20" /></I>,
+  hotspot: <I><path d="M3 9V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6z" /></I>,
+  reports: <I><path d="M3 3v18h18" /><rect x="7" y="10" width="3" height="7" /><rect x="13" y="6" width="3" height="11" /></I>,
+  server: <I><rect x="3" y="4" width="18" height="7" rx="1.5" /><rect x="3" y="13" width="18" height="7" rx="1.5" /><line x1="7" y1="7.5" x2="7.01" y2="7.5" /><line x1="7" y1="16.5" x2="7.01" y2="16.5" /></I>,
+  users: <I><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /></I>,
+  settings: <I><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></I>,
+  cloud: <I><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" /></I>,
+  activity: <I><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></I>,
+} as const;

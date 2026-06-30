@@ -13,11 +13,12 @@ type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 const variants: Record<Variant, string> = {
   // accent = brand color (CSS var --accent driven by Settings). Defaults to
-  // blue-500 when no admin has customized it.
-  primary: 'bg-accent text-white hover:opacity-90',
+  // blue-500 when no admin has customized it. Primary uses a subtle accent
+  // gradient + glow for a livelier feel.
+  primary: 'noc-accent-grad text-white shadow-sm shadow-accent/30 hover:brightness-110 active:scale-[.98]',
   secondary:
-    'bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600',
-  danger: 'bg-red-600 hover:bg-red-500 text-white',
+    'bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700/70 dark:text-slate-100 dark:hover:bg-slate-600 active:scale-[.98]',
+  danger: 'bg-red-600 hover:bg-red-500 text-white shadow-sm shadow-red-900/40 active:scale-[.98]',
   ghost:
     'bg-transparent text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800',
 };
@@ -29,7 +30,7 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-1.5 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${className}`}
       {...props}
     />
   );
@@ -37,7 +38,9 @@ export function Button({
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`rounded-lg border border-surface-border bg-surface-raised ${className}`}>
+    <div
+      className={`rounded-xl border border-surface-border bg-surface-raised shadow-sm shadow-black/20 ${className}`}
+    >
       {children}
     </div>
   );
@@ -55,7 +58,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 }
 
 const inputBase =
-  'w-full rounded-md border border-surface-border bg-surface px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-blue-500';
+  'noc-focus w-full rounded-lg border border-surface-border bg-surface/70 px-3 py-1.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-600';
 
 export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputBase} ${props.className ?? ''}`} />;
@@ -77,12 +80,16 @@ export function Spinner({ label }: { label?: string }) {
 }
 
 export function StatusPill({ status }: { status: DisplayStatus }) {
+  const c = STATUS_COLORS[status];
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
-      style={{ color: STATUS_COLORS[status], border: `1px solid ${STATUS_COLORS[status]}55` }}
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+      style={{ color: c, background: `${c}1f`, border: `1px solid ${c}3d` }}
     >
-      <span className="h-2 w-2 rounded-full" style={{ background: STATUS_COLORS[status] }} />
+      <span
+        className="h-2 w-2 rounded-full"
+        style={{ background: c, boxShadow: `0 0 6px ${c}` }}
+      />
       {STATUS_LABELS[status]}
     </span>
   );
@@ -188,16 +195,16 @@ export function Tabs<T extends string>({
 }) {
   return (
     <div
-      className={`inline-flex overflow-hidden rounded-md border border-surface-border text-xs font-medium ${className}`}
+      className={`inline-flex gap-1 rounded-xl border border-surface-border bg-surface/60 p-1 text-xs font-medium ${className}`}
     >
       {tabs.map((t) => (
         <button
           key={t.value}
           type="button"
           onClick={() => onChange(t.value)}
-          className={`px-3 py-1.5 ${
+          className={`rounded-lg px-3 py-1.5 transition ${
             value === t.value
-              ? 'bg-accent text-white'
+              ? 'noc-accent-grad text-white shadow-sm shadow-accent/30'
               : 'text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-800'
           }`}
         >
@@ -245,5 +252,108 @@ export function ErrorState({
         </Button>
       )}
     </div>
+  );
+}
+
+// ===========================================================================
+// v2 building blocks — colorful, reusable pieces for the redesigned pages.
+// ===========================================================================
+
+const TONES = {
+  accent: { fg: 'text-accent', bg: 'bg-accent/12', ring: 'ring-accent/25' },
+  emerald: { fg: 'text-emerald-400', bg: 'bg-emerald-500/12', ring: 'ring-emerald-500/25' },
+  amber: { fg: 'text-amber-400', bg: 'bg-amber-500/12', ring: 'ring-amber-500/25' },
+  red: { fg: 'text-red-400', bg: 'bg-red-500/12', ring: 'ring-red-500/25' },
+  violet: { fg: 'text-violet-400', bg: 'bg-violet-500/12', ring: 'ring-violet-500/25' },
+  sky: { fg: 'text-sky-400', bg: 'bg-sky-500/12', ring: 'ring-sky-500/25' },
+  slate: { fg: 'text-slate-300', bg: 'bg-slate-500/12', ring: 'ring-slate-500/25' },
+} as const;
+export type Tone = keyof typeof TONES;
+
+/** Small square icon tile, tinted by tone — anchors cards, nav, list rows. */
+export function IconTile({
+  children,
+  tone = 'accent',
+  className = '',
+}: {
+  children: ReactNode;
+  tone?: Tone;
+  className?: string;
+}) {
+  const t = TONES[tone];
+  return (
+    <span
+      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ${t.bg} ${t.fg} ${t.ring} ${className}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Summary metric tile: tinted icon + big number + label. Use in 2–4 col grids. */
+export function MetricCard({
+  label,
+  value,
+  hint,
+  icon,
+  tone = 'accent',
+}: {
+  label: ReactNode;
+  value: ReactNode;
+  hint?: ReactNode;
+  icon?: ReactNode;
+  tone?: Tone;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-surface-border bg-surface-raised p-3.5 shadow-sm shadow-black/20">
+      {icon && <IconTile tone={tone}>{icon}</IconTile>}
+      <div className="min-w-0">
+        <div className="truncate text-xs text-slate-400">{label}</div>
+        <div className="text-xl font-semibold leading-tight text-slate-100">{value}</div>
+        {hint && <div className="truncate text-[11px] text-slate-500">{hint}</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Labelled section divider: tiny icon + uppercase title + colored rule + action. */
+export function SectionHeader({
+  title,
+  icon,
+  tone = 'accent',
+  action,
+}: {
+  title: ReactNode;
+  icon?: ReactNode;
+  tone?: Tone;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="mb-3 flex items-center gap-2.5">
+      {icon && <span className={`${TONES[tone].fg}`}>{icon}</span>}
+      <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">{title}</span>
+      <span className="h-px flex-1 bg-gradient-to-r from-surface-border to-transparent" />
+      {action}
+    </div>
+  );
+}
+
+/** Compact colored tag. */
+export function Badge({
+  children,
+  tone = 'slate',
+  className = '',
+}: {
+  children: ReactNode;
+  tone?: Tone;
+  className?: string;
+}) {
+  const t = TONES[tone];
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${t.bg} ${t.fg} ${className}`}
+    >
+      {children}
+    </span>
   );
 }
