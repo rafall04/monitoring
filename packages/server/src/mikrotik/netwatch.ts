@@ -131,7 +131,9 @@ export function generateNetwatchCli(p: NetwatchScriptParams): string {
     `/tool netwatch add host=${p.host} interval=${interval} timeout=${timeoutMs}ms \\`,
     `    up-script="${up}" \\`,
     `    down-script="${down}" \\`,
-    `    comment="NOC:${p.routerId}"`,
+    // Human-readable comment (the device name). NOC matches entries by host, not
+    // comment, and the router-import path reads this back as the device name.
+    `    comment="${escapeForCli(p.deviceName ?? p.host)}"`,
   ].join('\n');
 }
 
@@ -151,6 +153,8 @@ export function netwatchApiInput(p: NetwatchScriptParams): {
     timeout: `${cfg.timeoutMs}ms`,
     upScript: scriptFor(p, 'up'),
     downScript: scriptFor(p, 'down'),
-    comment: `NOC:${p.routerId}`,
+    // Human-readable comment (device name); entries are matched by host, and the
+    // router-import path reads this comment back as the device name.
+    comment: p.deviceName ?? p.host,
   };
 }
