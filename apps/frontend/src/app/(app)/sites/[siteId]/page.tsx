@@ -26,6 +26,7 @@ import { useSiteSocket } from '@/lib/ws';
 import InspectPanel from '@/components/InspectPanel';
 import LineView from '@/components/LineView';
 import MarkerPanel from '@/components/MarkerPanel';
+import WifiView from '@/components/WifiView';
 import { Button, ErrorState, Legend, Page, PageHeader, Spinner, Tabs } from '@/components/ui';
 
 // Leaflet touches `window`, so the map must be client-only.
@@ -38,8 +39,10 @@ const MapView = dynamic(() => import('@/components/MapView'), {
   ),
 });
 
-const VIEW_TABS: { value: 'line' | 'denah'; label: string }[] = [
+type ViewTab = 'line' | 'wifi' | 'denah';
+const VIEW_TABS: { value: ViewTab; label: string }[] = [
   { value: 'line', label: 'Line / Area' },
+  { value: 'wifi', label: 'WiFi' },
   { value: 'denah', label: 'Denah' },
 ];
 
@@ -58,7 +61,7 @@ export default function SiteMapPage() {
   const wifi = useSiteWifi(siteId);
   const wifiLinks = wifi.data?.links ?? {};
 
-  const [tab, setTab] = useState<'line' | 'denah'>('line');
+  const [tab, setTab] = useState<ViewTab>('line');
   const [editMode, setEditMode] = useState(false);
   const [selected, setSelected] = useState<Device | null>(null);
   // 'manual' = add from a button (no map coords yet); object = placed on the map.
@@ -183,6 +186,16 @@ export default function SiteMapPage() {
               editable={editMode}
               canManageStructure={canManageStructure}
               canReorder={canEditPos}
+              onSelect={(d) => {
+                setAdding(null);
+                setSelected(d);
+              }}
+            />
+          ) : tab === 'wifi' ? (
+            <WifiView
+              devices={devices.data ?? []}
+              wifiLinks={wifiLinks}
+              updatedAt={wifi.data?.updatedAt ?? null}
               onSelect={(d) => {
                 setAdding(null);
                 setSelected(d);
