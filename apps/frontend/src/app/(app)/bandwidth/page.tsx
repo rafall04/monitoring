@@ -43,17 +43,18 @@ function bytesOf(pair: string): { up: number; down: number; total: number } {
 }
 const cleanName = (n: string) => n.replace(/^<hotspot-?/, '').replace(/>$/, '');
 
-// Simple, human presets. `ros` is what RouterOS stores (bit/s syntax).
-const RATE_OPTIONS: { label: string; ros: string }[] = [
-  { label: 'Unlimited', ros: '0/0' },
-  { label: '512 Kbps', ros: '512k/512k' },
-  { label: '1 Mbps', ros: '1M/1M' },
-  { label: '2 Mbps', ros: '2M/2M' },
-  { label: '3 Mbps', ros: '3M/3M' },
-  { label: '5 Mbps', ros: '5M/5M' },
-  { label: '10 Mbps', ros: '10M/10M' },
-  { label: '20 Mbps', ros: '20M/20M' },
-  { label: '50 Mbps', ros: '50M/50M' },
+// Per-direction rate options (`v` = RouterOS bit/s token). '0' = unlimited.
+const RATE_UNITS: { label: string; v: string }[] = [
+  { label: 'Unlimited', v: '0' },
+  { label: '512 Kbps', v: '512k' },
+  { label: '1 Mbps', v: '1M' },
+  { label: '2 Mbps', v: '2M' },
+  { label: '3 Mbps', v: '3M' },
+  { label: '5 Mbps', v: '5M' },
+  { label: '10 Mbps', v: '10M' },
+  { label: '20 Mbps', v: '20M' },
+  { label: '50 Mbps', v: '50M' },
+  { label: '100 Mbps', v: '100M' },
 ];
 
 /** Parse a RouterOS rate token ("5000000", "5M", "512k", "0") into bit/s. */
@@ -78,16 +79,73 @@ function fmtRate(pair: string): string {
   if (u === d) return fmtBps(u);
   return `↑${fmtBps(u)} · ↓${fmtBps(d)}`;
 }
-/** Which preset matches a stored rate (by bit/s), or '' if custom. */
-function matchOption(pair: string): string {
-  const [up, down] = (pair || '0/0').split('/');
-  const u = toBps(up);
-  const d = toBps(down);
-  const found = RATE_OPTIONS.find((o) => {
-    const [ou, od] = o.ros.split('/');
-    return toBps(ou) === u && toBps(od) === d;
-  });
-  return found?.ros ?? '';
+/** DHCP lease rate-limit is stored as "rx/tx" (download/upload) — the reverse of
+ *  a simple queue's "up/down". Format it the same way (↑upload · ↓download). */
+function fmtRateDU(pair: string): string {
+  const [rx, tx] = (pair || '0/0').split('/');
+  const d = toBps(rx);
+  const u = toBps(tx);
+  if (u <= 0 && d <= 0) return 'Unlimited';
+  if (u === d) return fmtBps(u);
+  return `↑${fmtBps(u)} · ↓${fmtBps(d)}`;
+}
+
+/** Which unit matches a single-direction token (by bit/s), or '' if custom. */
+function matchUnit(token: string | undefined): string {
+  const b = toBps(token);
+  return RATE_UNITS.find((u) => toBps(u.v) === b)?.v ?? '';
+}
+
+/** One dropdown for a single direction (upload or download). */
+function RateSelect({
+  dir,
+  value,
+  onChange,
+  disabled,
+}: {
+  dir: 'up' | 'down';
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const matched = matchUnit(value);
+  return (
+    <label className="inline-flex items-center gap-1">
+      <span className="text-xs text-slate-500">{dir === 'up' ? '↑' : '↓'}</span>
+      <Select
+        value={matched}
+        onChange={(e) => e.target.value && onChange(e.target.value)}
+        className="w-28"
+        disabled={disabled}
+      >
+        {!matched && <option value="">{fmtBps(toBps(value))}</option>}
+        {RATE_UNITS.map((u) => (
+          <option key={u.v} value={u.v}>
+            {u.label}
+          </option>
+        ))}
+      </Select>
+    </label>
+  );
+}
+
+/** Upload + Download pair. `pair` is "up/down"; onChange emits "up/down". */
+function RatePair({
+  pair,
+  onChange,
+  disabled,
+}: {
+  pair: string;
+  onChange: (ros: string) => void;
+  disabled?: boolean;
+}) {
+  const [up = '0', down = '0'] = (pair || '0/0').split('/');
+  return (
+    <div className="flex items-center gap-2">
+      <RateSelect dir="up" value={up} onChange={(v) => onChange(`${v}/${down}`)} disabled={disabled} />
+      <RateSelect dir="down" value={down} onChange={(v) => onChange(`${up}/${v}`)} disabled={disabled} />
+    </div>
+  );
 }
 
 function Ic({ d }: { d: string }) {
@@ -244,15 +302,17 @@ function QueueManager({
       ) : (
         <>
           {canManage && (
-            <div className="mb-3 grid grid-cols-1 gap-2 rounded-lg border border-dashed border-surface-border p-3 sm:grid-cols-[1fr_1fr_auto_auto]">
-              <TextInput value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nama (mis. Limit-PC-Gudang)" />
-              <TextInput value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} placeholder="Target IP/subnet" />
-              <Select value={form.maxLimit} onChange={(e) => setForm({ ...form, maxLimit: e.target.value })} className="sm:w-32">
-                {RATE_OPTIONS.map((o) => <option key={o.ros} value={o.ros}>{o.label}</option>)}
-              </Select>
-              <Button onClick={onAdd} disabled={addQ.isPending || !form.name.trim() || !form.target.trim()}>
-                + Buat limit
-              </Button>
+            <div className="mb-3 space-y-2 rounded-lg border border-dashed border-surface-border p-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <TextInput value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nama (mis. Limit-PC-Gudang)" />
+                <TextInput value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} placeholder="Target IP/subnet" />
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <RatePair pair={form.maxLimit} onChange={(ros) => setForm({ ...form, maxLimit: ros })} />
+                <Button onClick={onAdd} disabled={addQ.isPending || !form.name.trim() || !form.target.trim()}>
+                  + Buat limit
+                </Button>
+              </div>
             </div>
           )}
 
@@ -270,10 +330,7 @@ function QueueManager({
                     </div>
                   </div>
                   {canManage ? (
-                    <Select value={matchOption(q.maxLimit)} onChange={(e) => e.target.value && onSetMax(q, e.target.value)} className="w-36">
-                      {!matchOption(q.maxLimit) && <option value="">{fmtRate(q.maxLimit)}</option>}
-                      {RATE_OPTIONS.map((o) => <option key={o.ros} value={o.ros}>{o.label}</option>)}
-                    </Select>
+                    <RatePair pair={q.maxLimit} onChange={(ros) => onSetMax(q, ros)} />
                   ) : (
                     <Badge tone="sky">{fmtRate(q.maxLimit)}</Badge>
                   )}
@@ -314,6 +371,11 @@ function LeaseManager({ routerId, canManage }: { routerId: string | null; canMan
     return matched.slice(0, 40);
   }, [leases.data, q]);
 
+  // DHCP rate-limit is "rx/tx" (download/upload) — reverse of the up/down the UI uses.
+  const toDhcp = (ud: string) => {
+    const [u = '0', d = '0'] = (ud || '0/0').split('/');
+    return `${d}/${u}`;
+  };
   const apply = (lid: string, rateLimit: string, label: string) =>
     setRate.mutate(
       { lid, rateLimit },
@@ -334,9 +396,10 @@ function LeaseManager({ routerId, canManage }: { routerId: string | null; canMan
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
             <TextInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari IP / MAC / hostname…" className="sm:flex-1" />
             {canManage && (
-              <Select value={rate} onChange={(e) => setRate2(e.target.value)} className="sm:w-36">
-                {RATE_OPTIONS.filter((o) => o.ros !== '0/0').map((o) => <option key={o.ros} value={o.ros}>{o.label}</option>)}
-              </Select>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Limit:</span>
+                <RatePair pair={rate} onChange={setRate2} />
+              </div>
             )}
           </div>
           <p className="mb-2 text-[11px] text-slate-500">
@@ -350,10 +413,10 @@ function LeaseManager({ routerId, canManage }: { routerId: string | null; canMan
                 <span className="truncate font-mono text-[11px] text-slate-500">{l.macAddress}</span>
                 {l.hostName && <span className="truncate text-[11px] text-slate-400">{l.hostName}</span>}
                 {l.dynamic && <Badge tone="slate">dinamis</Badge>}
-                {l.rateLimit ? <Badge tone="amber">{fmtRate(l.rateLimit)}</Badge> : <span className="text-[11px] text-slate-600">tanpa limit</span>}
+                {l.rateLimit ? <Badge tone="amber">{fmtRateDU(l.rateLimit)}</Badge> : <span className="text-[11px] text-slate-600">tanpa limit</span>}
                 {canManage && (
                   <span className="ml-auto flex gap-3">
-                    <button onClick={() => apply(l.id, rate, `Dibatasi ${fmtRate(rate)}`)} className="text-xs text-accent hover:opacity-80">
+                    <button onClick={() => apply(l.id, toDhcp(rate), `Dibatasi ${fmtRate(rate)}`)} className="text-xs text-accent hover:opacity-80">
                       batasi {fmtRate(rate)}
                     </button>
                     {l.rateLimit && (
