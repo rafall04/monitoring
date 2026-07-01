@@ -1,10 +1,18 @@
 import type {
+  AddressListEntry,
+  FirewallBlockRule,
   HotspotActive,
   HotspotProfile,
   HotspotUser,
   RouterOsVersion,
   RouterResource,
 } from '@noc/shared';
+
+export interface AddAddressListInput {
+  list: string;
+  address: string;
+  comment?: string;
+}
 
 export interface MikrotikConfig {
   host: string;
@@ -74,6 +82,17 @@ export interface MikrotikClient {
 
   listHotspotActive(): Promise<HotspotActive[]>;
   disconnectHotspotActive(id: string): Promise<void>;
+
+  // Access control (firewall): forward drop/reject rules as on/off blocks, plus
+  // block address-lists (add/remove a device or subnet). Writes need a router
+  // user with the `write` policy.
+  listFirewallBlocks(): Promise<FirewallBlockRule[]>;
+  setBlockActive(id: string, active: boolean): Promise<void>;
+  listAddressListEntries(list?: string): Promise<AddressListEntry[]>;
+  addAddressListEntry(input: AddAddressListInput): Promise<void>;
+  removeAddressListEntry(id: string): Promise<void>;
+  /** Save a router-side config backup (restore point) before a change. */
+  saveBackup(name: string): Promise<void>;
 
   close(): Promise<void>;
 }

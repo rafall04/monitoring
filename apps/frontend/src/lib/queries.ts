@@ -7,12 +7,14 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import type {
+  AddressListEntry,
   AppUserPublic,
   AuditLogPage,
   Area,
   CreateDeviceInput,
   CreateRuijieAccountInput,
   Device,
+  FirewallBlockRule,
   PatchDevicePositionInput,
   RouterPublic,
   RuijieAccountPublic,
@@ -40,8 +42,58 @@ export const qk = {
   ruijieAccounts: ['ruijie', 'accounts'] as const,
   ruijieClients: (id: string) => ['ruijie', 'routers', id, 'clients'] as const,
   ruijieProjects: (accountId: string) => ['ruijie', 'accounts', accountId, 'projects'] as const,
+  firewallBlocks: (routerId: string) => ['firewall', routerId, 'blocks'] as const,
+  addressList: (routerId: string, list: string) => ['firewall', routerId, 'address-list', list] as const,
   audit: (query: string) => ['audit', query] as const,
 };
+
+type WriteResult = { ok: boolean; backup: 'saved' | 'failed' };
+
+export function useFirewallBlocks(routerId: string | null) {
+  return useQuery({
+    queryKey: qk.firewallBlocks(routerId ?? ''),
+    queryFn: () => api.get<FirewallBlockRule[]>(`/firewall/${routerId}/blocks`),
+    enabled: Boolean(routerId),
+    refetchInterval: 30_000,
+  });
+}
+export function useToggleBlock(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { ruleId: string; active: boolean }) =>
+      api.post<WriteResult>(`/firewall/${routerId}/blocks/${encodeURIComponent(v.ruleId)}/toggle`, {
+        active: v.active,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.firewallBlocks(routerId) }),
+  });
+}
+export function useAddressList(routerId: string | null, list: string | null) {
+  return useQuery({
+    queryKey: qk.addressList(routerId ?? '', list ?? 'all'),
+    queryFn: () =>
+      api.get<AddressListEntry[]>(
+        `/firewall/${routerId}/address-list${list ? `?list=${encodeURIComponent(list)}` : ''}`,
+      ),
+    enabled: Boolean(routerId),
+    refetchInterval: 30_000,
+  });
+}
+export function useAddAddressEntry(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { list: string; address: string; comment?: string }) =>
+      api.post<WriteResult>(`/firewall/${routerId}/address-list`, v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'address-list'] }),
+  });
+}
+export function useRemoveAddressEntry(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (entryId: string) =>
+      api.del<WriteResult>(`/firewall/${routerId}/address-list/${encodeURIComponent(entryId)}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'address-list'] }),
+  });
+}
 
 export function useSites() {
   return useQuery({ queryKey: qk.sites, queryFn: () => api.get<Site[]>('/sites') });

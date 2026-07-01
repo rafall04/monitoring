@@ -6,12 +6,15 @@
 
 import { RouterOSAPI } from 'node-routeros';
 import type {
+  AddressListEntry,
+  FirewallBlockRule,
   HotspotActive,
   HotspotProfile,
   HotspotUser,
   RouterResource,
 } from '@noc/shared';
 import type {
+  AddAddressListInput,
   AddHotspotUserInput,
   AddNetwatchInput,
   MikrotikClient,
@@ -19,6 +22,20 @@ import type {
   NetwatchEntry,
   UpsertHotspotProfileInput,
 } from './types';
+
+/** Human-readable description of how a forward drop/reject rule blocks. */
+function describeBlock(r: Row): string {
+  const l7 = r['layer7-protocol'];
+  const dal = r['dst-address-list'];
+  const sal = r['src-address-list'];
+  const port = r['dst-port'];
+  const parts: string[] = [];
+  if (l7) parts.push(`Layer7: ${l7}`);
+  if (sal) parts.push(`dari list ${sal}`);
+  if (dal) parts.push(`ke ${dal}`);
+  if (port) parts.push(`port ${port}`);
+  return parts.join(' · ') || 'forward drop';
+}
 
 type Row = Record<string, string>;
 
@@ -214,6 +231,49 @@ export class RouterOsV6Client implements MikrotikClient {
 
   async disconnectHotspotActive(id: string): Promise<void> {
     await this.write('/ip/hotspot/active/remove', [`=.id=${id}`]);
+  }
+
+  async listFirewallBlocks(): Promise<FirewallBlockRule[]> {
+    const res = await this.write('/ip/firewall/filter/print');
+    return res
+      .filter((r) => r['chain'] === 'forward' && (r['action'] === 'drop' || r['action'] === 'reject'))
+      .map((r) => ({
+        id: r['.id'] ?? '',
+        comment: (r['comment'] ?? '').trim(),
+        action: r['action'] ?? 'drop',
+        active: r['disabled'] !== 'true',
+        method: describeBlock(r),
+      }));
+  }
+
+  async setBlockActive(id: string, active: boolean): Promise<void> {
+    await this.write('/ip/firewall/filter/set', [`=.id=${id}`, `=disabled=${active ? 'no' : 'yes'}`]);
+  }
+
+  async listAddressListEntries(list?: string): Promise<AddressListEntry[]> {
+    const params = list ? [`?list=${list}`] : [];
+    const res = await this.write('/ip/firewall/address-list/print', params);
+    return res.map((r) => ({
+      id: r['.id'] ?? '',
+      list: r['list'] ?? '',
+      address: r['address'] ?? '',
+      comment: r['comment'] ?? null,
+      dynamic: r['dynamic'] === 'true',
+    }));
+  }
+
+  async addAddressListEntry(input: AddAddressListInput): Promise<void> {
+    const params = [`=list=${input.list}`, `=address=${input.address}`];
+    if (input.comment) params.push(`=comment=${input.comment}`);
+    await this.write('/ip/firewall/address-list/add', params);
+  }
+
+  async removeAddressListEntry(id: string): Promise<void> {
+    await this.write('/ip/firewall/address-list/remove', [`=.id=${id}`]);
+  }
+
+  async saveBackup(name: string): Promise<void> {
+    await this.write('/system/backup/save', [`=name=${name}`]);
   }
 
   async close(): Promise<void> {

@@ -226,6 +226,19 @@ export const updateProfileSchema = z.object({
 });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
+// ---- Firewall / access control ----------------------------------------------
+
+export const toggleBlockSchema = z.object({ active: z.boolean() });
+export type ToggleBlockInput = z.infer<typeof toggleBlockSchema>;
+
+// address: an IP, CIDR, or range. Kept permissive but bounded; RouterOS validates.
+export const addAddressListSchema = z.object({
+  list: z.string().min(1).max(64),
+  address: z.string().min(1).max(64),
+  comment: z.string().max(120).optional(),
+});
+export type AddAddressListInput = z.infer<typeof addAddressListSchema>;
+
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(255),
   newPassword: z.string().min(8).max(255),

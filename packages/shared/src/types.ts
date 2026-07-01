@@ -332,6 +332,26 @@ export interface HotspotActive {
   server?: string;
 }
 
+// ---- Firewall / access control (block toggles + block address-lists) --------
+
+/** A forward drop/reject firewall rule surfaced as a friendly on/off "block". */
+export interface FirewallBlockRule {
+  id: string; // RouterOS .id
+  comment: string; // friendly name from the rule comment ('' if unnamed)
+  action: string; // drop | reject
+  active: boolean; // true = block is ON (rule enabled)
+  method: string; // human description: "Layer7: WA", "List: 001 → non-lokal", …
+}
+
+/** One entry in a firewall address-list (used to block/allow a device or subnet). */
+export interface AddressListEntry {
+  id: string;
+  list: string;
+  address: string;
+  comment: string | null;
+  dynamic: boolean; // dynamic entries are read-only (can't be removed by us)
+}
+
 export interface HotspotProfile {
   '.id'?: string;
   name: string;
