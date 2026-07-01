@@ -43,19 +43,24 @@ function bytesOf(pair: string): { up: number; down: number; total: number } {
 }
 const cleanName = (n: string) => n.replace(/^<hotspot-?/, '').replace(/>$/, '');
 
-// Per-direction rate options (`v` = RouterOS bit/s token). '0' = unlimited.
-const RATE_UNITS: { label: string; v: string }[] = [
-  { label: 'Unlimited', v: '0' },
-  { label: '512 Kbps', v: '512k' },
-  { label: '1 Mbps', v: '1M' },
-  { label: '2 Mbps', v: '2M' },
-  { label: '3 Mbps', v: '3M' },
-  { label: '5 Mbps', v: '5M' },
-  { label: '10 Mbps', v: '10M' },
-  { label: '20 Mbps', v: '20M' },
-  { label: '50 Mbps', v: '50M' },
-  { label: '100 Mbps', v: '100M' },
+// Units for the fully-custom rate input (`v` = RouterOS rate suffix).
+const UNITS3: { v: string; label: string }[] = [
+  { v: 'k', label: 'Kbps' },
+  { v: 'M', label: 'Mbps' },
+  { v: 'G', label: 'Gbps' },
 ];
+
+/** Seed the custom input from a stored token (bit/s number, "5M", "512k", "0"). */
+function seedRate(token: string): { unlimited: boolean; num: string; unit: string } {
+  const t = (token || '').trim();
+  if (!t || toBps(t) <= 0) return { unlimited: true, num: '10', unit: 'M' };
+  const m = /^(\d+(?:\.\d+)?)([kKmMgG])$/.exec(t);
+  if (m) return { unlimited: false, num: m[1]!, unit: m[2]!.toLowerCase() === 'k' ? 'k' : m[2]!.toUpperCase() };
+  const bps = Number(t) || 0;
+  if (bps >= 1e9) return { unlimited: false, num: String(Math.round((bps / 1e9) * 100) / 100), unit: 'G' };
+  if (bps >= 1e6) return { unlimited: false, num: String(Math.round((bps / 1e6) * 100) / 100), unit: 'M' };
+  return { unlimited: false, num: String(Math.round(bps / 1e3)), unit: 'k' };
+}
 
 /** Parse a RouterOS rate token ("5000000", "5M", "512k", "0") into bit/s. */
 function toBps(t: string | undefined): number {
@@ -90,14 +95,8 @@ function fmtRateDU(pair: string): string {
   return `↑${fmtBps(u)} · ↓${fmtBps(d)}`;
 }
 
-/** Which unit matches a single-direction token (by bit/s), or '' if custom. */
-function matchUnit(token: string | undefined): string {
-  const b = toBps(token);
-  return RATE_UNITS.find((u) => toBps(u.v) === b)?.v ?? '';
-}
-
-/** One dropdown for a single direction (upload or download). */
-function RateSelect({
+/** Fully-custom single-direction limit: free number + unit, or Unlimited. */
+function RateInput({
   dir,
   value,
   onChange,
@@ -108,24 +107,53 @@ function RateSelect({
   onChange: (v: string) => void;
   disabled?: boolean;
 }) {
-  const matched = matchUnit(value);
+  const seed = seedRate(value);
+  const [unlimited, setUnlimited] = useState(seed.unlimited);
+  const [num, setNum] = useState(seed.num);
+  const [unit, setUnit] = useState(seed.unit);
+  const emit = (unl: boolean, n: string, u: string) => onChange(unl ? '0' : `${n.trim() || '0'}${u}`);
   return (
-    <label className="inline-flex items-center gap-1">
+    <div className="inline-flex items-center gap-1">
       <span className="text-xs text-slate-500">{dir === 'up' ? '↑' : '↓'}</span>
-      <Select
-        value={matched}
-        onChange={(e) => e.target.value && onChange(e.target.value)}
-        className="w-28"
-        disabled={disabled}
-      >
-        {!matched && <option value="">{fmtBps(toBps(value))}</option>}
-        {RATE_UNITS.map((u) => (
-          <option key={u.v} value={u.v}>
-            {u.label}
-          </option>
-        ))}
-      </Select>
-    </label>
+      {unlimited ? (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => { setUnlimited(false); emit(false, num, unit); }}
+          className="rounded-lg border border-surface-border bg-surface/70 px-2 py-1 text-xs text-slate-400 disabled:opacity-50"
+        >
+          ∞ Unlimited
+        </button>
+      ) : (
+        <>
+          <input
+            type="number"
+            min={1}
+            value={num}
+            disabled={disabled}
+            onChange={(e) => { setNum(e.target.value); emit(false, e.target.value, unit); }}
+            className="noc-focus w-16 rounded-lg border border-surface-border bg-surface/70 px-2 py-1 text-sm text-slate-100 outline-none transition"
+          />
+          <Select
+            value={unit}
+            disabled={disabled}
+            onChange={(e) => { setUnit(e.target.value); emit(false, num, e.target.value); }}
+            className="w-24"
+          >
+            {UNITS3.map((u) => <option key={u.v} value={u.v}>{u.label}</option>)}
+          </Select>
+          <button
+            type="button"
+            disabled={disabled}
+            title="Set Unlimited"
+            onClick={() => { setUnlimited(true); emit(true, num, unit); }}
+            className="px-1 text-sm text-slate-500 hover:text-slate-300 disabled:opacity-50"
+          >
+            ∞
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -141,9 +169,9 @@ function RatePair({
 }) {
   const [up = '0', down = '0'] = (pair || '0/0').split('/');
   return (
-    <div className="flex items-center gap-2">
-      <RateSelect dir="up" value={up} onChange={(v) => onChange(`${v}/${down}`)} disabled={disabled} />
-      <RateSelect dir="down" value={down} onChange={(v) => onChange(`${up}/${v}`)} disabled={disabled} />
+    <div className="flex flex-wrap items-center gap-2">
+      <RateInput dir="up" value={up} onChange={(v) => onChange(`${v}/${down}`)} disabled={disabled} />
+      <RateInput dir="down" value={down} onChange={(v) => onChange(`${up}/${v}`)} disabled={disabled} />
     </div>
   );
 }
