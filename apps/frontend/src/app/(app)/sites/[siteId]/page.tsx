@@ -129,52 +129,58 @@ export default function SiteMapPage() {
         title={site.data.name}
         subtitle={`${site.data.region ? `${site.data.region} · ` : ''}${devices.data?.length ?? 0} devices`}
         actions={
-          <div className="flex flex-wrap items-center gap-4">
-          {s && (
-            <div className="flex items-center gap-1.5">
-              <Badge tone="emerald">{s.up} up</Badge>
-              {s.down > 0 && <Badge tone="red">{s.down} down</Badge>}
-              {s.unknown > 0 && <Badge tone="slate">{s.unknown} ?</Badge>}
-              {s.maintenance > 0 && <Badge tone="sky">{s.maintenance} mnt</Badge>}
-              <span className="ml-1 rounded-full border border-surface-border bg-surface px-2.5 py-0.5 text-sm font-semibold text-slate-100">
-                {s.availabilityPct}%
-              </span>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+            {(s || (can('ruijie:view') && wifiRouters.length > 0)) && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {s && (
+                  <>
+                    <Badge tone="emerald">{s.up} up</Badge>
+                    {s.down > 0 && <Badge tone="red">{s.down} down</Badge>}
+                    {s.unknown > 0 && <Badge tone="slate">{s.unknown} ?</Badge>}
+                    {s.maintenance > 0 && <Badge tone="sky">{s.maintenance} mnt</Badge>}
+                    <span className="rounded-full border border-surface-border bg-surface px-2.5 py-0.5 text-sm font-semibold text-slate-100">
+                      {s.availabilityPct}%
+                    </span>
+                  </>
+                )}
+                {can('ruijie:view') && wifiRouters.length > 0 && (
+                  <Link
+                    href={wifiHref}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-0.5 text-sm font-medium text-accent transition hover:bg-accent/25"
+                    title="WiFi Ruijie di site ini"
+                  >
+                    <WifiIcon />
+                    {wifiClients} client · {wifiOnline}/{wifiRouters.length} AP
+                  </Link>
+                )}
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <Tabs tabs={VIEW_TABS} value={tab} onChange={setTab} />
+              {tab === 'denah' && <Legend />}
+              {canCreate && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setSelected(null);
+                    setAdding('manual');
+                  }}
+                >
+                  + Add device
+                </Button>
+              )}
+              {(canEditPos || canCreate || canManageStructure) && (
+                <Button
+                  variant={editMode ? 'primary' : 'secondary'}
+                  onClick={() => {
+                    setEditMode((v) => !v);
+                    setAdding(null);
+                  }}
+                >
+                  {editMode ? 'Done editing' : 'Edit'}
+                </Button>
+              )}
             </div>
-          )}
-          {can('ruijie:view') && wifiRouters.length > 0 && (
-            <Link
-              href={wifiHref}
-              className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-0.5 text-sm font-medium text-accent transition hover:bg-accent/25"
-              title="WiFi Ruijie di site ini"
-            >
-              <WifiIcon />
-              {wifiClients} client · {wifiOnline}/{wifiRouters.length} AP
-            </Link>
-          )}
-          <Tabs tabs={VIEW_TABS} value={tab} onChange={setTab} />
-          {tab === 'denah' && <Legend />}
-          {canCreate && (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setSelected(null);
-                setAdding('manual');
-              }}
-            >
-              + Add device
-            </Button>
-          )}
-          {(canEditPos || canCreate || canManageStructure) && (
-            <Button
-              variant={editMode ? 'primary' : 'secondary'}
-              onClick={() => {
-                setEditMode((v) => !v);
-                setAdding(null);
-              }}
-            >
-              {editMode ? 'Done editing' : 'Edit'}
-            </Button>
-          )}
           </div>
         }
       />

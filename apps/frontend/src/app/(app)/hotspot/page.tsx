@@ -579,24 +579,30 @@ export default function HotspotPage() {
                     {sessions.data?.map((a) => (
                       <tr key={a['.id'] ?? a.address} className="border-t border-surface-border">
                         <td data-label="User" className="py-1.5">
-                          <div className="font-medium text-slate-200">{a.user}</div>
-                          {a['login-by'] && (
-                            <div className="text-[10px] text-slate-500">via {a['login-by']}</div>
-                          )}
+                          <div>
+                            <div className="font-medium text-slate-200">{a.user}</div>
+                            {a['login-by'] && (
+                              <div className="text-[10px] text-slate-500">via {a['login-by']}</div>
+                            )}
+                          </div>
                         </td>
                         <td data-label="Address" className="font-mono text-xs">{a.address}</td>
                         <td data-label="MAC" className="font-mono text-xs">{a['mac-address']}</td>
                         <td data-label="Uptime">
-                          <div>{a.uptime}</div>
-                          {a['session-time-left'] && (
-                            <div className="text-[10px] text-slate-500">sisa {a['session-time-left']}</div>
-                          )}
+                          <div>
+                            <div>{a.uptime}</div>
+                            {a['session-time-left'] && (
+                              <div className="text-[10px] text-slate-500">sisa {a['session-time-left']}</div>
+                            )}
+                          </div>
                         </td>
                         <td data-label="Idle" className="text-slate-400">{a['idle-time'] ?? '—'}</td>
                         <td data-label="Traffic">
-                          <span className="text-sky-600 dark:text-sky-400">↓ {formatBytes(a['bytes-in'])}</span>
-                          <span className="mx-1 text-slate-500">/</span>
-                          <span className="text-emerald-600 dark:text-emerald-400">↑ {formatBytes(a['bytes-out'])}</span>
+                          <span className="whitespace-nowrap">
+                            <span className="text-sky-600 dark:text-sky-400">↓ {formatBytes(a['bytes-in'])}</span>
+                            <span className="mx-1 text-slate-500">/</span>
+                            <span className="text-emerald-600 dark:text-emerald-400">↑ {formatBytes(a['bytes-out'])}</span>
+                          </span>
                         </td>
                         {canDisconnect && (
                           <td className="py-1.5 text-right">
