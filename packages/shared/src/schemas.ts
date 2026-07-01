@@ -258,6 +258,14 @@ export type UpdateSimpleQueueInput = z.infer<typeof updateSimpleQueueSchema>;
 export const setLeaseRateSchema = z.object({ rateLimit });
 export type SetLeaseRateInput = z.infer<typeof setLeaseRateSchema>;
 
+// ---- Managed block intents --------------------------------------------------
+const nocName = z.string().min(1).max(64).regex(/^[A-Za-z0-9._-]+$/, 'Huruf/angka/._- saja');
+export const createIntentSchema = z.object({
+  service: nocName, // service key, or 'internet'
+  group: nocName.default('semua'), // 'semua' or a group name
+});
+export type CreateIntentInput = z.infer<typeof createIntentSchema>;
+
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(255),
   newPassword: z.string().min(8).max(255),

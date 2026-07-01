@@ -1,15 +1,18 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { FirewallBlockRule } from '@noc/shared';
+import { BLOCK_SERVICES, type BlockIntent, type FirewallBlockRule } from '@noc/shared';
 import { useAuth } from '@/lib/auth';
 import {
   useAddAddressEntry,
   useAddressList,
+  useBlockIntents,
+  useCreateIntent,
   useFirewallBlocks,
   useRemoveAddressEntry,
   useRouters,
   useToggleBlock,
+  useToggleIntent,
 } from '@/lib/queries';
 import { useConfirm, useToast } from '@/lib/toast';
 import {
@@ -72,6 +75,9 @@ export default function AccessControlPage() {
 
   const blocks = useFirewallBlocks(routerId);
   const toggle = useToggleBlock(routerId ?? '');
+  const intents = useBlockIntents(routerId);
+  const createIntent = useCreateIntent(routerId ?? '');
+  const toggleIntent = useToggleIntent(routerId ?? '');
 
   const named = (blocks.data ?? []).filter((b) => b.comment);
   const unnamed = (blocks.data ?? []).filter((b) => !b.comment);
@@ -125,9 +131,80 @@ export default function AccessControlPage() {
           </Card>
         )}
 
-        {/* ---- Website / app blocks ---- */}
+        {/* ---- Managed service blocks (clean layer) ---- */}
         <section>
-          <SectionHeader title="Blok Website / Aplikasi" icon={<Ic d={SHIELD} />} tone="red" />
+          <SectionHeader title="Blokir Layanan (rapi & efisien)" icon={<Ic d={SHIELD} />} tone="red" />
+          <Card className="p-4">
+            {intents.isError ? (
+              <ErrorState onRetry={() => void intents.refetch()}>Gagal memuat.</ErrorState>
+            ) : intents.isLoading ? (
+              <Loading />
+            ) : (
+              <>
+                <p className="mb-3 text-xs text-slate-500">
+                  Blokir per layanan (berbasis domain, tanpa Layer7). Berlaku untuk semua device di router ini.
+                </p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {BLOCK_SERVICES.map((svc) => {
+                    const intent = (intents.data ?? []).find(
+                      (i) => i.group === 'semua' && i.service === svc.key,
+                    );
+                    const on = !!intent?.active;
+                    const busy = createIntent.isPending || toggleIntent.isPending;
+                    const flip = () => {
+                      if (intent) {
+                        toggleIntent.mutate(
+                          { ruleId: intent.id, active: !on },
+                          {
+                            onSuccess: (r) => {
+                              toast.ok(!on ? `${svc.label} diblokir` : `${svc.label} dibuka`);
+                              if (r.backup === 'failed') toast.error('Backup config GAGAL.');
+                            },
+                            onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+                          },
+                        );
+                      } else {
+                        createIntent.mutate(
+                          { service: svc.key, group: 'semua' },
+                          {
+                            onSuccess: (r) => {
+                              toast.ok(`${svc.label} diblokir`);
+                              if (r.backup === 'failed') toast.error('Backup config GAGAL.');
+                            },
+                            onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+                          },
+                        );
+                      }
+                    };
+                    return (
+                      <div
+                        key={svc.key}
+                        className="flex items-center gap-3 rounded-lg border border-surface-border bg-surface/50 p-3"
+                      >
+                        <IconTile tone={on ? 'red' : 'slate'}>
+                          <Ic d={SHIELD} />
+                        </IconTile>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-slate-200">{svc.label}</div>
+                          <div className="truncate text-[11px] text-slate-500">
+                            {svc.domains.length} domain
+                          </div>
+                        </div>
+                        <Badge tone={on ? 'red' : 'slate'}>{on ? 'diblokir' : 'terbuka'}</Badge>
+                        <Switch on={on} onClick={flip} disabled={!canManage || busy} />
+                      </div>
+                    );
+                  })}
+                </div>
+                <PerGroupIntents intents={intents.data ?? []} canManage={canManage} toggleIntent={toggleIntent} />
+              </>
+            )}
+          </Card>
+        </section>
+
+        {/* ---- Legacy raw rules (cleanup) ---- */}
+        <section>
+          <SectionHeader title="Rule Lama (cleanup)" icon={<Ic d={SHIELD} />} tone="amber" />
           <Card className="p-4">
             {blocks.isError ? (
               <ErrorState onRetry={() => void blocks.refetch()}>
@@ -193,6 +270,36 @@ function BlockRow({
       </div>
       <Badge tone={b.active ? 'red' : 'slate'}>{b.active ? 'diblokir' : 'terbuka'}</Badge>
       <Switch on={b.active} onClick={onToggle} disabled={!canManage} />
+    </div>
+  );
+}
+
+function PerGroupIntents({
+  intents,
+  canManage,
+  toggleIntent,
+}: {
+  intents: BlockIntent[];
+  canManage: boolean;
+  toggleIntent: ReturnType<typeof useToggleIntent>;
+}) {
+  const perGroup = intents.filter((i) => i.group !== 'semua');
+  if (perGroup.length === 0) return null;
+  return (
+    <div className="mt-3 border-t border-surface-border pt-3">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Blok per grup</div>
+      <div className="space-y-1.5">
+        {perGroup.map((i) => (
+          <div key={i.id} className="flex items-center gap-2 text-sm">
+            <Badge tone="slate">{i.group}</Badge>
+            <span className="text-slate-300">{i.service}</span>
+            <Badge tone={i.active ? 'red' : 'slate'}>{i.active ? 'diblokir' : 'terbuka'}</Badge>
+            <span className="ml-auto">
+              <Switch on={i.active} onClick={() => toggleIntent.mutate({ ruleId: i.id, active: !i.active })} disabled={!canManage} />
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

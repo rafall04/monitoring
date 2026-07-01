@@ -1,5 +1,6 @@
 import type {
   AddressListEntry,
+  BlockIntent,
   DhcpLeaseDTO,
   FirewallBlockRule,
   HotspotActive,
@@ -99,6 +100,14 @@ export interface MikrotikClient {
   listAddressListEntries(list?: string): Promise<AddressListEntry[]>;
   addAddressListEntry(input: AddAddressListInput): Promise<void>;
   removeAddressListEntry(id: string): Promise<void>;
+
+  // Managed block system (clean noc-block chain + noc-svc/noc-grp lists)
+  ensureBlockChain(): Promise<void>;
+  listBlockIntents(): Promise<BlockIntent[]>;
+  ensureServiceDomains(service: string, domains: string[]): Promise<void>;
+  createIntent(input: { group: string; service: string }): Promise<void>;
+  setIntentActive(id: string, active: boolean): Promise<void>;
+  removeIntent(id: string): Promise<void>;
 
   // Bandwidth / QoS
   listSimpleQueues(): Promise<SimpleQueueDTO[]>;

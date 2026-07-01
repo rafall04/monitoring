@@ -352,6 +352,34 @@ export interface AddressListEntry {
   dynamic: boolean; // dynamic entries are read-only (can't be removed by us)
 }
 
+// ---- Managed block system (clean layer: noc-block chain + noc-svc/noc-grp) ---
+
+/** One NOC-managed block rule in the `noc-block` chain: group × service. */
+export interface BlockIntent {
+  id: string;
+  group: string; // 'semua' = all devices, else a noc-grp-<group> address-list
+  service: string; // service key (whatsapp, tiktok, …) or 'internet'
+  active: boolean;
+}
+
+/** A blockable service: a friendly label + the domains that define it (RouterOS
+ *  resolves the domains to IPs — no Layer7, no manual IP maintenance). */
+export interface BlockServiceDef {
+  key: string;
+  label: string;
+  domains: string[];
+}
+
+/** Curated service catalog. `internet` is special (block all non-local). */
+export const BLOCK_SERVICES: BlockServiceDef[] = [
+  { key: 'whatsapp', label: 'WhatsApp', domains: ['whatsapp.com', 'whatsapp.net', 'g.whatsapp.net', 'mmg.whatsapp.net'] },
+  { key: 'tiktok', label: 'TikTok', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'byteoversea.com', 'ibytedtos.com', 'musical.ly'] },
+  { key: 'youtube', label: 'YouTube', domains: ['youtube.com', 'youtu.be', 'youtubei.googleapis.com', 'ytimg.com', 'googlevideo.com'] },
+  { key: 'facebook', label: 'Facebook / Instagram', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com'] },
+  { key: 'telegram', label: 'Telegram', domains: ['telegram.org', 't.me', 'telegram.me', 'telegra.ph'] },
+  { key: 'twitter', label: 'X / Twitter', domains: ['twitter.com', 'x.com', 't.co', 'twimg.com'] },
+];
+
 // ---- Bandwidth / QoS (simple queues + DHCP lease rate-limit) -----------------
 
 /** A RouterOS simple queue — the per-device/subnet bandwidth limit. */

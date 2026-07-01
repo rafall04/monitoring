@@ -13,6 +13,7 @@ import type {
   Area,
   CreateDeviceInput,
   CreateRuijieAccountInput,
+  BlockIntent,
   Device,
   DhcpLeaseDTO,
   FirewallBlockRule,
@@ -94,6 +95,42 @@ export function useRemoveAddressEntry(routerId: string) {
     mutationFn: (entryId: string) =>
       api.del<WriteResult>(`/firewall/${routerId}/address-list/${encodeURIComponent(entryId)}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'address-list'] }),
+  });
+}
+
+// ---- Managed block intents --------------------------------------------------
+export function useBlockIntents(routerId: string | null) {
+  return useQuery({
+    queryKey: ['firewall', routerId, 'intents'],
+    queryFn: () => api.get<BlockIntent[]>(`/firewall/${routerId}/intents`),
+    enabled: Boolean(routerId),
+    refetchInterval: 30_000,
+  });
+}
+export function useCreateIntent(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { service: string; group?: string }) =>
+      api.post<WriteResult>(`/firewall/${routerId}/intents`, v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'intents'] }),
+  });
+}
+export function useToggleIntent(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { ruleId: string; active: boolean }) =>
+      api.post<WriteResult>(`/firewall/${routerId}/intents/${encodeURIComponent(v.ruleId)}/toggle`, {
+        active: v.active,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'intents'] }),
+  });
+}
+export function useRemoveIntent(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ruleId: string) =>
+      api.del<WriteResult>(`/firewall/${routerId}/intents/${encodeURIComponent(ruleId)}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'intents'] }),
   });
 }
 

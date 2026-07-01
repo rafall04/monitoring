@@ -7,6 +7,7 @@
 import { RouterOSAPI } from 'node-routeros';
 import type {
   AddressListEntry,
+  BlockIntent,
   DhcpLeaseDTO,
   FirewallBlockRule,
   HotspotActive,
@@ -273,6 +274,70 @@ export class RouterOsV6Client implements MikrotikClient {
 
   async removeAddressListEntry(id: string): Promise<void> {
     await this.write('/ip/firewall/address-list/remove', [`=.id=${id}`]);
+  }
+
+  private readonly BLOCK_CHAIN = 'noc-block';
+
+  async ensureBlockChain(): Promise<void> {
+    const fwd = await this.write('/ip/firewall/filter/print', ['?chain=forward']);
+    if (fwd.some((r) => r['action'] === 'jump' && r['jump-target'] === this.BLOCK_CHAIN)) return;
+    const params = [
+      '=chain=forward',
+      '=action=jump',
+      `=jump-target=${this.BLOCK_CHAIN}`,
+      '=comment=NOC: managed block chain',
+    ];
+    // Put it at the very top of forward so blocks win before fasttrack/accept.
+    const firstId = fwd[0]?.['.id'];
+    if (firstId) params.push(`=place-before=${firstId}`);
+    await this.write('/ip/firewall/filter/add', params);
+  }
+
+  async listBlockIntents(): Promise<BlockIntent[]> {
+    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    return rows.map((r) => {
+      const m = /^NOC:([^|]+)\|(.+)$/.exec((r['comment'] ?? '').trim());
+      return {
+        id: r['.id'] ?? '',
+        group: m?.[1] ?? 'semua',
+        service: m?.[2] ?? ((r['dst-address-list'] ?? '').replace('noc-svc-', '') || '?'),
+        active: r['disabled'] !== 'true',
+      };
+    });
+  }
+
+  async ensureServiceDomains(service: string, domains: string[]): Promise<void> {
+    const list = `noc-svc-${service}`;
+    const rows = await this.write('/ip/firewall/address-list/print', [`?list=${list}`]);
+    const have = new Set(rows.map((r) => r['address']));
+    for (const d of domains) {
+      if (!have.has(d)) {
+        await this.write('/ip/firewall/address-list/add', [
+          `=list=${list}`,
+          `=address=${d}`,
+          '=comment=NOC svc',
+        ]);
+      }
+    }
+  }
+
+  async createIntent(input: { group: string; service: string }): Promise<void> {
+    const params = [
+      `=chain=${this.BLOCK_CHAIN}`,
+      '=action=drop',
+      `=dst-address-list=noc-svc-${input.service}`,
+      `=comment=NOC:${input.group}|${input.service}`,
+    ];
+    if (input.group !== 'semua') params.push(`=src-address-list=noc-grp-${input.group}`);
+    await this.write('/ip/firewall/filter/add', params);
+  }
+
+  async setIntentActive(id: string, active: boolean): Promise<void> {
+    await this.write('/ip/firewall/filter/set', [`=.id=${id}`, `=disabled=${active ? 'no' : 'yes'}`]);
+  }
+
+  async removeIntent(id: string): Promise<void> {
+    await this.write('/ip/firewall/filter/remove', [`=.id=${id}`]);
   }
 
   async listSimpleQueues(): Promise<SimpleQueueDTO[]> {

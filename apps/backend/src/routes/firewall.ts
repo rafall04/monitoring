@@ -5,9 +5,15 @@ import {
   type MikrotikClient,
   type RouterMikrotik,
 } from '@noc/server';
-import { addAddressListSchema, idParamSchema, toggleBlockSchema } from '@noc/shared';
+import {
+  BLOCK_SERVICES,
+  addAddressListSchema,
+  createIntentSchema,
+  idParamSchema,
+  toggleBlockSchema,
+} from '@noc/shared';
 import { z } from 'zod';
-import { badGateway, notFound } from '../lib/errors';
+import { badGateway, badRequest, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import { assertSiteAccess, authenticate, requirePermission } from '../plugins/rbac';
 
@@ -72,6 +78,71 @@ export async function firewallRoutes(app: FastifyInstance) {
       entity: 'router',
       entityId: id,
       after: { ruleId, active, backup: result },
+    });
+    return { ok: true, backup: result };
+  });
+
+  // ---- Managed block system (clean noc-block chain + preset services) -------
+
+  app.get('/:id/intents', view, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const r = await routerWithAccess(req, id);
+    return withClient(r, (c) => c.listBlockIntents());
+  });
+
+  app.post('/:id/intents', manage, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const body = createIntentSchema.parse(req.body);
+    const svc = BLOCK_SERVICES.find((s) => s.key === body.service);
+    if (!svc) throw badRequest(`Layanan tidak dikenal: ${body.service}`);
+    const r = await routerWithAccess(req, id);
+    const result = await withClient(r, async (c) => {
+      const bak = await backup(c);
+      await c.ensureBlockChain();
+      await c.ensureServiceDomains(svc.key, svc.domains);
+      await c.createIntent({ group: body.group, service: svc.key });
+      return bak;
+    });
+    await writeAudit(req, {
+      action: 'block-intent-create',
+      entity: 'router',
+      entityId: id,
+      after: { ...body, backup: result },
+    });
+    return { ok: true, backup: result };
+  });
+
+  app.post('/:id/intents/:ruleId/toggle', manage, async (req) => {
+    const { id, ruleId } = z.object({ id: z.string(), ruleId: rosId }).parse(req.params);
+    const { active } = toggleBlockSchema.parse(req.body);
+    const r = await routerWithAccess(req, id);
+    const result = await withClient(r, async (c) => {
+      const bak = await backup(c);
+      await c.setIntentActive(ruleId, active);
+      return bak;
+    });
+    await writeAudit(req, {
+      action: active ? 'block-intent-on' : 'block-intent-off',
+      entity: 'router',
+      entityId: id,
+      after: { ruleId, active, backup: result },
+    });
+    return { ok: true, backup: result };
+  });
+
+  app.delete('/:id/intents/:ruleId', manage, async (req) => {
+    const { id, ruleId } = z.object({ id: z.string(), ruleId: rosId }).parse(req.params);
+    const r = await routerWithAccess(req, id);
+    const result = await withClient(r, async (c) => {
+      const bak = await backup(c);
+      await c.removeIntent(ruleId);
+      return bak;
+    });
+    await writeAudit(req, {
+      action: 'block-intent-remove',
+      entity: 'router',
+      entityId: id,
+      after: { ruleId, backup: result },
     });
     return { ok: true, backup: result };
   });
