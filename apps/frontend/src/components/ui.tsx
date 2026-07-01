@@ -259,14 +259,17 @@ export function ErrorState({
 // v2 building blocks — colorful, reusable pieces for the redesigned pages.
 // ===========================================================================
 
+// fg is mode-aware: darker (-600/-700) on light surfaces for contrast, brighter
+// (-400) on the dark canvas. bg tint is a touch stronger in light mode so the
+// pill reads on white. Keeps red/green from washing out to pastel in light mode.
 const TONES = {
-  accent: { fg: 'text-accent', bg: 'bg-accent/12', ring: 'ring-accent/25' },
-  emerald: { fg: 'text-emerald-400', bg: 'bg-emerald-500/12', ring: 'ring-emerald-500/25' },
-  amber: { fg: 'text-amber-400', bg: 'bg-amber-500/12', ring: 'ring-amber-500/25' },
-  red: { fg: 'text-red-400', bg: 'bg-red-500/12', ring: 'ring-red-500/25' },
-  violet: { fg: 'text-violet-400', bg: 'bg-violet-500/12', ring: 'ring-violet-500/25' },
-  sky: { fg: 'text-sky-400', bg: 'bg-sky-500/12', ring: 'ring-sky-500/25' },
-  slate: { fg: 'text-slate-300', bg: 'bg-slate-500/12', ring: 'ring-slate-500/25' },
+  accent: { fg: 'text-accent', bg: 'bg-accent/15 dark:bg-accent/12', ring: 'ring-accent/25' },
+  emerald: { fg: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-500/15 dark:bg-emerald-500/12', ring: 'ring-emerald-500/25' },
+  amber: { fg: 'text-amber-700 dark:text-amber-400', bg: 'bg-amber-500/15 dark:bg-amber-500/12', ring: 'ring-amber-500/25' },
+  red: { fg: 'text-red-700 dark:text-red-400', bg: 'bg-red-500/15 dark:bg-red-500/12', ring: 'ring-red-500/25' },
+  violet: { fg: 'text-violet-700 dark:text-violet-400', bg: 'bg-violet-500/15 dark:bg-violet-500/12', ring: 'ring-violet-500/25' },
+  sky: { fg: 'text-sky-700 dark:text-sky-400', bg: 'bg-sky-500/15 dark:bg-sky-500/12', ring: 'ring-sky-500/25' },
+  slate: { fg: 'text-slate-600 dark:text-slate-300', bg: 'bg-slate-500/15 dark:bg-slate-500/12', ring: 'ring-slate-500/25' },
 } as const;
 export type Tone = keyof typeof TONES;
 

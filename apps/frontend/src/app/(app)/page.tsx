@@ -45,9 +45,9 @@ function healthTone(s?: SiteSummary): HealthTone {
   return 'emerald';
 }
 const BAR: Record<HealthTone, string> = {
-  emerald: '#34d399',
-  amber: '#fbbf24',
-  red: '#f87171',
+  emerald: '#10b981',
+  amber: '#f59e0b',
+  red: '#ef4444',
   slate: '#64748b',
 };
 
@@ -89,10 +89,10 @@ function SiteCard({ site, summary }: { site: Site; summary?: SiteSummary }) {
               <div className="h-full rounded-full" style={{ width: `${pct}%`, background: BAR[tone] }} />
             </div>
             {s.currentlyDown.length > 0 && (
-              <ul className="mt-3 space-y-0.5 border-t border-surface-border pt-2 text-xs text-red-300/90">
+              <ul className="mt-3 space-y-0.5 border-t border-surface-border pt-2 text-xs text-red-700 dark:text-red-300">
                 {s.currentlyDown.slice(0, 3).map((d) => (
                   <li key={d.deviceId} className="flex items-center gap-1.5 truncate">
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" />
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
                     <span className="truncate">{d.name}</span>
                   </li>
                 ))}
