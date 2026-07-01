@@ -103,10 +103,11 @@ export function Shell({ children }: { children: ReactNode }) {
           ) : (
             <div className="px-3 py-1 text-xs text-slate-500">No sites</div>
           )}
-          {(can('hotspot:view') || can('reports:view') || can('map:view') || can('ruijie:view') || can('firewall:view')) &&
+          {(can('hotspot:view') || can('reports:view') || can('map:view') || can('ruijie:view') || can('firewall:view') || can('bandwidth:view')) &&
             sectionLabel('Operations')}
           {can('map:view') && item('/alerts', 'Alerts', 'alerts')}
           {can('firewall:view') && item('/access-control', 'Access Control', 'shield')}
+          {can('bandwidth:view') && item('/bandwidth', 'Bandwidth', 'gauge')}
           {can('ruijie:view') && item('/ruijie', 'Ruijie WiFi', 'wifi')}
           {can('hotspot:view') && item('/hotspot', 'Hotspot', 'hotspot')}
           {can('reports:view') && item('/reports', 'Reports', 'reports')}
@@ -221,6 +222,7 @@ const NAV_ICONS = {
   wifi: <I><path d="M5 12.55a11 11 0 0 1 14 0" /><path d="M1.42 9a16 16 0 0 1 21.16 0" /><path d="M8.53 16.11a6 6 0 0 1 6.95 0" /><line x1="12" y1="20" x2="12.01" y2="20" /></I>,
   hotspot: <I><path d="M3 9V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6z" /></I>,
   shield: <I><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" /></I>,
+  gauge: <I><path d="M12 3a9 9 0 1 0 9 9M12 12l5-3" /></I>,
   reports: <I><path d="M3 3v18h18" /><rect x="7" y="10" width="3" height="7" /><rect x="13" y="6" width="3" height="11" /></I>,
   server: <I><rect x="3" y="4" width="18" height="7" rx="1.5" /><rect x="3" y="13" width="18" height="7" rx="1.5" /><line x1="7" y1="7.5" x2="7.01" y2="7.5" /><line x1="7" y1="16.5" x2="7.01" y2="16.5" /></I>,
   users: <I><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /></I>,

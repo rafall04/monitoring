@@ -239,6 +239,25 @@ export const addAddressListSchema = z.object({
 });
 export type AddAddressListInput = z.infer<typeof addAddressListSchema>;
 
+// ---- Bandwidth / QoS --------------------------------------------------------
+
+// maxLimit is RouterOS "up/down" rate syntax, e.g. "2M/2M", "512k/1M", "0/0".
+const rateLimit = z.string().max(32).regex(/^[0-9kmgKMG/]*$/, 'Format: 2M/2M');
+
+export const addSimpleQueueSchema = z.object({
+  name: z.string().min(1).max(64),
+  target: z.string().min(1).max(64), // IP or subnet
+  maxLimit: rateLimit.min(1),
+});
+export type AddSimpleQueueInput = z.infer<typeof addSimpleQueueSchema>;
+
+export const updateSimpleQueueSchema = z.object({ maxLimit: rateLimit.min(1) });
+export type UpdateSimpleQueueInput = z.infer<typeof updateSimpleQueueSchema>;
+
+// empty string clears the lease rate-limit
+export const setLeaseRateSchema = z.object({ rateLimit });
+export type SetLeaseRateInput = z.infer<typeof setLeaseRateSchema>;
+
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(255),
   newPassword: z.string().min(8).max(255),

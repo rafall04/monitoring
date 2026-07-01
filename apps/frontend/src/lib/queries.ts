@@ -14,7 +14,9 @@ import type {
   CreateDeviceInput,
   CreateRuijieAccountInput,
   Device,
+  DhcpLeaseDTO,
   FirewallBlockRule,
+  SimpleQueueDTO,
   PatchDevicePositionInput,
   RouterPublic,
   RuijieAccountPublic,
@@ -92,6 +94,60 @@ export function useRemoveAddressEntry(routerId: string) {
     mutationFn: (entryId: string) =>
       api.del<WriteResult>(`/firewall/${routerId}/address-list/${encodeURIComponent(entryId)}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'address-list'] }),
+  });
+}
+
+// ---- Bandwidth / QoS --------------------------------------------------------
+export function useSimpleQueues(routerId: string | null) {
+  return useQuery({
+    queryKey: ['bandwidth', routerId, 'queues'],
+    queryFn: () => api.get<SimpleQueueDTO[]>(`/bandwidth/${routerId}/queues`),
+    enabled: Boolean(routerId),
+    refetchInterval: 15_000,
+  });
+}
+export function useDhcpLeases(routerId: string | null) {
+  return useQuery({
+    queryKey: ['bandwidth', routerId, 'leases'],
+    queryFn: () => api.get<DhcpLeaseDTO[]>(`/bandwidth/${routerId}/leases`),
+    enabled: Boolean(routerId),
+    refetchInterval: 30_000,
+  });
+}
+export function useAddQueue(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { name: string; target: string; maxLimit: string }) =>
+      api.post<WriteResult>(`/bandwidth/${routerId}/queues`, v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['bandwidth', routerId, 'queues'] }),
+  });
+}
+export function useSetQueueMax(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { qid: string; maxLimit: string }) =>
+      api.patch<WriteResult>(`/bandwidth/${routerId}/queues/${encodeURIComponent(v.qid)}`, {
+        maxLimit: v.maxLimit,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['bandwidth', routerId, 'queues'] }),
+  });
+}
+export function useRemoveQueue(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (qid: string) =>
+      api.del<WriteResult>(`/bandwidth/${routerId}/queues/${encodeURIComponent(qid)}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['bandwidth', routerId, 'queues'] }),
+  });
+}
+export function useSetLeaseRate(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { lid: string; rateLimit: string }) =>
+      api.patch<WriteResult>(`/bandwidth/${routerId}/leases/${encodeURIComponent(v.lid)}`, {
+        rateLimit: v.rateLimit,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['bandwidth', routerId, 'leases'] }),
   });
 }
 

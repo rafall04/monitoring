@@ -1,17 +1,25 @@
 import type {
   AddressListEntry,
+  DhcpLeaseDTO,
   FirewallBlockRule,
   HotspotActive,
   HotspotProfile,
   HotspotUser,
   RouterOsVersion,
   RouterResource,
+  SimpleQueueDTO,
 } from '@noc/shared';
 
 export interface AddAddressListInput {
   list: string;
   address: string;
   comment?: string;
+}
+
+export interface AddSimpleQueueInput {
+  name: string;
+  target: string;
+  maxLimit: string; // "up/down"
 }
 
 export interface MikrotikConfig {
@@ -91,6 +99,16 @@ export interface MikrotikClient {
   listAddressListEntries(list?: string): Promise<AddressListEntry[]>;
   addAddressListEntry(input: AddAddressListInput): Promise<void>;
   removeAddressListEntry(id: string): Promise<void>;
+
+  // Bandwidth / QoS
+  listSimpleQueues(): Promise<SimpleQueueDTO[]>;
+  addSimpleQueue(input: AddSimpleQueueInput): Promise<void>;
+  setSimpleQueueMax(id: string, maxLimit: string): Promise<void>;
+  removeSimpleQueue(id: string): Promise<void>;
+  listDhcpLeases(): Promise<DhcpLeaseDTO[]>;
+  /** Set a lease's rate-limit ('' clears it). Dynamic leases are made static first. */
+  setLeaseRateLimit(id: string, rateLimit: string): Promise<void>;
+
   /** Save a router-side config backup (restore point) before a change. */
   saveBackup(name: string): Promise<void>;
 

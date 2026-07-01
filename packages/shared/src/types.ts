@@ -352,6 +352,32 @@ export interface AddressListEntry {
   dynamic: boolean; // dynamic entries are read-only (can't be removed by us)
 }
 
+// ---- Bandwidth / QoS (simple queues + DHCP lease rate-limit) -----------------
+
+/** A RouterOS simple queue — the per-device/subnet bandwidth limit. */
+export interface SimpleQueueDTO {
+  id: string;
+  name: string;
+  target: string; // IP / subnet the limit applies to
+  maxLimit: string; // "up/down", e.g. "2M/2M"; "0/0" = unlimited
+  bytes: string; // cumulative "upBytes/downBytes" — used for top-talkers
+  disabled: boolean;
+  dynamic: boolean; // dynamic (e.g. hotspot-created) — read-only for us
+  hotspot: boolean; // name looks like <hotspot-…> (managed via hotspot profiles)
+}
+
+/** A DHCP lease — can carry an optional per-device rate-limit. */
+export interface DhcpLeaseDTO {
+  id: string;
+  address: string;
+  macAddress: string;
+  hostName: string | null;
+  rateLimit: string | null; // "up/down" or null when unset
+  dynamic: boolean;
+  server: string | null;
+  status: string | null; // bound | waiting | …
+}
+
 export interface HotspotProfile {
   '.id'?: string;
   name: string;

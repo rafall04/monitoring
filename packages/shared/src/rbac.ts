@@ -29,6 +29,8 @@ export const PERMISSIONS = [
   'ruijie:manage', // add/remove Ruijie Cloud accounts (credentials)
   'firewall:view', // see access-control (block toggles + block address-lists)
   'firewall:manage', // toggle block rules + edit block lists (writes router config)
+  'bandwidth:view', // see simple queues / DHCP leases / top talkers
+  'bandwidth:manage', // create/edit queues + set DHCP lease rate-limit
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -50,6 +52,8 @@ const OPERATOR_PERMISSIONS: Permission[] = [
   'ruijie:view', // see Ruijie/Reyee WiFi monitoring (read-only)
   'firewall:view', // access-control panel
   'firewall:manage', // toggle blocks + block devices (IT technician job)
+  'bandwidth:view', // bandwidth/QoS panel
+  'bandwidth:manage', // set queues + DHCP lease rate-limit
 ];
 
 // Viewer = read-only monitor: the map + device detail, Ruijie WiFi monitoring,

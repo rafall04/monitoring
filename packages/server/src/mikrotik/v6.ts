@@ -7,16 +7,19 @@
 import { RouterOSAPI } from 'node-routeros';
 import type {
   AddressListEntry,
+  DhcpLeaseDTO,
   FirewallBlockRule,
   HotspotActive,
   HotspotProfile,
   HotspotUser,
   RouterResource,
+  SimpleQueueDTO,
 } from '@noc/shared';
 import type {
   AddAddressListInput,
   AddHotspotUserInput,
   AddNetwatchInput,
+  AddSimpleQueueInput,
   MikrotikClient,
   MikrotikConfig,
   NetwatchEntry,
@@ -270,6 +273,64 @@ export class RouterOsV6Client implements MikrotikClient {
 
   async removeAddressListEntry(id: string): Promise<void> {
     await this.write('/ip/firewall/address-list/remove', [`=.id=${id}`]);
+  }
+
+  async listSimpleQueues(): Promise<SimpleQueueDTO[]> {
+    const res = await this.write('/queue/simple/print');
+    return res.map((r) => {
+      const name = r['name'] ?? '';
+      return {
+        id: r['.id'] ?? '',
+        name,
+        target: r['target'] ?? '',
+        maxLimit: r['max-limit'] ?? '0/0',
+        bytes: r['bytes'] ?? '0/0',
+        disabled: r['disabled'] === 'true',
+        dynamic: r['dynamic'] === 'true',
+        hotspot: name.startsWith('<hotspot'),
+      };
+    });
+  }
+
+  async addSimpleQueue(input: AddSimpleQueueInput): Promise<void> {
+    await this.write('/queue/simple/add', [
+      `=name=${input.name}`,
+      `=target=${input.target}`,
+      `=max-limit=${input.maxLimit}`,
+    ]);
+  }
+
+  async setSimpleQueueMax(id: string, maxLimit: string): Promise<void> {
+    await this.write('/queue/simple/set', [`=.id=${id}`, `=max-limit=${maxLimit}`]);
+  }
+
+  async removeSimpleQueue(id: string): Promise<void> {
+    await this.write('/queue/simple/remove', [`=.id=${id}`]);
+  }
+
+  async listDhcpLeases(): Promise<DhcpLeaseDTO[]> {
+    const res = await this.write('/ip/dhcp-server/lease/print');
+    return res.map((r) => ({
+      id: r['.id'] ?? '',
+      address: r['address'] ?? '',
+      macAddress: r['mac-address'] ?? '',
+      hostName: r['host-name'] ?? null,
+      rateLimit: (r['rate-limit'] ?? '').trim() || null,
+      dynamic: r['dynamic'] === 'true',
+      server: r['server'] ?? null,
+      status: r['status'] ?? null,
+    }));
+  }
+
+  async setLeaseRateLimit(id: string, rateLimit: string): Promise<void> {
+    // A dynamic lease can't be edited persistently — pin it static first
+    // (best-effort; errors if already static). Then set (or clear) the limit.
+    try {
+      await this.write('/ip/dhcp-server/lease/make-static', [`=.id=${id}`]);
+    } catch {
+      /* already static — fine */
+    }
+    await this.write('/ip/dhcp-server/lease/set', [`=.id=${id}`, `=rate-limit=${rateLimit}`]);
   }
 
   async saveBackup(name: string): Promise<void> {
