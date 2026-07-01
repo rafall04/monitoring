@@ -147,6 +147,24 @@ export async function firewallRoutes(app: FastifyInstance) {
     return { ok: true, backup: result };
   });
 
+  // Delete a legacy forward drop/reject rule (cleanup of the old mess).
+  app.delete('/:id/blocks/:ruleId', manage, async (req) => {
+    const { id, ruleId } = z.object({ id: z.string(), ruleId: rosId }).parse(req.params);
+    const r = await routerWithAccess(req, id);
+    const result = await withClient(r, async (c) => {
+      const bak = await backup(c);
+      await c.removeIntent(ruleId); // /ip/firewall/filter/remove by id
+      return bak;
+    });
+    await writeAudit(req, {
+      action: 'firewall-block-remove',
+      entity: 'router',
+      entityId: id,
+      after: { ruleId, backup: result },
+    });
+    return { ok: true, backup: result };
+  });
+
   app.get('/:id/address-list', view, async (req) => {
     const { id } = idParamSchema.parse(req.params);
     const list = z.object({ list: z.string().max(64).optional() }).parse(req.query).list;

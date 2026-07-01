@@ -43,7 +43,52 @@ function bytesOf(pair: string): { up: number; down: number; total: number } {
 }
 const cleanName = (n: string) => n.replace(/^<hotspot-?/, '').replace(/>$/, '');
 
-const RATE_PRESETS = ['512k/512k', '1M/1M', '2M/2M', '5M/5M', '10M/10M', '0/0'];
+// Simple, human presets. `ros` is what RouterOS stores (bit/s syntax).
+const RATE_OPTIONS: { label: string; ros: string }[] = [
+  { label: 'Unlimited', ros: '0/0' },
+  { label: '512 Kbps', ros: '512k/512k' },
+  { label: '1 Mbps', ros: '1M/1M' },
+  { label: '2 Mbps', ros: '2M/2M' },
+  { label: '3 Mbps', ros: '3M/3M' },
+  { label: '5 Mbps', ros: '5M/5M' },
+  { label: '10 Mbps', ros: '10M/10M' },
+  { label: '20 Mbps', ros: '20M/20M' },
+  { label: '50 Mbps', ros: '50M/50M' },
+];
+
+/** Parse a RouterOS rate token ("5000000", "5M", "512k", "0") into bit/s. */
+function toBps(t: string | undefined): number {
+  const m = /^(\d+(?:\.\d+)?)\s*([kKmMgG]?)$/.exec((t ?? '').trim());
+  if (!m) return 0;
+  const mult = { k: 1e3, K: 1e3, m: 1e6, M: 1e6, g: 1e9, G: 1e9, '': 1 }[m[2] ?? ''] ?? 1;
+  return Number(m[1]) * mult;
+}
+function fmtBps(n: number): string {
+  if (n <= 0) return '∞';
+  if (n >= 1e6) return `${Math.round((n / 1e6) * 10) / 10} Mbps`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)} Kbps`;
+  return `${n} bps`;
+}
+/** Human label for a "up/down" max-limit pair. */
+function fmtRate(pair: string): string {
+  const [up, down] = (pair || '0/0').split('/');
+  const u = toBps(up);
+  const d = toBps(down);
+  if (u <= 0 && d <= 0) return 'Unlimited';
+  if (u === d) return fmtBps(u);
+  return `↑${fmtBps(u)} · ↓${fmtBps(d)}`;
+}
+/** Which preset matches a stored rate (by bit/s), or '' if custom. */
+function matchOption(pair: string): string {
+  const [up, down] = (pair || '0/0').split('/');
+  const u = toBps(up);
+  const d = toBps(down);
+  const found = RATE_OPTIONS.find((o) => {
+    const [ou, od] = o.ros.split('/');
+    return toBps(ou) === u && toBps(od) === d;
+  });
+  return found?.ros ?? '';
+}
 
 function Ic({ d }: { d: string }) {
   return (
@@ -203,7 +248,7 @@ function QueueManager({
               <TextInput value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nama (mis. Limit-PC-Gudang)" />
               <TextInput value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} placeholder="Target IP/subnet" />
               <Select value={form.maxLimit} onChange={(e) => setForm({ ...form, maxLimit: e.target.value })} className="sm:w-32">
-                {RATE_PRESETS.map((p) => <option key={p} value={p}>{p === '0/0' ? 'unlimited' : p}</option>)}
+                {RATE_OPTIONS.map((o) => <option key={o.ros} value={o.ros}>{o.label}</option>)}
               </Select>
               <Button onClick={onAdd} disabled={addQ.isPending || !form.name.trim() || !form.target.trim()}>
                 + Buat limit
@@ -225,12 +270,12 @@ function QueueManager({
                     </div>
                   </div>
                   {canManage ? (
-                    <Select value={RATE_PRESETS.includes(q.maxLimit) ? q.maxLimit : ''} onChange={(e) => e.target.value && onSetMax(q, e.target.value)} className="w-32">
-                      {!RATE_PRESETS.includes(q.maxLimit) && <option value="">{q.maxLimit}</option>}
-                      {RATE_PRESETS.map((p) => <option key={p} value={p}>{p === '0/0' ? 'unlimited' : p}</option>)}
+                    <Select value={matchOption(q.maxLimit)} onChange={(e) => e.target.value && onSetMax(q, e.target.value)} className="w-36">
+                      {!matchOption(q.maxLimit) && <option value="">{fmtRate(q.maxLimit)}</option>}
+                      {RATE_OPTIONS.map((o) => <option key={o.ros} value={o.ros}>{o.label}</option>)}
                     </Select>
                   ) : (
-                    <Badge tone="sky">{q.maxLimit}</Badge>
+                    <Badge tone="sky">{fmtRate(q.maxLimit)}</Badge>
                   )}
                   {canManage && (
                     <button onClick={() => onRemove(q)} className="text-xs text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300">
@@ -289,8 +334,8 @@ function LeaseManager({ routerId, canManage }: { routerId: string | null; canMan
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
             <TextInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari IP / MAC / hostname…" className="sm:flex-1" />
             {canManage && (
-              <Select value={rate} onChange={(e) => setRate2(e.target.value)} className="sm:w-32">
-                {RATE_PRESETS.filter((p) => p !== '0/0').map((p) => <option key={p} value={p}>{p}</option>)}
+              <Select value={rate} onChange={(e) => setRate2(e.target.value)} className="sm:w-36">
+                {RATE_OPTIONS.filter((o) => o.ros !== '0/0').map((o) => <option key={o.ros} value={o.ros}>{o.label}</option>)}
               </Select>
             )}
           </div>
@@ -305,11 +350,11 @@ function LeaseManager({ routerId, canManage }: { routerId: string | null; canMan
                 <span className="truncate font-mono text-[11px] text-slate-500">{l.macAddress}</span>
                 {l.hostName && <span className="truncate text-[11px] text-slate-400">{l.hostName}</span>}
                 {l.dynamic && <Badge tone="slate">dinamis</Badge>}
-                {l.rateLimit ? <Badge tone="amber">{l.rateLimit}</Badge> : <span className="text-[11px] text-slate-600">tanpa limit</span>}
+                {l.rateLimit ? <Badge tone="amber">{fmtRate(l.rateLimit)}</Badge> : <span className="text-[11px] text-slate-600">tanpa limit</span>}
                 {canManage && (
                   <span className="ml-auto flex gap-3">
-                    <button onClick={() => apply(l.id, rate, `Dibatasi ${rate}`)} className="text-xs text-accent hover:opacity-80">
-                      batasi {rate}
+                    <button onClick={() => apply(l.id, rate, `Dibatasi ${fmtRate(rate)}`)} className="text-xs text-accent hover:opacity-80">
+                      batasi {fmtRate(rate)}
                     </button>
                     {l.rateLimit && (
                       <button onClick={() => apply(l.id, '', 'Limit dilepas')} className="text-xs text-slate-400 hover:text-slate-200">

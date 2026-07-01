@@ -70,6 +70,16 @@ export function useToggleBlock(routerId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.firewallBlocks(routerId) }),
   });
 }
+export function useRemoveBlock(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ruleId: string) =>
+      api.del<{ ok: boolean; backup: 'saved' | 'failed' }>(
+        `/firewall/${routerId}/blocks/${encodeURIComponent(ruleId)}`,
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.firewallBlocks(routerId) }),
+  });
+}
 export function useAddressList(routerId: string | null, list: string | null) {
   return useQuery({
     queryKey: qk.addressList(routerId ?? '', list ?? 'all'),

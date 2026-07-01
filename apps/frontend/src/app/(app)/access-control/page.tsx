@@ -10,6 +10,7 @@ import {
   useCreateIntent,
   useFirewallBlocks,
   useRemoveAddressEntry,
+  useRemoveBlock,
   useRouters,
   useToggleBlock,
   useToggleIntent,
@@ -78,6 +79,24 @@ export default function AccessControlPage() {
   const intents = useBlockIntents(routerId);
   const createIntent = useCreateIntent(routerId ?? '');
   const toggleIntent = useToggleIntent(routerId ?? '');
+  const removeBlock = useRemoveBlock(routerId ?? '');
+
+  const onDeleteBlock = async (b: FirewallBlockRule) => {
+    const ok = await confirm({
+      title: `Hapus rule "${blockLabel(b)}"?`,
+      body: 'Rule firewall lama ini akan DIHAPUS permanen dari router (config di-backup dulu).',
+      confirmLabel: 'Hapus',
+      danger: true,
+    });
+    if (!ok) return;
+    removeBlock.mutate(b.id, {
+      onSuccess: (r) => {
+        toast.ok('Rule dihapus');
+        if (r.backup === 'failed') toast.error('Dihapus, tapi backup config GAGAL.');
+      },
+      onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+    });
+  };
 
   const named = (blocks.data ?? []).filter((b) => b.comment);
   const unnamed = (blocks.data ?? []).filter((b) => !b.comment);
@@ -144,11 +163,16 @@ export default function AccessControlPage() {
                 <p className="mb-3 text-xs text-slate-500">
                   Blokir per layanan (berbasis domain, tanpa Layer7). Berlaku untuk semua device di router ini.
                 </p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {BLOCK_SERVICES.map((svc) => {
-                    const intent = (intents.data ?? []).find(
-                      (i) => i.group === 'semua' && i.service === svc.key,
-                    );
+                {[...new Set(BLOCK_SERVICES.map((s) => s.category))].map((cat) => (
+                  <div key={cat} className="mb-3">
+                    <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      {cat}
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {BLOCK_SERVICES.filter((s) => s.category === cat).map((svc) => {
+                        const intent = (intents.data ?? []).find(
+                          (i) => i.group === 'semua' && i.service === svc.key,
+                        );
                     const on = !!intent?.active;
                     const busy = createIntent.isPending || toggleIntent.isPending;
                     const flip = () => {
@@ -194,8 +218,10 @@ export default function AccessControlPage() {
                         <Switch on={on} onClick={flip} disabled={!canManage || busy} />
                       </div>
                     );
-                  })}
-                </div>
+                      })}
+                    </div>
+                  </div>
+                ))}
                 <PerGroupIntents intents={intents.data ?? []} canManage={canManage} toggleIntent={toggleIntent} />
               </>
             )}
@@ -219,7 +245,7 @@ export default function AccessControlPage() {
             ) : (
               <div className="space-y-2">
                 {named.map((b) => (
-                  <BlockRow key={b.id} b={b} canManage={canManage} onToggle={() => onToggle(b)} />
+                  <BlockRow key={b.id} b={b} canManage={canManage} onToggle={() => onToggle(b)} onDelete={() => onDeleteBlock(b)} />
                 ))}
                 {unnamed.length > 0 && (
                   <details className="mt-2 rounded-lg border border-dashed border-surface-border p-2">
@@ -228,7 +254,7 @@ export default function AccessControlPage() {
                     </summary>
                     <div className="mt-2 space-y-2">
                       {unnamed.map((b) => (
-                        <BlockRow key={b.id} b={b} canManage={canManage} onToggle={() => onToggle(b)} />
+                        <BlockRow key={b.id} b={b} canManage={canManage} onToggle={() => onToggle(b)} onDelete={() => onDeleteBlock(b)} />
                       ))}
                     </div>
                   </details>
@@ -252,10 +278,12 @@ function BlockRow({
   b,
   canManage,
   onToggle,
+  onDelete,
 }: {
   b: FirewallBlockRule;
   canManage: boolean;
   onToggle: () => void;
+  onDelete?: () => void;
 }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-surface-border bg-surface/50 p-3">
@@ -270,6 +298,14 @@ function BlockRow({
       </div>
       <Badge tone={b.active ? 'red' : 'slate'}>{b.active ? 'diblokir' : 'terbuka'}</Badge>
       <Switch on={b.active} onClick={onToggle} disabled={!canManage} />
+      {canManage && onDelete && (
+        <button
+          onClick={onDelete}
+          className="text-xs text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300"
+        >
+          hapus
+        </button>
+      )}
     </div>
   );
 }

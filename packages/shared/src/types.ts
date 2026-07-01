@@ -367,17 +367,35 @@ export interface BlockIntent {
 export interface BlockServiceDef {
   key: string;
   label: string;
+  category: string; // for grouping in the UI
   domains: string[];
 }
 
-/** Curated service catalog. `internet` is special (block all non-local). */
+/** Curated service catalog, grouped by category. Domain-based (RouterOS resolves
+ *  to IPs); best-effort for CDN/IP-heavy apps (games/streaming). */
 export const BLOCK_SERVICES: BlockServiceDef[] = [
-  { key: 'whatsapp', label: 'WhatsApp', domains: ['whatsapp.com', 'whatsapp.net', 'g.whatsapp.net', 'mmg.whatsapp.net'] },
-  { key: 'tiktok', label: 'TikTok', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'byteoversea.com', 'ibytedtos.com', 'musical.ly'] },
-  { key: 'youtube', label: 'YouTube', domains: ['youtube.com', 'youtu.be', 'youtubei.googleapis.com', 'ytimg.com', 'googlevideo.com'] },
-  { key: 'facebook', label: 'Facebook / Instagram', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com'] },
-  { key: 'telegram', label: 'Telegram', domains: ['telegram.org', 't.me', 'telegram.me', 'telegra.ph'] },
-  { key: 'twitter', label: 'X / Twitter', domains: ['twitter.com', 'x.com', 't.co', 'twimg.com'] },
+  // --- Sosial media ---
+  { key: 'whatsapp', label: 'WhatsApp', category: 'Sosial media', domains: ['whatsapp.com', 'whatsapp.net', 'g.whatsapp.net', 'mmg.whatsapp.net'] },
+  { key: 'facebook', label: 'Facebook / Instagram', category: 'Sosial media', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com'] },
+  { key: 'tiktok', label: 'TikTok', category: 'Sosial media', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'byteoversea.com', 'ibytedtos.com', 'musical.ly'] },
+  { key: 'twitter', label: 'X / Twitter', category: 'Sosial media', domains: ['twitter.com', 'x.com', 't.co', 'twimg.com'] },
+  { key: 'telegram', label: 'Telegram', category: 'Sosial media', domains: ['telegram.org', 't.me', 'telegram.me', 'telegra.ph'] },
+  { key: 'snapchat', label: 'Snapchat', category: 'Sosial media', domains: ['snapchat.com', 'sc-cdn.net', 'snap-dev.net'] },
+  { key: 'line', label: 'LINE', category: 'Sosial media', domains: ['line.me', 'line-apps.com', 'line-scdn.net'] },
+  { key: 'discord', label: 'Discord', category: 'Sosial media', domains: ['discord.com', 'discord.gg', 'discordapp.com', 'discordapp.net'] },
+  // --- Video / streaming ---
+  { key: 'youtube', label: 'YouTube', category: 'Video / streaming', domains: ['youtube.com', 'youtu.be', 'youtubei.googleapis.com', 'ytimg.com', 'googlevideo.com'] },
+  { key: 'netflix', label: 'Netflix', category: 'Video / streaming', domains: ['netflix.com', 'nflxvideo.net', 'nflximg.net', 'nflxext.com'] },
+  { key: 'twitch', label: 'Twitch', category: 'Video / streaming', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
+  { key: 'spotify', label: 'Spotify', category: 'Video / streaming', domains: ['spotify.com', 'scdn.co', 'spotifycdn.com'] },
+  // --- Game ---
+  { key: 'freefire', label: 'Free Fire / Garena', category: 'Game', domains: ['garena.com', 'ff.garena.com', 'freefiremobile.com'] },
+  { key: 'mobilelegends', label: 'Mobile Legends', category: 'Game', domains: ['mobilelegends.com', 'mtghub.com'] },
+  { key: 'pubg', label: 'PUBG Mobile', category: 'Game', domains: ['pubgmobile.com', 'igamecj.com'] },
+  { key: 'roblox', label: 'Roblox', category: 'Game', domains: ['roblox.com', 'rbxcdn.com'] },
+  { key: 'steam', label: 'Steam', category: 'Game', domains: ['steampowered.com', 'steamcommunity.com', 'steamstatic.com', 'steamcontent.com'] },
+  // --- Konten lain ---
+  { key: 'adult', label: 'Konten dewasa (parsial)', category: 'Konten lain', domains: ['pornhub.com', 'xvideos.com', 'xnxx.com', 'xhamster.com', 'redtube.com'] },
 ];
 
 // ---- Bandwidth / QoS (simple queues + DHCP lease rate-limit) -----------------
