@@ -203,6 +203,11 @@ export class RouterOsV6Client implements MikrotikClient {
       uptime: r['uptime'],
       'bytes-in': r['bytes-in'],
       'bytes-out': r['bytes-out'],
+      'packets-in': r['packets-in'],
+      'packets-out': r['packets-out'],
+      'idle-time': r['idle-time'],
+      'session-time-left': r['session-time-left'],
+      'login-by': r['login-by'],
       server: r['server'],
     }));
   }

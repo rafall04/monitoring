@@ -324,6 +324,11 @@ export interface HotspotActive {
   uptime?: string;
   'bytes-in'?: string;
   'bytes-out'?: string;
+  'packets-in'?: string;
+  'packets-out'?: string;
+  'idle-time'?: string;
+  'session-time-left'?: string;
+  'login-by'?: string;
   server?: string;
 }
 

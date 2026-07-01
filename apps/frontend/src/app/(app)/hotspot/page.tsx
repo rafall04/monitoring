@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { useRouters } from '@/lib/queries';
 import { useConfirm, useToast } from '@/lib/toast';
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -548,46 +549,78 @@ export default function HotspotPage() {
           ) : sessions.isLoading ? (
             <Loading />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="r-table w-full text-sm">
-                <thead className="text-left text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="py-1">User</th>
-                    <th>Address</th>
-                    <th>MAC</th>
-                    <th>Uptime</th>
-                    {canDisconnect && <th className="text-right">Actions</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sessions.data?.map((a) => (
-                    <tr key={a['.id'] ?? a.address} className="border-t border-surface-border">
-                      <td data-label="User" className="py-1.5">{a.user}</td>
-                      <td data-label="Address">{a.address}</td>
-                      <td data-label="MAC">{a['mac-address']}</td>
-                      <td data-label="Uptime">{a.uptime}</td>
-                      {canDisconnect && (
-                        <td className="py-1.5 text-right">
-                          <button
-                            className="text-red-400 hover:text-red-300"
-                            onClick={() => a['.id'] && disconnect.mutate(a['.id'])}
-                          >
-                            disconnect
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                  {sessions.data?.length === 0 && (
+            <>
+              {(() => {
+                const rows = sessions.data ?? [];
+                const totIn = rows.reduce((n, a) => n + (Number(a['bytes-in']) || 0), 0);
+                const totOut = rows.reduce((n, a) => n + (Number(a['bytes-out']) || 0), 0);
+                return (
+                  <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                    <Badge tone="accent">{rows.length} sesi aktif</Badge>
+                    <Badge tone="sky">↓ {formatBytes(totIn)} masuk</Badge>
+                    <Badge tone="emerald">↑ {formatBytes(totOut)} keluar</Badge>
+                  </div>
+                );
+              })()}
+              <div className="overflow-x-auto">
+                <table className="r-table w-full text-sm">
+                  <thead className="text-left text-xs uppercase text-slate-500">
                     <tr>
-                      <td colSpan={5} className="py-3 text-slate-500">
-                        No active sessions.
-                      </td>
+                      <th className="py-1">User</th>
+                      <th>Address</th>
+                      <th>MAC</th>
+                      <th>Uptime</th>
+                      <th>Idle</th>
+                      <th>Traffic (↓in / ↑out)</th>
+                      {canDisconnect && <th className="text-right">Actions</th>}
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {sessions.data?.map((a) => (
+                      <tr key={a['.id'] ?? a.address} className="border-t border-surface-border">
+                        <td data-label="User" className="py-1.5">
+                          <div className="font-medium text-slate-200">{a.user}</div>
+                          {a['login-by'] && (
+                            <div className="text-[10px] text-slate-500">via {a['login-by']}</div>
+                          )}
+                        </td>
+                        <td data-label="Address" className="font-mono text-xs">{a.address}</td>
+                        <td data-label="MAC" className="font-mono text-xs">{a['mac-address']}</td>
+                        <td data-label="Uptime">
+                          <div>{a.uptime}</div>
+                          {a['session-time-left'] && (
+                            <div className="text-[10px] text-slate-500">sisa {a['session-time-left']}</div>
+                          )}
+                        </td>
+                        <td data-label="Idle" className="text-slate-400">{a['idle-time'] ?? '—'}</td>
+                        <td data-label="Traffic">
+                          <span className="text-sky-600 dark:text-sky-400">↓ {formatBytes(a['bytes-in'])}</span>
+                          <span className="mx-1 text-slate-500">/</span>
+                          <span className="text-emerald-600 dark:text-emerald-400">↑ {formatBytes(a['bytes-out'])}</span>
+                        </td>
+                        {canDisconnect && (
+                          <td className="py-1.5 text-right">
+                            <button
+                              className="text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300"
+                              onClick={() => a['.id'] && disconnect.mutate(a['.id'])}
+                            >
+                              disconnect
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                    {sessions.data?.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="py-3 text-slate-500">
+                          No active sessions.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </Card>
       )}
