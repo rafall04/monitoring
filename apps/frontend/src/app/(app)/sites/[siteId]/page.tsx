@@ -27,7 +27,7 @@ import InspectPanel from '@/components/InspectPanel';
 import LineView from '@/components/LineView';
 import MarkerPanel from '@/components/MarkerPanel';
 import WifiView from '@/components/WifiView';
-import { Button, ErrorState, Legend, Page, PageHeader, Spinner, Tabs } from '@/components/ui';
+import { Badge, Button, ErrorState, Legend, Page, PageHeader, Spinner, Tabs } from '@/components/ui';
 
 // Leaflet touches `window`, so the map must be client-only.
 const MapView = dynamic(() => import('@/components/MapView'), {
@@ -131,11 +131,14 @@ export default function SiteMapPage() {
         actions={
           <div className="flex flex-wrap items-center gap-4">
           {s && (
-            <div className="flex items-center gap-3 text-sm">
-              <span className="text-emerald-400">{s.up} up</span>
-              <span className="text-red-400">{s.down} down</span>
-              <span className="text-slate-400">{s.unknown} ?</span>
-              <span className="font-semibold text-slate-100">{s.availabilityPct}%</span>
+            <div className="flex items-center gap-1.5">
+              <Badge tone="emerald">{s.up} up</Badge>
+              {s.down > 0 && <Badge tone="red">{s.down} down</Badge>}
+              {s.unknown > 0 && <Badge tone="slate">{s.unknown} ?</Badge>}
+              {s.maintenance > 0 && <Badge tone="sky">{s.maintenance} mnt</Badge>}
+              <span className="ml-1 rounded-full border border-surface-border bg-surface px-2.5 py-0.5 text-sm font-semibold text-slate-100">
+                {s.availabilityPct}%
+              </span>
             </div>
           )}
           {can('ruijie:view') && wifiRouters.length > 0 && (
