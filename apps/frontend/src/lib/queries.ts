@@ -15,9 +15,13 @@ import type {
   CreateRuijieAccountInput,
   BlockIntent,
   Device,
+  DeviceNetInfo,
   DhcpLeaseDTO,
   FirewallBlockRule,
+  PingResult,
+  RouterLogEntry,
   SimpleQueueDTO,
+  TraceHop,
   PatchDevicePositionInput,
   RouterPublic,
   RuijieAccountPublic,
@@ -195,6 +199,36 @@ export function useSetLeaseRate(routerId: string) {
         rateLimit: v.rateLimit,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['bandwidth', routerId, 'leases'] }),
+  });
+}
+
+// ---- Diagnostics & remediation ---------------------------------------------
+// On-demand actions (run on click), so mutations rather than polled queries.
+const ipq = (ip: string) => `ip=${encodeURIComponent(ip)}`;
+
+export function usePing(routerId: string) {
+  return useMutation({
+    mutationFn: (ip: string) => api.get<PingResult>(`/diagnostics/${routerId}/ping?${ipq(ip)}&count=5`),
+  });
+}
+export function useTraceroute(routerId: string) {
+  return useMutation({
+    mutationFn: (ip: string) => api.get<TraceHop[]>(`/diagnostics/${routerId}/traceroute?${ipq(ip)}`),
+  });
+}
+export function useNetInfo(routerId: string) {
+  return useMutation({
+    mutationFn: (ip: string) => api.get<DeviceNetInfo>(`/diagnostics/${routerId}/net-info?${ipq(ip)}`),
+  });
+}
+export function useRouterLog(routerId: string) {
+  return useMutation({
+    mutationFn: () => api.get<RouterLogEntry[]>(`/diagnostics/${routerId}/log`),
+  });
+}
+export function usePoeCycle(routerId: string) {
+  return useMutation({
+    mutationFn: (port: string) => api.post<WriteResult>(`/diagnostics/${routerId}/poe-cycle`, { port }),
   });
 }
 

@@ -31,6 +31,8 @@ export const PERMISSIONS = [
   'firewall:manage', // toggle block rules + edit block lists (writes router config)
   'bandwidth:view', // see simple queues / DHCP leases / top talkers
   'bandwidth:manage', // create/edit queues + set DHCP lease rate-limit
+  'device:diagnose', // run read-only diagnostics on the router (ping/traceroute/log/net-info)
+  'device:remediate', // PoE power-cycle a port (writes to the router)
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -54,6 +56,8 @@ const OPERATOR_PERMISSIONS: Permission[] = [
   'firewall:manage', // toggle blocks + block devices (IT technician job)
   'bandwidth:view', // bandwidth/QoS panel
   'bandwidth:manage', // set queues + DHCP lease rate-limit
+  'device:diagnose', // ping/traceroute/log from the router (IT technician job)
+  'device:remediate', // PoE power-cycle a frozen device
 ];
 
 // Viewer = read-only monitor: the map + device detail, Ruijie WiFi monitoring,

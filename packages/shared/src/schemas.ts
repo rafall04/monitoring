@@ -258,6 +258,26 @@ export type UpdateSimpleQueueInput = z.infer<typeof updateSimpleQueueSchema>;
 export const setLeaseRateSchema = z.object({ rateLimit });
 export type SetLeaseRateInput = z.infer<typeof setLeaseRateSchema>;
 
+// ---- Diagnostics & remediation ----------------------------------------------
+// IPv4/IPv6 literal only (never a hostname) — this value is passed straight to a
+// RouterOS command, so keep the charset tight.
+const ipLiteral = z.string().min(3).max(45).regex(/^[0-9a-fA-F:.]+$/, 'IP tidak valid');
+
+export const diagIpSchema = z.object({ ip: ipLiteral });
+export type DiagIpInput = z.infer<typeof diagIpSchema>;
+
+export const pingQuerySchema = z.object({
+  ip: ipLiteral,
+  count: z.coerce.number().int().min(1).max(10).optional(),
+});
+export type PingQueryInput = z.infer<typeof pingQuerySchema>;
+
+// Interface name (RouterOS): letters/digits and - _ . / and space (e.g. "ether5").
+export const poeCycleSchema = z.object({
+  port: z.string().min(1).max(64).regex(/^[A-Za-z0-9 ._/\-]+$/, 'Nama port tidak valid'),
+});
+export type PoeCycleInput = z.infer<typeof poeCycleSchema>;
+
 // ---- Managed block intents --------------------------------------------------
 const nocName = z.string().min(1).max(64).regex(/^[A-Za-z0-9._-]+$/, 'Huruf/angka/._- saja');
 export const createIntentSchema = z.object({

@@ -1,14 +1,18 @@
 import type {
   AddressListEntry,
   BlockIntent,
+  DeviceNetInfo,
   DhcpLeaseDTO,
   FirewallBlockRule,
   HotspotActive,
   HotspotProfile,
   HotspotUser,
+  PingResult,
+  RouterLogEntry,
   RouterOsVersion,
   RouterResource,
   SimpleQueueDTO,
+  TraceHop,
 } from '@noc/shared';
 
 export interface AddAddressListInput {
@@ -117,6 +121,14 @@ export interface MikrotikClient {
   listDhcpLeases(): Promise<DhcpLeaseDTO[]>;
   /** Set a lease's rate-limit ('' clears it). Dynamic leases are made static first. */
   setLeaseRateLimit(id: string, rateLimit: string): Promise<void>;
+
+  // Diagnostics (read-only) + remediation. Ping/traceroute/log run a router
+  // command; net-info reads ARP + DHCP + the PoE port; power-cycle is a write.
+  pingHost(ip: string, count?: number): Promise<PingResult>;
+  tracePath(ip: string): Promise<TraceHop[]>;
+  deviceNetInfo(ip: string): Promise<DeviceNetInfo>;
+  recentLog(limit?: number): Promise<RouterLogEntry[]>;
+  poePowerCycle(port: string): Promise<void>;
 
   /** Save a router-side config backup (restore point) before a change. */
   saveBackup(name: string): Promise<void>;

@@ -5,6 +5,7 @@ import { authRoutes } from './auth';
 import { bandwidthRoutes } from './bandwidth';
 import { companyRoutes } from './companies';
 import { deviceRoutes } from './devices';
+import { diagnosticsRoutes } from './diagnostics';
 import { firewallRoutes } from './firewall';
 import { hotspotRoutes } from './hotspot';
 import { reportRoutes } from './reports';
@@ -27,6 +28,7 @@ export async function apiRoutes(app: FastifyInstance) {
   await app.register(hotspotRoutes, { prefix: '/hotspot' });
   await app.register(firewallRoutes, { prefix: '/firewall' });
   await app.register(bandwidthRoutes, { prefix: '/bandwidth' });
+  await app.register(diagnosticsRoutes, { prefix: '/diagnostics' });
   await app.register(reportRoutes, { prefix: '/reports' });
   await app.register(userRoutes, { prefix: '/users' });
   await app.register(settingsRoutes, { prefix: '/settings' });

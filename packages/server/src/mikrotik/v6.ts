@@ -8,13 +8,17 @@ import { RouterOSAPI } from 'node-routeros';
 import type {
   AddressListEntry,
   BlockIntent,
+  DeviceNetInfo,
   DhcpLeaseDTO,
   FirewallBlockRule,
   HotspotActive,
   HotspotProfile,
   HotspotUser,
+  PingResult,
+  RouterLogEntry,
   RouterResource,
   SimpleQueueDTO,
+  TraceHop,
 } from '@noc/shared';
 import type {
   AddAddressListInput,
@@ -47,6 +51,28 @@ function num(v: string | undefined): number | undefined {
   if (v == null) return undefined;
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
+}
+
+/** Parse a RouterOS latency token ("1ms", "512us", "1s300ms") into milliseconds. */
+function parseMs(t: string | undefined): number | null {
+  if (!t) return null;
+  let total = 0;
+  let matched = false;
+  const re = /(\d+(?:\.\d+)?)(ms|us|s)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t))) {
+    matched = true;
+    const v = Number(m[1]);
+    total += m[2] === 's' ? v * 1000 : m[2] === 'us' ? v / 1000 : v;
+  }
+  return matched ? Math.round(total * 100) / 100 : null;
+}
+
+/** Parse a RouterOS percentage token ("0%", "100%") into a number. */
+function parsePct(t: string | undefined): number | null {
+  if (t == null) return null;
+  const n = Number(t.replace('%', '').trim());
+  return Number.isFinite(n) ? n : null;
 }
 
 export class RouterOsV6Client implements MikrotikClient {
@@ -396,6 +422,128 @@ export class RouterOsV6Client implements MikrotikClient {
       /* already static — fine */
     }
     await this.write('/ip/dhcp-server/lease/set', [`=.id=${id}`, `=rate-limit=${rateLimit}`]);
+  }
+
+  // ---- Diagnostics & remediation --------------------------------------------
+
+  async pingHost(ip: string, count = 4): Promise<PingResult> {
+    // `count` terminates the command; each probe emits a row (with `time` on a
+    // reply, or `status`/no time on a timeout).
+    const rows = await this.write('/ping', [`=address=${ip}`, `=count=${count}`]);
+    const times: number[] = [];
+    let received = 0;
+    for (const r of rows) {
+      const ms = parseMs(r['time']);
+      if (r['time'] && ms != null) {
+        received++;
+        times.push(ms);
+      }
+    }
+    const sent = rows.length || count;
+    const avg = times.length ? times.reduce((a, b) => a + b, 0) / times.length : null;
+    return {
+      sent,
+      received,
+      lossPct: sent > 0 ? Math.round(((sent - received) / sent) * 100) : 0,
+      avgMs: avg != null ? Math.round(avg * 100) / 100 : null,
+      minMs: times.length ? Math.min(...times) : null,
+      maxMs: times.length ? Math.max(...times) : null,
+    };
+  }
+
+  async tracePath(ip: string): Promise<TraceHop[]> {
+    // Bounded so an unreachable target can't hang the connection: one round,
+    // short per-hop timeout, capped hops.
+    const rows = await this.write('/tool/traceroute', [
+      `=address=${ip}`,
+      '=count=1',
+      '=timeout=1s',
+      '=max-hops=12',
+    ]);
+    return rows.map((r, i) => ({
+      hop: i + 1,
+      address: r['address'] ?? '',
+      avgMs: parseMs(r['avg'] ?? r['last']),
+      lossPct: parsePct(r['loss']),
+    }));
+  }
+
+  async deviceNetInfo(ip: string): Promise<DeviceNetInfo> {
+    const [arpRows, leaseRows] = await Promise.all([
+      this.write('/ip/arp/print', [`?address=${ip}`]).catch(() => [] as Row[]),
+      this.write('/ip/dhcp-server/lease/print', [`?address=${ip}`]).catch(() => [] as Row[]),
+    ]);
+    const a = arpRows[0];
+    const arp = a
+      ? { macAddress: a['mac-address'] ?? '', interface: a['interface'] ?? '', dynamic: a['dynamic'] === 'true' }
+      : null;
+    const l = leaseRows[0];
+    const lease = l
+      ? {
+          hostName: l['host-name'] ?? null,
+          macAddress: l['mac-address'] ?? '',
+          server: l['server'] ?? null,
+          status: l['status'] ?? null,
+          expiresAfter: l['expires-after'] ?? null,
+        }
+      : null;
+
+    // The ARP interface is often a bridge; resolve the real egress port via the
+    // bridge host table so PoE actions target the physical ethernet.
+    let port: string | null = arp?.interface || null;
+    const mac = arp?.macAddress || lease?.macAddress;
+    if (mac) {
+      try {
+        const hosts = await this.write('/interface/bridge/host/print', [`?mac-address=${mac}`]);
+        const on = hosts.find((h) => h['on-interface'])?.['on-interface'];
+        if (on) port = on;
+      } catch {
+        /* not bridged — keep the ARP interface */
+      }
+    }
+
+    // PoE state, only if `port` is a PoE-capable ethernet.
+    let poe: DeviceNetInfo['poe'] = null;
+    if (port) {
+      try {
+        const poeRows = await this.write('/interface/ethernet/poe/print', [`?name=${port}`]);
+        if (poeRows[0]) {
+          let status: string | null = poeRows[0]['poe-out'] ?? null;
+          let power: string | null = null;
+          try {
+            const mon = await this.write('/interface/ethernet/poe/monitor', [
+              `=numbers=${port}`,
+              '=once=',
+            ]);
+            status = mon[0]?.['poe-out-status'] ?? status;
+            power = mon[0]?.['poe-out-power'] ?? null;
+          } catch {
+            /* monitor unsupported — fall back to the poe-out setting */
+          }
+          poe = { name: port, status, power };
+        }
+      } catch {
+        /* port is not PoE-capable */
+      }
+    }
+    return { arp, lease, port, poe };
+  }
+
+  async recentLog(limit = 40): Promise<RouterLogEntry[]> {
+    const rows = await this.write('/log/print');
+    // /log is oldest→newest; take the tail.
+    return rows.slice(-limit).reverse().map((r) => ({
+      time: r['time'] ?? '',
+      topics: r['topics'] ?? '',
+      message: r['message'] ?? '',
+    }));
+  }
+
+  async poePowerCycle(port: string): Promise<void> {
+    const poeRows = await this.write('/interface/ethernet/poe/print', [`?name=${port}`]);
+    const id = poeRows[0]?.['.id'];
+    if (!id) throw new Error(`Port ${port} bukan port PoE`);
+    await this.write('/interface/ethernet/poe/power-cycle', [`=.id=${id}`, '=duration=00:00:05']);
   }
 
   async saveBackup(name: string): Promise<void> {

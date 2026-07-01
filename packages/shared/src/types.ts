@@ -424,6 +424,49 @@ export interface DhcpLeaseDTO {
   status: string | null; // bound | waiting | …
 }
 
+// ---- Diagnostics & remediation (device panel) -------------------------------
+
+/** Result of a router→device ping. */
+export interface PingResult {
+  sent: number;
+  received: number;
+  lossPct: number;
+  avgMs: number | null;
+  minMs: number | null;
+  maxMs: number | null;
+}
+
+/** One hop of a router→device traceroute. */
+export interface TraceHop {
+  hop: number;
+  address: string; // '' when the hop timed out
+  avgMs: number | null;
+  lossPct: number | null;
+}
+
+/** Network facts about a device as the router sees it (ARP + DHCP + PoE port). */
+export interface DeviceNetInfo {
+  arp: { macAddress: string; interface: string; dynamic: boolean } | null;
+  lease: {
+    hostName: string | null;
+    macAddress: string;
+    server: string | null;
+    status: string | null;
+    expiresAfter: string | null;
+  } | null;
+  /** Physical egress port (resolved via bridge host) — the target for PoE actions. */
+  port: string | null;
+  /** PoE state of `port`, present only when the port is PoE-capable. */
+  poe: { name: string; status: string | null; power: string | null } | null;
+}
+
+/** A recent router log line. */
+export interface RouterLogEntry {
+  time: string;
+  topics: string;
+  message: string;
+}
+
 export interface HotspotProfile {
   '.id'?: string;
   name: string;
