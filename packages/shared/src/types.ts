@@ -500,6 +500,13 @@ export interface RuijieRouterPublic {
   wanIp: string | null;
   mac: string | null;
   firmware: string | null;
+  // Free signals from the same fleet payload (0 extra API calls): per-radio WiFi
+  // channel utilization % (congestion — the "WiFi lambat" companion to wired
+  // degradation) + a firmware-outdated flag and the recommended version.
+  radio1Util: number | null;
+  radio2Util: number | null;
+  firmwareOutdated: boolean;
+  recommendedFirmware: string | null;
   lastSeenAt: string | null;
   updatedAt: string;
 }
@@ -548,6 +555,47 @@ export interface RuijiePortDTO {
   speed: string | null; // negotiated speed when up; null when down/unknown
   medium: string | null; // "Copper" | "Fiber" (switches; APs omit it)
   enabled: boolean; // admin-enabled (switches expose it; APs default true)
+}
+
+/**
+ * One port flagged by the worker's port monitor — the payoff of the whole
+ * feature: a link that is UP but negotiated below its learned baseline (silent
+ * slowdown), or one that is flapping. Worst-first drives the Port Health board.
+ */
+export interface RuijiePortHealthRow {
+  routerId: string;
+  routerName: string;
+  groupName: string;
+  siteId: string | null;
+  portName: string;
+  medium: string | null;
+  up: boolean;
+  speedMbit: number; // current negotiated speed (0 when down)
+  baselineMbit: number; // learned known-good speed
+  degraded: boolean; // up but slower than baseline
+  degradedSince: string | null;
+  flaps1h: number; // link-downs in the last hour
+  lastSeenAt: string;
+}
+
+export interface RuijiePortHealth {
+  summary: {
+    monitoredPorts: number;
+    degraded: number;
+    flapping: number;
+    lastPolledAt: string | null;
+  };
+  rows: RuijiePortHealthRow[]; // degraded first (longest-standing), then flapping
+}
+
+/** One row of a port's event timeline (degraded/recovered/link flap). */
+export interface RuijiePortEventRow {
+  id: string;
+  portName: string;
+  kind: 'degraded' | 'recovered' | 'link-down' | 'link-up';
+  fromMbit: number | null;
+  toMbit: number | null;
+  at: string;
 }
 
 /** One connected client station (on-demand drill-down for a router). */

@@ -303,11 +303,84 @@ model RuijieRouter {
   wanIp         String?
   mac           String?
   firmware      String?
+  // Free extras carried in the same fleet payload as the counts above (0 extra
+  // API calls): per-radio channel utilization (WiFi congestion %, the "WiFi
+  // lambat" companion signal to wired-port degradation) + a firmware-outdated
+  // flag. Null until the poller has seen the device.
+  radio1Util          Int? // 2.4G channel utilization %
+  radio2Util          Int? // 5G channel utilization %
+  firmwareOutdated    Boolean @default(false) // verCompareFlag
+  recommendedFirmware String? // recommendSoftwareVersion
   lastSeenAt    DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  ports RuijiePort[]
+
   @@unique([accountId, cloudSerial])
   @@index([accountId])
   @@map("ruijie_router")
+}
+
+// One physical LAN/uplink port of a Ruijie AP/switch, sampled by the worker's
+// port poller (per-SN cloud call, adaptive interval). This is the mechanism that
+// catches a link SILENTLY renegotiating down (e.g. a gigabit uplink dropping to
+// 100M/10M on a bad cable) — invisible to ping/Netwatch, which still read "up".
+// The `baseline*` is the known-good speed; `degraded` = currently up but slower.
+model RuijiePort {
+  id       String       @id @default(cuid())
+  routerId String
+  router   RuijieRouter @relation(fields: [routerId], references: [id], onDelete: Cascade)
+
+  portName  String // "LAN1", "LAN3/IPTV", "Port 2"
+  portIndex Int
+  medium    String? // "Copper" | "Fiber" (switches; APs omit it)
+
+  // Current observed state (last poll).
+  up        Boolean @default(false)
+  speedMbit Int     @default(0) // negotiated Mbit when up; 0 down/unknown
+  enabled   Boolean @default(true)
+
+  // Baseline = the healthy speed we expect. Auto-learned as the max ever seen
+  // (never lowered automatically — that is exactly the drop we want to catch),
+  // or pinned by an admin so a port that was mis-negotiated since day one still
+  // alarms against its intended speed.
+  baselineMbit   Int     @default(0) // 0 = not learned yet
+  baselinePinned Boolean @default(false)
+
+  // Degradation state: up but slower than baseline. `pendingSlow` debounces a
+  // one-off renegotiation before we alert; `degradedSince` timestamps the drop.
+  degraded      Boolean   @default(false)
+  degradedSince DateTime?
+  pendingSlow   Int       @default(0)
+
+  // Flap: link bounced (up<->down). Rolling count feeds a "loose cable" alert.
+  lastLinkChangeAt DateTime?
+  linkDowns        Int       @default(0)
+
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([routerId, portName])
+  @@index([routerId])
+  @@map("ruijie_port")
+}
+
+// Append-only port timeline: every degradation/recovery/link-flap, for the
+// per-port history ("LAN1 dropped to 100M 3x this month") and the weekly
+// repeat-offender report. Swept by the retention job like StatusEvent.
+model RuijiePortEvent {
+  id       String   @id @default(cuid())
+  routerId String
+  portName String
+  kind     String // "degraded" | "recovered" | "link-down" | "link-up"
+  fromMbit Int?
+  toMbit   Int?
+  note     String?
+  at       DateTime @default(now())
+
+  @@index([routerId, at])
+  @@index([at])
+  @@map("ruijie_port_event")
 }

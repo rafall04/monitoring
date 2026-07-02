@@ -43,6 +43,8 @@ export class RetentionSweeper {
       const s = await getSettings();
       const eventsDeleted = await this.purgeOlderThan('statusEvent', s.eventRetentionDays);
       const auditDeleted = await this.purgeOlderThan('auditLog', s.auditRetentionDays);
+      // Ruijie port-event timeline shares the status-event retention window.
+      await this.purgeOlderThan('ruijiePortEvent', s.eventRetentionDays);
 
       this.stats = {
         lastRunAt: Date.now(),
@@ -65,9 +67,9 @@ export class RetentionSweeper {
     }
   }
 
-  /** Delete rows where createdAt < (now - days). Batched. */
+  /** Delete rows older than (now - days). Batched. */
   private async purgeOlderThan(
-    table: 'statusEvent' | 'auditLog',
+    table: 'statusEvent' | 'auditLog' | 'ruijiePortEvent',
     days: number,
   ): Promise<number> {
     if (!Number.isFinite(days) || days <= 0) return 0;
@@ -76,22 +78,37 @@ export class RetentionSweeper {
     // Loop until we did less than a full batch — protects against running for
     // an unbounded time on first run with a huge backlog.
     for (let safety = 0; safety < 200; safety++) {
-      // StatusEvent's timestamp column is `occurredAt`; AuditLog's is `createdAt`.
-      const where =
-        table === 'statusEvent'
-          ? { occurredAt: { lt: cutoff } }
-          : { createdAt: { lt: cutoff } };
-
-      const ids = await (table === 'statusEvent'
-        ? prisma.statusEvent.findMany({ where, select: { id: true }, take: BATCH_SIZE })
-        : prisma.auditLog.findMany({ where, select: { id: true }, take: BATCH_SIZE }));
+      // Timestamp column differs per table: StatusEvent=occurredAt,
+      // AuditLog=createdAt, RuijiePortEvent=at.
+      let ids: { id: string }[];
+      if (table === 'statusEvent') {
+        ids = await prisma.statusEvent.findMany({
+          where: { occurredAt: { lt: cutoff } },
+          select: { id: true },
+          take: BATCH_SIZE,
+        });
+      } else if (table === 'auditLog') {
+        ids = await prisma.auditLog.findMany({
+          where: { createdAt: { lt: cutoff } },
+          select: { id: true },
+          take: BATCH_SIZE,
+        });
+      } else {
+        ids = await prisma.ruijiePortEvent.findMany({
+          where: { at: { lt: cutoff } },
+          select: { id: true },
+          take: BATCH_SIZE,
+        });
+      }
 
       if (ids.length === 0) break;
       const idList = ids.map((r) => r.id);
       const res =
         table === 'statusEvent'
           ? await prisma.statusEvent.deleteMany({ where: { id: { in: idList } } })
-          : await prisma.auditLog.deleteMany({ where: { id: { in: idList } } });
+          : table === 'auditLog'
+            ? await prisma.auditLog.deleteMany({ where: { id: { in: idList } } })
+            : await prisma.ruijiePortEvent.deleteMany({ where: { id: { in: idList } } });
       totalDeleted += res.count;
       if (ids.length < BATCH_SIZE) break;
     }

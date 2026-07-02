@@ -1,8 +1,10 @@
 import {
   prisma,
   ruijieClientForAccount,
+  RUIJIE_RESERVE_ENRICHER,
   type Logger,
   type Redis,
+  type RuijieBudget,
   type RuijieClientStation,
 } from '@noc/server';
 import { REDIS_KEYS, type DeviceWifiLink, type SiteWifiMap } from '@noc/shared';
@@ -43,6 +45,7 @@ export class WifiEnricher {
   constructor(
     private readonly redis: Redis,
     private readonly logger: Logger,
+    private readonly budget: RuijieBudget,
   ) {}
 
   start(): void {
@@ -63,6 +66,14 @@ export class WifiEnricher {
       const groupSiteMap = (account.groupSiteMap as Record<string, string> | null) ?? {};
       if (Object.keys(groupSiteMap).length === 0) return;
 
+      // Lowest-priority Ruijie consumer: yield the daily quota to the fleet poll,
+      // port poller, and drill-downs by skipping the whole cycle when the budget
+      // has dropped into the enricher reserve. Counts stay live via the fleet poll.
+      if ((await this.budget.remaining()) < RUIJIE_RESERVE_ENRICHER) {
+        this.logger.info('wifi-enricher: skipped (budget reserve)');
+        return;
+      }
+
       // Resolve each monitored building group → (siteId, total client count) so we
       // only spend an API call on groups that actually have clients to drill into.
       const routers = await prisma.ruijieRouter.findMany({ where: { accountId: account.id } });
@@ -75,7 +86,7 @@ export class WifiEnricher {
         groups.set(r.cloudGroupId, g);
       }
 
-      const client = ruijieClientForAccount(account);
+      const client = ruijieClientForAccount(account, this.budget.spend);
       const stationsBySite = new Map<string, RuijieClientStation[]>();
       let apiCalls = 0;
       try {

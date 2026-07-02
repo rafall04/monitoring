@@ -91,6 +91,13 @@ export class RuijieCloudClient implements RuijieClient {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async fetchJson(url: string, init?: Parameters<typeof fetch>[1]): Promise<any> {
+    // Count every upstream request (auth POST + each GET + transparent retries)
+    // against the shared daily budget. Choke point for all Ruijie HTTP.
+    try {
+      this.cfg.onSpend?.(1);
+    } catch {
+      /* budget accounting must never break a call */
+    }
     let res;
     try {
       res = await fetch(url, { ...(init ?? {}), signal: AbortSignal.timeout(this.timeoutMs) });
@@ -198,6 +205,10 @@ interface RawDevice {
   mac?: string;
   softwareVersion?: string;
   lastOnline?: number;
+  radio1ChannelUtil?: number;
+  radio2ChannelUtil?: number;
+  verCompareFlag?: boolean;
+  recommendSoftwareVersion?: string;
 }
 
 interface RawPort {
@@ -268,6 +279,10 @@ function mapDevice(d: RawDevice): RuijieDevice {
     mac: d.mac ?? null,
     firmware: d.softwareVersion ?? null,
     lastOnline: d.lastOnline ?? null,
+    radio1Util: d.radio1ChannelUtil ?? null,
+    radio2Util: d.radio2ChannelUtil ?? null,
+    firmwareOutdated: d.verCompareFlag === true,
+    recommendedFirmware: d.recommendSoftwareVersion ?? null,
   };
 }
 

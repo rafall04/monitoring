@@ -5,6 +5,8 @@ import {
   pollRuijieAccount,
   prisma,
   ruijieClientForAccount,
+  RUIJIE_FLAP_THRESHOLD,
+  RUIJIE_FLAP_WINDOW_MS,
   toRuijieAccountPublic,
   toRuijieRouterPublic,
 } from '@noc/server';
@@ -13,6 +15,9 @@ import {
   idParamSchema,
   ruijieMonitoredGroupsSchema,
   ruijieSiteMapSchema,
+  type RuijiePortEventRow,
+  type RuijiePortHealth,
+  type RuijiePortHealthRow,
 } from '@noc/shared';
 import { badGateway, conflict, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
@@ -64,6 +69,91 @@ export async function ruijieRoutes(app: FastifyInstance) {
     } finally {
       await client.close().catch(() => undefined);
     }
+  });
+
+  // Fleet-wide port health: every port the worker flagged as degraded (up but
+  // slower than its learned baseline — the silent slowdown) or flapping, worst
+  // first. Served entirely from our DB (mirrored by the port poller) — 0 Ruijie
+  // calls, so it is safe to open + auto-refresh. This is the "check every
+  // morning" board.
+  app.get('/ports/health', viewGuard, async (): Promise<RuijiePortHealth> => {
+    const account = await prisma.ruijieAccount.findFirst();
+    const siteMap = (account?.groupSiteMap as Record<string, string> | null) ?? {};
+    const [ports, flapRows] = await Promise.all([
+      prisma.ruijiePort.findMany({
+        include: { router: { select: { id: true, name: true, groupName: true } } },
+      }),
+      prisma.ruijiePortEvent.groupBy({
+        by: ['routerId', 'portName'],
+        where: { kind: 'link-down', at: { gte: new Date(Date.now() - RUIJIE_FLAP_WINDOW_MS) } },
+        _count: { _all: true },
+      }),
+    ]);
+    const flaps = new Map(flapRows.map((r) => [`${r.routerId}:${r.portName}`, r._count._all]));
+
+    const rows: RuijiePortHealthRow[] = [];
+    let lastPolledAt: string | null = null;
+    for (const p of ports) {
+      if (!lastPolledAt || p.lastSeenAt.toISOString() > lastPolledAt) {
+        lastPolledAt = p.lastSeenAt.toISOString();
+      }
+      const flaps1h = flaps.get(`${p.routerId}:${p.portName}`) ?? 0;
+      const flapping = flaps1h >= RUIJIE_FLAP_THRESHOLD;
+      if (!p.degraded && !flapping) continue;
+      rows.push({
+        routerId: p.routerId,
+        routerName: p.router.name,
+        groupName: p.router.groupName,
+        siteId: siteMap[p.router.groupName] ?? null,
+        portName: p.portName,
+        medium: p.medium,
+        up: p.up,
+        speedMbit: p.speedMbit,
+        baselineMbit: p.baselineMbit,
+        degraded: p.degraded,
+        degradedSince: p.degradedSince ? p.degradedSince.toISOString() : null,
+        flaps1h,
+        lastSeenAt: p.lastSeenAt.toISOString(),
+      });
+    }
+    // Degraded first (longest-standing degradation on top), then flapping (most
+    // flaps first) — worst problems at the top of the board.
+    rows.sort((a, b) => {
+      if (a.degraded !== b.degraded) return a.degraded ? -1 : 1;
+      if (a.degraded && b.degraded) return (a.degradedSince ?? '').localeCompare(b.degradedSince ?? '');
+      return b.flaps1h - a.flaps1h;
+    });
+
+    return {
+      summary: {
+        monitoredPorts: ports.length,
+        degraded: ports.filter((p) => p.degraded).length,
+        flapping: [...flaps.values()].filter((n) => n >= RUIJIE_FLAP_THRESHOLD).length,
+        lastPolledAt: lastPolledAt ?? (account?.lastPolledAt?.toISOString() ?? null),
+      },
+      rows,
+    };
+  });
+
+  // Per-router port event timeline (degradation/recovery/flap) for the drill-down
+  // history — "LAN1 dropped to 100M 3x this month". From our DB; 0 Ruijie calls.
+  app.get('/routers/:id/port-history', viewGuard, async (req): Promise<RuijiePortEventRow[]> => {
+    const { id } = idParamSchema.parse(req.params);
+    const router = await prisma.ruijieRouter.findUnique({ where: { id } });
+    if (!router) throw notFound('Ruijie router not found');
+    const events = await prisma.ruijiePortEvent.findMany({
+      where: { routerId: id },
+      orderBy: { at: 'desc' },
+      take: 50,
+    });
+    return events.map((e) => ({
+      id: e.id,
+      portName: e.portName,
+      kind: e.kind as RuijiePortEventRow['kind'],
+      fromMbit: e.fromMbit,
+      toMbit: e.toMbit,
+      at: e.at.toISOString(),
+    }));
   });
 
   // On-demand drill-down: physical LAN/uplink port status (link up/down +

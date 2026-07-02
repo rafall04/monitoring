@@ -21,4 +21,6 @@ export function createRuijieClient(cfg: RuijieConfig): RuijieClient {
 
 export * from './types';
 export * from './account';
+export * from './budget';
+export * from './port-monitor';
 export { RuijieCloudClient, RuijieApiError } from './cloud';

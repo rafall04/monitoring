@@ -3,11 +3,13 @@ import {
   createRedis,
   env,
   prisma,
+  RuijieBudget,
   type StatusEngineDeps,
 } from '@noc/server';
 import { startHealthServer } from './health';
 import { RetentionSweeper } from './retention';
 import { RuijiePoller } from './ruijie-poller';
+import { RuijiePortPoller } from './ruijie-port-poller';
 import { PollScheduler } from './scheduler';
 import { WifiEnricher } from './wifi-enricher';
 
@@ -35,20 +37,29 @@ async function main() {
 
   const scheduler = new PollScheduler(deps, logger);
   const retention = new RetentionSweeper(logger);
-  // The Ruijie poller is NOT sharded — run it only on the primary shard so
+  // All Ruijie Cloud consumers share ONE daily-budget counter (Redis-backed) so
+  // the fleet poll, port poller, and enricher can't collectively blow the
+  // 5,000/day cap — lower-priority ones yield via their reserves.
+  const ruijieBudget = new RuijieBudget(redisPub);
+  // The Ruijie pollers are NOT sharded — run them only on the primary shard so
   // multiple worker instances never double-poll the shared daily API quota.
-  const ruijie = env.WORKER_SHARD_INDEX === 0 ? new RuijiePoller(logger) : null;
+  const primary = env.WORKER_SHARD_INDEX === 0;
+  const ruijie = primary ? new RuijiePoller(logger, ruijieBudget) : null;
+  // Per-SN LAN port sampling → baseline + silent-degradation + flap detection.
+  const ruijiePorts = primary ? new RuijiePortPoller(redisPub, logger, ruijieBudget) : null;
   // Device⇄WiFi correlation (heavier per-group API calls) also primary-shard only.
-  const wifi = env.WORKER_SHARD_INDEX === 0 ? new WifiEnricher(redisPub, logger) : null;
+  const wifi = primary ? new WifiEnricher(redisPub, logger, ruijieBudget) : null;
   const health = startHealthServer(env.WORKER_HEALTH_PORT, () => ({
     scheduler: scheduler.stats,
     retention: retention.stats,
     ruijie: ruijie?.stats ?? 'disabled (non-primary shard)',
+    ruijiePorts: ruijiePorts?.stats ?? 'disabled (non-primary shard)',
     wifi: wifi?.stats ?? 'disabled (non-primary shard)',
   }));
   scheduler.start();
   retention.start();
   ruijie?.start();
+  ruijiePorts?.start();
   wifi?.start();
 
   logger.info(
@@ -65,6 +76,7 @@ async function main() {
     scheduler.stop();
     retention.stop();
     ruijie?.stop();
+    ruijiePorts?.stop();
     wifi?.stop();
     health.close();
     await redisPub.quit().catch(() => undefined);

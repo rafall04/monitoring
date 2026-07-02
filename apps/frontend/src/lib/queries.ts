@@ -22,6 +22,8 @@ import type {
   PingResult,
   RouterLogEntry,
   RuijiePortDTO,
+  RuijiePortEventRow,
+  RuijiePortHealth,
   SimpleQueueDTO,
   TraceHop,
   PatchDevicePositionInput,
@@ -51,6 +53,8 @@ export const qk = {
   ruijieAccounts: ['ruijie', 'accounts'] as const,
   ruijieClients: (id: string) => ['ruijie', 'routers', id, 'clients'] as const,
   ruijiePorts: (id: string) => ['ruijie', 'routers', id, 'ports'] as const,
+  ruijiePortHealth: ['ruijie', 'ports', 'health'] as const,
+  ruijiePortHistory: (id: string) => ['ruijie', 'routers', id, 'port-history'] as const,
   ruijieProjects: (accountId: string) => ['ruijie', 'accounts', accountId, 'projects'] as const,
   firewallBlocks: (routerId: string) => ['firewall', routerId, 'blocks'] as const,
   addressList: (routerId: string, list: string) => ['firewall', routerId, 'address-list', list] as const,
@@ -327,6 +331,28 @@ export function useRuijieRouterPorts(routerId: string | null) {
     // Must match useRuijieFleetPorts: the row chip already fetched this key, so
     // a shorter staleTime here would re-hit the quota on every row expand.
     staleTime: 300_000,
+    retry: false,
+  });
+}
+/**
+ * Fleet-wide port health board (degraded + flapping ports). Served from OUR DB
+ * (mirrored by the worker's port poller), NOT the Ruijie API — so unlike the
+ * per-SN drill-downs this is safe to keep live. 60s refetch tracks the worker.
+ */
+export function useRuijiePortHealth() {
+  return useQuery({
+    queryKey: qk.ruijiePortHealth,
+    queryFn: () => api.get<RuijiePortHealth>('/ruijie/ports/health'),
+    refetchInterval: 60_000,
+  });
+}
+/** Per-router port event timeline (degraded/recovered/flap). Our DB; on-demand. */
+export function useRuijiePortHistory(routerId: string | null) {
+  return useQuery({
+    queryKey: qk.ruijiePortHistory(routerId ?? ''),
+    queryFn: () => api.get<RuijiePortEventRow[]>(`/ruijie/routers/${routerId}/port-history`),
+    enabled: Boolean(routerId),
+    staleTime: 30_000,
     retry: false,
   });
 }

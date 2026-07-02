@@ -17,13 +17,21 @@ interface PollableAccount extends ClientCreds {
   monitoredGroupIds: string[];
 }
 
-/** Build a read-only Ruijie client from an account row (decrypts the secret). */
-export function ruijieClientForAccount(a: ClientCreds): RuijieClient {
+/**
+ * Build a read-only Ruijie client from an account row (decrypts the secret).
+ * Pass `onSpend` to count this client's upstream calls against the shared daily
+ * budget (see RuijieBudget) — callers that have a Redis handle should always do so.
+ */
+export function ruijieClientForAccount(
+  a: ClientCreds,
+  onSpend?: (n: number) => void,
+): RuijieClient {
   return new RuijieCloudClient({
     driver: 'cloud',
     appId: a.appId,
     appSecret: decryptSecret(a.appSecretEncrypted),
     baseUrl: a.baseUrl,
+    onSpend,
   });
 }
 
@@ -42,8 +50,11 @@ export interface RuijiePollResult {
  * connected-client count into `ruijie_router`. Rows for de-selected groups are
  * pruned. Read-only against Ruijie — the only writes are to our own DB.
  */
-export async function pollRuijieAccount(account: PollableAccount): Promise<RuijiePollResult> {
-  const client = ruijieClientForAccount(account);
+export async function pollRuijieAccount(
+  account: PollableAccount,
+  onSpend?: (n: number) => void,
+): Promise<RuijiePollResult> {
+  const client = ruijieClientForAccount(account, onSpend);
   try {
     const allDevices = await client.getDevices();
     const allow = new Set(account.monitoredGroupIds.map(String));
@@ -67,6 +78,10 @@ export async function pollRuijieAccount(account: PollableAccount): Promise<Ruiji
         wanIp: d.wanIp,
         mac: d.mac,
         firmware: d.firmware,
+        radio1Util: d.radio1Util,
+        radio2Util: d.radio2Util,
+        firmwareOutdated: d.firmwareOutdated,
+        recommendedFirmware: d.recommendedFirmware,
         // keep the last-seen timestamp when a router goes offline
         lastSeenAt: d.online ? new Date() : undefined,
       };
@@ -104,8 +119,11 @@ export async function pollRuijieAccount(account: PollableAccount): Promise<Ruiji
  * current allowlist. Powers the super_admin's "which projects to monitor" picker
  * — they tick the school groups and ignore the personal/factory ones.
  */
-export async function discoverRuijieProjects(account: PollableAccount): Promise<RuijieProjectDTO[]> {
-  const client = ruijieClientForAccount(account);
+export async function discoverRuijieProjects(
+  account: PollableAccount,
+  onSpend?: (n: number) => void,
+): Promise<RuijieProjectDTO[]> {
+  const client = ruijieClientForAccount(account, onSpend);
   try {
     const devices = await client.getDevices();
     const allow = new Set(account.monitoredGroupIds.map(String));

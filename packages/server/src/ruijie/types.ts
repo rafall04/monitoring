@@ -22,6 +22,13 @@ export interface RuijieDevice {
   mac: string | null;
   firmware: string | null; // softwareVersion
   lastOnline: number | null; // epoch ms
+  // Free extras in the same payload (0 extra calls): WiFi channel utilization %
+  // per radio (congestion — the "WiFi lambat" companion signal) + a
+  // firmware-outdated flag and the recommended version.
+  radio1Util: number | null; // radio1ChannelUtil (2.4G)
+  radio2Util: number | null; // radio2ChannelUtil (5G)
+  firmwareOutdated: boolean; // verCompareFlag
+  recommendedFirmware: string | null; // recommendSoftwareVersion
 }
 
 /** One connected client station (on-demand drill-down via /current-user). */
@@ -79,4 +86,10 @@ export interface RuijieConfig {
   baseUrl?: string;
   /** Account ROOT group id. Auto-discovered from the group tree when omitted. */
   rootGroupId?: number | string;
+  /**
+   * Called once per upstream HTTP request (auth + every GET + retries) so a
+   * shared daily-budget counter can track spend against the 5,000/day cap.
+   * Fire-and-forget; must never throw. See RuijieBudget.
+   */
+  onSpend?: (n: number) => void;
 }

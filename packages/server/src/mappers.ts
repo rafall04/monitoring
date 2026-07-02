@@ -167,6 +167,10 @@ export function toRuijieRouterPublic(
     wanIp: r.wanIp,
     mac: r.mac,
     firmware: r.firmware,
+    radio1Util: r.radio1Util,
+    radio2Util: r.radio2Util,
+    firmwareOutdated: r.firmwareOutdated,
+    recommendedFirmware: r.recommendedFirmware,
     lastSeenAt: r.lastSeenAt ? r.lastSeenAt.toISOString() : null,
     updatedAt: r.updatedAt.toISOString(),
   };

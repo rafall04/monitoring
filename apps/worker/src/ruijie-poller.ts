@@ -1,7 +1,11 @@
-import { pollRuijieAccount, prisma, type Logger } from '@noc/server';
+import { pollRuijieAccount, prisma, type Logger, type RuijieBudget } from '@noc/server';
 
 const TICK_MS = 15_000;
 const DEFAULT_INTERVAL_SEC = 60;
+// The fleet poll is the highest-priority Ruijie call (dashboard truth) and the
+// cheapest (1 call covers every router), so it has no reserve — it runs while
+// any budget remains, yielding only when the account is genuinely exhausted.
+const MIN_BUDGET = 2;
 
 export interface RuijieStats {
   lastTick: number;
@@ -21,7 +25,10 @@ export class RuijiePoller {
   private readonly lastPolled = new Map<string, number>();
   public stats: RuijieStats = { lastTick: 0, accounts: 0, last: '' };
 
-  constructor(private readonly logger: Logger) {}
+  constructor(
+    private readonly logger: Logger,
+    private readonly budget: RuijieBudget,
+  ) {}
 
   start(): void {
     void this.tick();
@@ -48,9 +55,15 @@ export class RuijiePoller {
     for (const acc of accounts) {
       const intervalMs = (acc.pollIntervalSec ?? DEFAULT_INTERVAL_SEC) * 1000;
       if (now - (this.lastPolled.get(acc.id) ?? 0) < intervalMs) continue;
+      // Skip only when the daily quota is truly spent — otherwise the fleet
+      // poll always wins over the port poller/enricher (which reserve headroom).
+      if ((await this.budget.remaining()) < MIN_BUDGET) {
+        this.stats.last = `${acc.label}: skipped (budget exhausted)`;
+        continue;
+      }
       this.lastPolled.set(acc.id, now);
 
-      const r = await pollRuijieAccount(acc);
+      const r = await pollRuijieAccount(acc, this.budget.spend);
       if (r.ok) {
         this.stats.last = `${acc.label}: ${r.online}/${r.devices} online · ${r.totalClients} clients`;
         this.logger.info(
