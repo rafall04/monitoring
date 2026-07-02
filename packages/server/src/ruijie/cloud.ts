@@ -34,6 +34,13 @@ export class RuijieApiError extends Error {
 // stale entry and retries, so expiry needs no TTL bookkeeping.
 const tokenCache = new Map<string, string>();
 
+// Module-level ROOT-group cache keyed by appId. The account ROOT never changes,
+// but resolving it costs a group-tree call — and with a fresh client per poll
+// tick, an instance-only cache re-paid that call every ~60s (a quota-counted
+// call, wasted; ~1,440/day). Cache it across instances; a worker restart repays
+// exactly one call.
+const rootGroupCache = new Map<string, string | number>();
+
 /**
  * Ruijie Cloud OpenAPI client. Read-only. Auth is app_id + app_secret → a
  * short-lived accessToken passed as an `access_token` query param; the token is
@@ -120,10 +127,16 @@ export class RuijieCloudClient implements RuijieClient {
 
   private async resolveRootGroupId(): Promise<string | number> {
     if (this.rootGroupId != null) return this.rootGroupId;
+    const cached = rootGroupCache.get(this.cfg.appId ?? '');
+    if (cached != null) {
+      this.rootGroupId = cached;
+      return cached;
+    }
     const json = await this.get(TREE_PATH, { depth: 'DEVICE' });
     const root = findRootGroup(json?.groups);
     if (root == null) throw new RuijieApiError('no-root', 'Could not resolve account ROOT group');
     this.rootGroupId = root;
+    rootGroupCache.set(this.cfg.appId ?? '', root);
     return root;
   }
 

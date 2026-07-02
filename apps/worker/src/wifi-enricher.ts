@@ -9,12 +9,15 @@ import { REDIS_KEYS, type DeviceWifiLink, type SiteWifiMap } from '@noc/shared';
 
 // WiFi enrichment is the EXPENSIVE Ruijie path: getClients is per-building-group
 // (no root aggregation), so each monitored group costs one API call per cycle.
-// A 5-min cycle over the ~10 SF1 groups stays well under the 5,000/day cap while
-// the 60s fleet poll keeps counts fresh. Raise the interval if more sites map in.
-const INTERVAL_MS = 300_000;
-// Cache TTL > interval so a brief enricher hiccup doesn't blank the UI, but stale
-// data still expires if the enricher stops entirely.
-const TTL_SEC = 1200;
+// At ~15 groups/cycle a 5-min interval was ~4,460 calls/day — the single biggest
+// consumer of the shared 5,000/day quota, and it starved the fleet poll into
+// daily "Too many requests" storms. 15 min keeps device⇄AP correlation fresh
+// enough (it only labels which AP a device sits on) while freeing quota for the
+// port poller. Device counts stay live via the 60s fleet poll.
+const INTERVAL_MS = 900_000;
+// Cache TTL > interval so one or two missed ticks don't blank the site WiFi map,
+// but stale data still expires if the enricher stops entirely.
+const TTL_SEC = 2700;
 
 export interface WifiEnricherStats {
   lastTick: number;
