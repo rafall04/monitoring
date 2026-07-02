@@ -296,13 +296,20 @@ export function useRuijieAccounts() {
     queryFn: () => api.get<RuijieAccountPublic[]>('/ruijie/accounts'),
   });
 }
-/** On-demand client drill-down for one router; live-refreshes only while open. */
+/**
+ * On-demand client drill-down for one router. Deliberately NO refetchInterval
+ * and NO retry: each read hits the shared 5,000/day Ruijie quota (a drill-down
+ * left open would burn ~1,440 calls/day on its own), so we fetch once on
+ * expand (staleTime absorbs open/close spam) and refresh only via the panel's
+ * manual button.
+ */
 export function useRuijieRouterClients(routerId: string | null) {
   return useQuery({
     queryKey: qk.ruijieClients(routerId ?? ''),
     queryFn: () => api.get<RuijieStationDTO[]>(`/ruijie/routers/${routerId}/clients`),
     enabled: Boolean(routerId),
-    refetchInterval: routerId ? 60_000 : false,
+    staleTime: 30_000,
+    retry: false,
   });
 }
 /**
