@@ -536,6 +536,20 @@ export interface RuijieProjectDTO {
   monitored: boolean; // already in the account's allowlist
 }
 
+/**
+ * One physical LAN/uplink port of a Ruijie device (AP or switch), read live from
+ * the cloud on demand. EW1300G APs expose LAN1/LAN2/LAN3-IPTV; ES208GC switches
+ * expose Port 1..8. `speed` is the negotiated rate ("1000M"/"100M") when up.
+ */
+export interface RuijiePortDTO {
+  name: string; // "LAN1", "LAN3/IPTV", "Port 2"
+  port: number; // physical index (1-based)
+  up: boolean; // link status
+  speed: string | null; // negotiated speed when up; null when down/unknown
+  medium: string | null; // "Copper" | "Fiber" (switches; APs omit it)
+  enabled: boolean; // admin-enabled (switches expose it; APs default true)
+}
+
 /** One connected client station (on-demand drill-down for a router). */
 export interface RuijieStationDTO {
   mac: string;

@@ -20,6 +20,7 @@ import type {
   FirewallBlockRule,
   PingResult,
   RouterLogEntry,
+  RuijiePortDTO,
   SimpleQueueDTO,
   TraceHop,
   PatchDevicePositionInput,
@@ -48,6 +49,7 @@ export const qk = {
   ruijieRouters: ['ruijie', 'routers'] as const,
   ruijieAccounts: ['ruijie', 'accounts'] as const,
   ruijieClients: (id: string) => ['ruijie', 'routers', id, 'clients'] as const,
+  ruijiePorts: (id: string) => ['ruijie', 'routers', id, 'ports'] as const,
   ruijieProjects: (accountId: string) => ['ruijie', 'accounts', accountId, 'projects'] as const,
   firewallBlocks: (routerId: string) => ['firewall', routerId, 'blocks'] as const,
   addressList: (routerId: string, list: string) => ['firewall', routerId, 'address-list', list] as const,
@@ -301,6 +303,21 @@ export function useRuijieRouterClients(routerId: string | null) {
     queryFn: () => api.get<RuijieStationDTO[]>(`/ruijie/routers/${routerId}/clients`),
     enabled: Boolean(routerId),
     refetchInterval: routerId ? 60_000 : false,
+  });
+}
+/**
+ * On-demand LAN/uplink port panel for one router. Deliberately NO
+ * refetchInterval and NO retry: port reads are per-SN against the shared
+ * 5,000/day Ruijie quota, so we fetch once on expand (staleTime absorbs
+ * open/close spam) and refresh only via the panel's manual button.
+ */
+export function useRuijieRouterPorts(routerId: string | null) {
+  return useQuery({
+    queryKey: qk.ruijiePorts(routerId ?? ''),
+    queryFn: () => api.get<RuijiePortDTO[]>(`/ruijie/routers/${routerId}/ports`),
+    enabled: Boolean(routerId),
+    staleTime: 30_000,
+    retry: false,
   });
 }
 export function useCreateRuijieAccount() {

@@ -66,6 +66,25 @@ export async function ruijieRoutes(app: FastifyInstance) {
     }
   });
 
+  // On-demand drill-down: physical LAN/uplink port status (link up/down +
+  // negotiated speed) straight from the cloud. Per-SN call — never polled.
+  app.get('/routers/:id/ports', viewGuard, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const router = await prisma.ruijieRouter.findUnique({
+      where: { id },
+      include: { account: true },
+    });
+    if (!router) throw notFound('Ruijie router not found');
+    const client = ruijieClientForAccount(router.account);
+    try {
+      return await client.getPorts(router.cloudSerial);
+    } catch (e) {
+      throw badGateway(`Ruijie: ${(e as Error).message}`);
+    } finally {
+      await client.close().catch(() => undefined);
+    }
+  });
+
   // ---- accounts (super_admin) -----------------------------------------------
 
   app.get('/accounts', manageGuard, async () => {

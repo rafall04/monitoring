@@ -1,3 +1,4 @@
+import type { RuijiePortDTO } from '@noc/shared';
 import type {
   RuijieClient,
   RuijieClientStation,
@@ -14,6 +15,7 @@ const AUTH_PATH = '/service/api/oauth20/client/access_token';
 const TREE_PATH = '/service/api/group/single/tree';
 const DEVICES_PATH = '/service/api/maint/devices';
 const CLIENTS_PATH = '/service/api/open/v1/dev/user/current-user';
+const PORTS_PATH = '/service/api/maint/device/port';
 
 export class RuijieApiError extends Error {
   constructor(
@@ -24,6 +26,13 @@ export class RuijieApiError extends Error {
     this.name = 'RuijieApiError';
   }
 }
+
+// Module-level token cache keyed by appId. Clients are constructed fresh per
+// request (routes) and per poll tick (worker), so an instance-only cache would
+// pay an auth POST — a quota-counted call — before every real call. Sharing the
+// token here halves upstream volume; the transparent re-auth in get() clears a
+// stale entry and retries, so expiry needs no TTL bookkeeping.
+const tokenCache = new Map<string, string>();
 
 /**
  * Ruijie Cloud OpenAPI client. Read-only. Auth is app_id + app_secret → a
@@ -63,11 +72,12 @@ export class RuijieCloudClient implements RuijieClient {
       throw new RuijieApiError(res?.code ?? -1, res?.msg ?? 'Ruijie auth failed (no token returned)');
     }
     this.token = token;
+    tokenCache.set(this.cfg.appId ?? '', token);
     return token;
   }
 
   private async ensureToken(): Promise<string> {
-    return this.token ?? (await this.authenticate());
+    return this.token ?? tokenCache.get(this.cfg.appId ?? '') ?? (await this.authenticate());
   }
 
   // ---- HTTP ----------------------------------------------------------------
@@ -99,6 +109,7 @@ export class RuijieCloudClient implements RuijieClient {
     let json = await call();
     if (isAuthError(json)) {
       this.token = null;
+      tokenCache.delete(this.cfg.appId ?? ''); // stale shared token — force re-auth
       json = await call();
     }
     if (json?.code !== undefined && json.code !== 0) {
@@ -147,6 +158,14 @@ export class RuijieCloudClient implements RuijieClient {
     }
     return out;
   }
+
+  async getPorts(serial: string): Promise<RuijiePortDTO[]> {
+    const json = await this.get(PORTS_PATH, { sn: serial });
+    const list: RawPort[] = json?.port ?? [];
+    return list
+      .map(mapPort)
+      .sort((a, b) => a.port - b.port);
+  }
 }
 
 // ---- raw response shapes + mappers ----------------------------------------
@@ -166,6 +185,17 @@ interface RawDevice {
   mac?: string;
   softwareVersion?: string;
   lastOnline?: number;
+}
+
+interface RawPort {
+  name?: string;
+  status?: string; // "Up" | "Down"
+  port?: number;
+  order?: number;
+  panelOrder?: string;
+  enable?: string; // "true" | "false" (switches only; APs omit it)
+  speed?: string; // "1000M" | "100M" | "Unknown" (omitted when down on APs)
+  mediumType?: string; // "Copper" | "Fiber" (switches only)
 }
 
 interface RawStation {
@@ -225,6 +255,18 @@ function mapDevice(d: RawDevice): RuijieDevice {
     mac: d.mac ?? null,
     firmware: d.softwareVersion ?? null,
     lastOnline: d.lastOnline ?? null,
+  };
+}
+
+function mapPort(p: RawPort, i: number): RuijiePortDTO {
+  const speed = (p.speed ?? '').trim();
+  return {
+    name: p.name || `Port ${p.port ?? i + 1}`,
+    port: p.port ?? p.order ?? i + 1,
+    up: (p.status ?? '').toLowerCase() === 'up',
+    speed: speed && speed.toLowerCase() !== 'unknown' ? speed : null,
+    medium: p.mediumType ?? null,
+    enabled: p.enable !== 'false', // APs omit `enable` → treat as enabled
   };
 }
 

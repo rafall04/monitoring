@@ -1,8 +1,11 @@
 // Ruijie (Reyee) Cloud OpenAPI integration. VALIDATED LIVE 2026-06-23 against a
 // real account (region cloud-as). Deliberately separate from MikrotikClient —
-// Reyee has no Netwatch/hotspot. The NOC needs two things:
+// Reyee has no Netwatch/hotspot. The NOC needs three things:
 //   1. device status + per-router connected-client COUNT  → one aggregated call
 //   2. the per-room client station LIST (MAC/IP/…)         → on-demand drill-down
+//   3. physical LAN/uplink PORT status (up/down + speed)   → on-demand drill-down
+
+import type { RuijiePortDTO } from '@noc/shared';
 
 /** One Reyee device (router/AP) from the Cloud /maint/devices call. */
 export interface RuijieDevice {
@@ -54,6 +57,12 @@ export interface RuijieClient {
    * this for ON-DEMAND drill-down only, never steady polling.
    */
   getClients(groupId: number | string): Promise<RuijieClientStation[]>;
+  /**
+   * Physical LAN/uplink port status for ONE device (by serial): link up/down +
+   * negotiated speed. VALIDATED LIVE 2026-07-01 on EW1300G (LAN1/2/3-IPTV) and
+   * ES208GC switches (Port 1..8). Per-SN call — on-demand drill-down only.
+   */
+  getPorts(serial: string): Promise<RuijiePortDTO[]>;
   close(): Promise<void>;
 }
 
