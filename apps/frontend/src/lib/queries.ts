@@ -2,6 +2,7 @@
 
 import {
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   type QueryClient,
@@ -323,8 +324,33 @@ export function useRuijieRouterPorts(routerId: string | null) {
     queryKey: qk.ruijiePorts(routerId ?? ''),
     queryFn: () => api.get<RuijiePortDTO[]>(`/ruijie/routers/${routerId}/ports`),
     enabled: Boolean(routerId),
-    staleTime: 30_000,
+    // Must match useRuijieFleetPorts: the row chip already fetched this key, so
+    // a shorter staleTime here would re-hit the quota on every row expand.
+    staleTime: 300_000,
     retry: false,
+  });
+}
+/**
+ * Uplink chips for a project page: one port query per ONLINE router in the
+ * list. Same quota discipline as the panel (no interval, no retry) plus a 5-min
+ * staleTime so revisits are free; the cache key is shared with the drill-down
+ * PortPanel, so a chip that already loaded makes expanding the row instant.
+ */
+export function useRuijieFleetPorts(routerIds: string[]) {
+  return useQueries({
+    queries: routerIds.map((id) => ({
+      queryKey: qk.ruijiePorts(id),
+      queryFn: () => api.get<RuijiePortDTO[]>(`/ruijie/routers/${id}/ports`),
+      staleTime: 300_000,
+      retry: false,
+    })),
+    combine: (results) => {
+      const map: Record<string, { ports: RuijiePortDTO[] | undefined; loading: boolean }> = {};
+      routerIds.forEach((id, i) => {
+        map[id] = { ports: results[i]?.data, loading: results[i]?.isLoading ?? false };
+      });
+      return map;
+    },
   });
 }
 export function useCreateRuijieAccount() {

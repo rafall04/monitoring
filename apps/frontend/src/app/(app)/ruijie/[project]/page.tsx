@@ -4,7 +4,12 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import type { RuijiePortDTO, RuijieRouterPublic } from '@noc/shared';
-import { useRuijieRouterClients, useRuijieRouterPorts, useRuijieRouters } from '@/lib/queries';
+import {
+  useRuijieFleetPorts,
+  useRuijieRouterClients,
+  useRuijieRouterPorts,
+  useRuijieRouters,
+} from '@/lib/queries';
 import { Card, EmptyState, ErrorState, Loading, Page, PageBody, PageHeader } from '@/components/ui';
 
 // Per-project detail: the access points of one Ruijie project (groupName) with
@@ -24,6 +29,9 @@ export default function RuijieProjectPage() {
   const projectName = list[0]?.groupName ?? safeDecode(raw);
   const clients = list.reduce((n, r) => n + r.clientCount, 0);
   const online = list.filter((r) => r.online).length;
+  // Uplink chip data: one cached per-SN call per online device on this page —
+  // bounded by the project's size and shared with the drill-down panel's cache.
+  const portMap = useRuijieFleetPorts(list.filter((r) => r.online).map((r) => r.id));
 
   return (
     <Page>
@@ -63,6 +71,8 @@ export default function RuijieProjectPage() {
                 <RouterRow
                   key={r.id}
                   r={r}
+                  ports={portMap[r.id]?.ports}
+                  portsLoading={portMap[r.id]?.loading ?? false}
                   open={selected === r.id}
                   onToggle={() => setSelected((cur) => (cur === r.id ? null : r.id))}
                 />
@@ -75,7 +85,19 @@ export default function RuijieProjectPage() {
   );
 }
 
-function RouterRow({ r, open, onToggle }: { r: RuijieRouterPublic; open: boolean; onToggle: () => void }) {
+function RouterRow({
+  r,
+  ports,
+  portsLoading,
+  open,
+  onToggle,
+}: {
+  r: RuijieRouterPublic;
+  ports: RuijiePortDTO[] | undefined;
+  portsLoading: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
   return (
     <div>
       <button
@@ -93,6 +115,7 @@ function RouterRow({ r, open, onToggle }: { r: RuijieRouterPublic; open: boolean
             {r.mac ? ` · ${r.mac}` : ''}
           </span>
         </span>
+        {r.online && <UplinkChip ports={ports} loading={portsLoading} />}
         <span className="shrink-0 text-right">
           <span className="text-lg font-semibold text-slate-100">{r.clientCount}</span>
           <span className="block text-[10px] text-slate-500">
@@ -123,6 +146,62 @@ function speedTone(speed: string | null): string {
   if (mbit >= 100) return 'text-amber-600 dark:text-amber-400';
   if (mbit > 0) return 'text-rose-600 dark:text-rose-400';
   return 'text-slate-400';
+}
+
+function toMbit(speed: string | null): number {
+  const m = /^([\d.]+)\s*(M|G)$/i.exec((speed ?? '').trim());
+  if (!m) return 0;
+  return Number(m[1]) * (m[2]!.toUpperCase() === 'G' ? 1000 : 1);
+}
+/** "1000M" → "1G" etc. — compact form for the row chip. */
+function speedShort(speed: string | null): string {
+  const mbit = toMbit(speed);
+  if (mbit >= 1000) return `${Math.round((mbit / 1000) * 10) / 10}G`;
+  if (mbit > 0) return `${mbit}M`;
+  return speed ?? '';
+}
+
+/**
+ * Compact wired-uplink summary on the row itself (no drill-down needed):
+ * fastest up-port speed, plus up/total when the device is a multi-port switch.
+ * All ports down is rendered neutrally — an AP uplinked via its WAN port
+ * legitimately has every listed LAN port idle.
+ */
+function UplinkChip({ ports, loading }: { ports: RuijiePortDTO[] | undefined; loading: boolean }) {
+  if (loading) {
+    return <span className="h-5 w-14 shrink-0 animate-pulse rounded-full bg-slate-200 dark:bg-slate-500/20" />;
+  }
+  if (!ports || ports.length === 0) return null;
+  const ups = ports.filter((p) => p.up);
+  const top = ups.reduce<RuijiePortDTO | null>(
+    (best, p) => (toMbit(p.speed) > toMbit(best?.speed ?? null) ? p : best),
+    null,
+  );
+  const title = ports
+    .map((p) => `${p.name} ${p.up ? `↑${p.speed ?? 'Up'}` : p.enabled ? 'down' : 'off'}`)
+    .join(' · ');
+  if (ups.length === 0) {
+    return (
+      <span
+        title={title}
+        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium text-slate-500"
+      >
+        <JackIcon className="h-3 w-3 text-slate-400 dark:text-slate-600" /> LAN —
+      </span>
+    );
+  }
+  return (
+    <span
+      title={title}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold"
+    >
+      <JackIcon className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+      <span className={speedTone(top?.speed ?? null)}>↑{speedShort(top?.speed ?? null) || 'Up'}</span>
+      {ports.length > 3 && (
+        <span className="font-medium text-slate-500">{ups.length}/{ports.length}</span>
+      )}
+    </span>
+  );
 }
 
 /** A tiny RJ45 jack pictogram (outline follows the port's link state color). */
