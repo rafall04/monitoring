@@ -51,6 +51,18 @@ export default function RuijiePage() {
             ? `${groups.length} project · ${online}/${list.length} AP online · ${totalClients} client terkoneksi`
             : 'Status & jumlah client per project'
         }
+        actions={
+          <Link
+            href="/ruijie/switches"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border bg-surface/60 px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent/60 hover:text-slate-100"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="2" y="9" width="20" height="6" rx="1.5" />
+              <path d="M6 15v2M10 15v2M14 15v2M18 15v2" />
+            </svg>
+            Switch
+          </Link>
+        }
       />
       <PageBody width="wide">
         <PortHealthBoard />
