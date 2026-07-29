@@ -162,6 +162,7 @@ export default function OverviewPage() {
     groups.set(key, [...(groups.get(key) ?? []), s]);
   }
   const mixedMapModes = new Set(list.map((s) => s.mapMode)).size > 1;
+  const namedRegions = new Set(list.map((s) => s.region?.trim()).filter(Boolean)).size;
 
   const agg = list.reduce(
     (a, s) => {
@@ -225,7 +226,16 @@ export default function OverviewPage() {
               tone={agg.down > 0 ? 'red' : 'slate'}
             />
             <MetricCard label="Tidak diketahui" value={agg.unknown} icon={<Ic d={ICON.unknown} />} tone="amber" />
-            <MetricCard label="Pabrik" value={list.length} hint={`${groups.size} kabupaten`} icon={<Ic d={ICON.factory} />} tone="violet" />
+            {/* Only claim a kabupaten count when regions are actually set —
+                otherwise every site falls in the "Tanpa kabupaten" bucket and
+                this read "1 kabupaten" for a fleet that has none. */}
+            <MetricCard
+              label="Pabrik"
+              value={list.length}
+              hint={namedRegions > 0 ? `${namedRegions} kabupaten` : undefined}
+              icon={<Ic d={ICON.factory} />}
+              tone="violet"
+            />
             {can('ruijie:view') && (
               <MetricCard
                 label="Client WiFi"

@@ -29,6 +29,7 @@ import MarkerPanel from '@/components/MarkerPanel';
 import WifiView from '@/components/WifiView';
 import {
   Button,
+  buttonClass,
   ErrorState,
   Legend,
   Page,
@@ -132,6 +133,32 @@ export default function SiteMapPage() {
   const wifiGroups = [...new Set(wifiRouters.map((r) => r.groupName))];
   const wifiHref = wifiGroups.length === 1 ? `/ruijie/${encodeURIComponent(wifiGroups[0]!)}` : '/ruijie';
 
+  // Why the Denah tab cannot draw anything useful, if that is the case. A
+  // floorplan site needs BOTH an uploaded image and devices carrying map
+  // coordinates; a geo site needs lat/lng. Missing either makes Leaflet pile
+  // every marker on one point, which reads as "one device" rather than "not
+  // set up yet".
+  const isFloorplan = site.data.mapMode === 'floorplan';
+  const placed = (devices.data ?? []).some((d) =>
+    isFloorplan ? d.mapX != null && d.mapY != null : d.geoLat != null && d.geoLng != null,
+  );
+  const denahBlocker =
+    isFloorplan && !site.data.floorplanImageUrl
+      ? {
+          title: 'Denah belum diunggah',
+          body: `Site ini memakai mode denah, tetapi gambar denahnya belum ada. Semua ${devices.data?.length ?? 0} device sudah punya Area/Line, jadi gunakan tab "Line / Area" sementara ini.`,
+          href: canManageStructure ? '/admin/sites' : null,
+          cta: 'Unggah denah di Sites & Routers',
+        }
+      : !placed && (devices.data?.length ?? 0) > 0
+        ? {
+            title: 'Belum ada device di denah',
+            body: 'Denah sudah ada, tetapi belum ada device yang ditempatkan di atasnya. Tekan "Edit", lalu klik ruang kosong untuk menambah atau seret marker untuk memposisikan.',
+            href: null,
+            cta: '',
+          }
+        : null;
+
   return (
     <Page>
       {/* Row 1 — identity + the edit affordances only. Everything else moved to
@@ -230,6 +257,22 @@ export default function SiteMapPage() {
                 setSelected(d);
               }}
             />
+          ) : denahBlocker ? (
+            // Without a floorplan image (or with nothing placed on it) Leaflet
+            // still mounts and drops EVERY marker on the same coordinate — in
+            // production that is all 70 of SF 1's devices stacked on one pixel
+            // over a blank canvas. Say what is missing instead of rendering it.
+            <div className="flex h-full items-center justify-center p-6">
+              <div className="max-w-md text-center">
+                <p className="text-base font-medium text-slate-200">{denahBlocker.title}</p>
+                <p className="mt-1.5 text-sm text-slate-400">{denahBlocker.body}</p>
+                {denahBlocker.href && (
+                  <Link href={denahBlocker.href} className={`${buttonClass('secondary')} mt-4`}>
+                    {denahBlocker.cta}
+                  </Link>
+                )}
+              </div>
+            </div>
           ) : (
             <>
               <MapView
