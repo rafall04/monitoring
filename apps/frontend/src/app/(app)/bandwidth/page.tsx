@@ -26,6 +26,7 @@ import {
   SectionHeader,
   Select,
   TextInput,
+  Toolbar,
 } from '@/components/ui';
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -209,17 +210,27 @@ export default function BandwidthPage() {
       <PageHeader
         title="Bandwidth / QoS"
         subtitle="Batasi kecepatan per device (simple queue + DHCP rate-limit) & lihat pemakai terbesar."
-        actions={
-          <Select value={routerId ?? ''} onChange={(e) => setRid(e.target.value)} className="w-full sm:w-64">
-            {routers.data?.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name} ({r.host})
-              </option>
-            ))}
-          </Select>
-        }
       />
       <PageBody>
+        <Toolbar
+          left={
+            <>
+              <span className="text-xs text-slate-400">Router</span>
+              <Select
+                value={routerId ?? ''}
+                onChange={(e) => setRid(e.target.value)}
+                className="w-full sm:w-64"
+              >
+                {routers.data?.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name} ({r.host})
+                  </option>
+                ))}
+              </Select>
+            </>
+          }
+        />
+
         {!canManage && (
           <Card className="p-3 text-xs text-amber-400">Read-only — perlu operator/admin untuk mengubah.</Card>
         )}

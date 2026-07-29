@@ -4,6 +4,14 @@ import type { RuijiePortDTO } from '@noc/shared';
 // uplink chip, and the dedicated Switch board. Keep presentation here; data
 // fetching stays in the pages.
 
+/**
+ * The uplink chip's shared shell. Deliberately NOT a <Badge>: it is one step
+ * smaller (text-micro) because it sits inline inside dense AP/switch rows, and
+ * the "up" variant leaves its foreground unset so speedTone() can colour the
+ * speed per link. Callers add only the background + weight.
+ */
+const UPLINK_CHIP = 'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-micro';
+
 /** True when a Ruijie device model is a managed switch (vs an AP/router). */
 export function isRuijieSwitch(model: string | null): boolean {
   const m = (model ?? '').toUpperCase();
@@ -117,19 +125,13 @@ export function UplinkChip({ ports, loading }: { ports: RuijiePortDTO[] | undefi
     .join(' · ');
   if (ups.length === 0) {
     return (
-      <span
-        title={title}
-        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-500/10 px-2 py-0.5 text-micro font-medium text-slate-500"
-      >
+      <span title={title} className={`${UPLINK_CHIP} bg-slate-500/10 font-medium text-slate-500`}>
         <JackIcon className="h-3 w-3 text-slate-400 dark:text-slate-600" /> LAN —
       </span>
     );
   }
   return (
-    <span
-      title={title}
-      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-micro font-semibold"
-    >
+    <span title={title} className={`${UPLINK_CHIP} bg-emerald-500/10 font-semibold`}>
       <JackIcon className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
       <span className={speedTone(top?.speed ?? null)}>↑{speedShort(top?.speed ?? null) || 'Up'}</span>
       {ports.length > 3 && <span className="font-medium text-slate-500">{ups.length}/{ports.length}</span>}
