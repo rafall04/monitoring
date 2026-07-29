@@ -119,7 +119,7 @@ function RouterRow({
         {r.online && <UplinkChip ports={ports} loading={portsLoading} />}
         <span className="shrink-0 text-right">
           <span className="text-lg font-semibold text-slate-100">{r.clientCount}</span>
-          <span className="block text-[10px] text-slate-500">
+          <span className="block text-micro text-slate-500">
             client{r.activeClients !== r.clientCount ? ` · ${r.activeClients} aktif` : ''}
           </span>
         </span>
@@ -149,12 +149,12 @@ function PortPanel({ routerId, online }: { routerId: string; online: boolean }) 
   return (
     <div className="mb-3 rounded-lg border border-surface-border bg-surface/30 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        <span className="text-2xs font-semibold uppercase tracking-wide text-slate-400">
           Port LAN (kabel)
         </span>
         <span className="flex items-center gap-2">
           {ports.length > 0 && (
-            <span className={`text-[10px] font-medium ${up > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>
+            <span className={`text-micro font-medium ${up > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>
               {up}/{ports.length} link up
             </span>
           )}
@@ -162,7 +162,7 @@ function PortPanel({ routerId, online }: { routerId: string; online: boolean }) 
             <button
               onClick={() => void q.refetch()}
               disabled={q.isFetching}
-              className="text-[10px] text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline disabled:opacity-50 dark:hover:text-slate-300"
+              className="text-micro text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline disabled:opacity-50 dark:hover:text-slate-300"
             >
               {q.isFetching ? 'Memuat…' : 'Segarkan'}
             </button>
@@ -197,7 +197,7 @@ function PortPanel({ routerId, online }: { routerId: string; online: boolean }) 
             ))}
           </div>
           {q.isError && (
-            <p className="mt-2 text-[10px] text-amber-600 dark:text-amber-400">
+            <p className="mt-2 text-micro text-amber-600 dark:text-amber-400">
               Gagal menyegarkan — menampilkan data terakhir.
             </p>
           )}
@@ -221,13 +221,13 @@ function ClientDrill({ routerId, online, count }: { routerId: string; online: bo
   return (
     <div className="px-3 pb-3 sm:px-4">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        <span className="text-2xs font-semibold uppercase tracking-wide text-slate-400">
           Client terkoneksi
         </span>
         <button
           onClick={() => void q.refetch()}
           disabled={q.isFetching}
-          className="text-[10px] text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline disabled:opacity-50 dark:hover:text-slate-300"
+          className="text-micro text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline disabled:opacity-50 dark:hover:text-slate-300"
         >
           {q.isFetching ? 'Memuat…' : 'Segarkan'}
         </button>
@@ -247,22 +247,22 @@ function ClientDrill({ routerId, online, count }: { routerId: string; online: bo
               <li key={s.mac} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
                 <span className="text-sm font-medium text-slate-100">{s.hostname ?? s.os ?? '?'}</span>
                 {s.band && (
-                  <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] text-slate-400">
+                  <span className="rounded bg-surface px-1.5 py-0.5 text-micro text-slate-400">
                     {s.band}
                     {s.rssi != null ? ` · ${s.rssi}dBm` : ''}
                   </span>
                 )}
                 {s.ssid && <span className="truncate text-xs text-slate-500">{s.ssid}</span>}
-                {s.apName && <span className="text-[10px] text-slate-500">via {s.apName}</span>}
+                {s.apName && <span className="text-micro text-slate-500">via {s.apName}</span>}
                 <span className="ml-auto text-right text-xs leading-tight text-slate-400">
                   <span className="block">{s.ip ?? '—'}</span>
-                  <span className="block font-mono text-[10px] text-slate-500">{s.mac}</span>
+                  <span className="block font-mono text-micro text-slate-500">{s.mac}</span>
                 </span>
               </li>
             ))}
           </ul>
           {q.isError && (
-            <p className="mt-2 text-[10px] text-amber-600 dark:text-amber-400">
+            <p className="mt-2 text-micro text-amber-600 dark:text-amber-400">
               Gagal menyegarkan — menampilkan data terakhir.
             </p>
           )}

@@ -169,7 +169,7 @@ export default function AdminSitesPage() {
       {/* Sites */}
       <Card className="p-4">
         <h2 className="mb-3 font-semibold text-slate-200">Sites</h2>
-        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           <Field label="Company">
             <Select value={siteForm.companyId} onChange={(e) => setSiteForm({ ...siteForm, companyId: e.target.value })}>
               <option value="">—</option>
@@ -199,7 +199,7 @@ export default function AdminSitesPage() {
       {/* Routers */}
       <Card className="p-4">
         <h2 className="mb-3 font-semibold text-slate-200">Routers (MikroTik)</h2>
-        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           <Field label="Site">
             <Select value={routerForm.siteId} onChange={(e) => setRouterForm({ ...routerForm, siteId: e.target.value })}>
               <option value="">—</option>
@@ -364,7 +364,7 @@ function SiteRow({ site, onDelete, onUploaded }: { site: Site; onDelete: () => v
           <Button variant="secondary" onClick={() => testTg.mutate()} disabled={testTg.isPending}>Kirim tes</Button>
         </div>
         {tgMsg && <div className="mt-1 text-xs text-slate-400">{tgMsg}</div>}
-        <p className="mt-1 text-[11px] text-slate-500">
+        <p className="mt-1 text-2xs text-slate-500">
           server = NOC yang kirim (token aman di server) · router = script Netwatch yang kirim (perlu Install/Sync di router) · hanya device is_critical.
         </p>
       </div>

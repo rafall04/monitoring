@@ -65,19 +65,20 @@ but the pages that bypass `<Badge>` re-broke it. Worst: `alerts` (10),
 
 ### 2.3 `PageHeader actions` is overloaded
 
-`actions` is a flex-wrap bar sized for a tab strip or one button. Actual payloads:
+`actions` is a flex-wrap bar sized for a tab strip or one button. Payloads by
+inspection:
 
-| Page | actions block (lines) | Contents |
+| Page | Contents | Verdict |
 |---|---|---|
-| `admin/users` | **103** | search + 2 selects + button + inline modal |
-| `sites/[siteId]` | **55** | 4 badges + % pill + WiFi link + 3 tabs + Legend + 2 buttons |
-| `hotspot` | 47 | |
-| `admin/audit` | 28 | |
-| `access-control` | 13 | |
+| `sites/[siteId]` | 4 badges + % pill + WiFi link + 3 tabs + Legend + 2 buttons | **overloaded — up to 11 controls** |
+| `admin/audit` | entity + action filter `<Select>`s | filters belong in the body |
+| `access-control` | router `<Select>` | filter belongs in the body |
+| `admin/users` | one `<Button>` | fine |
+| `hotspot` | one `<Tabs>` | fine |
 
-On `sites/[siteId]` — the primary operator screen — the header right side holds
-**up to 11 controls**. With a long site name this wraps to 2–3 rows, and the
-sticky header eats vertical space that the floorplan needs.
+`sites/[siteId]` is the primary operator screen: with a long site name its
+header wraps to 2–3 rows, and the sticky header eats vertical space the
+floorplan needs.
 
 ### 2.4 Three competing idioms for the same thing
 

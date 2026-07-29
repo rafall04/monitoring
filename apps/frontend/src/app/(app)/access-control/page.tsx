@@ -29,6 +29,7 @@ import {
   SectionHeader,
   Select,
   TextInput,
+  Toolbar,
 } from '@/components/ui';
 
 function Ic({ d }: { d: string }) {
@@ -129,21 +130,27 @@ export default function AccessControlPage() {
       <PageHeader
         title="Access Control"
         subtitle="Blokir website/aplikasi & internet per device — langsung ke MikroTik."
-        actions={
-          <Select
-            value={routerId ?? ''}
-            onChange={(e) => setRid(e.target.value)}
-            className="w-full sm:w-64"
-          >
-            {routers.data?.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name} ({r.host})
-              </option>
-            ))}
-          </Select>
-        }
       />
       <PageBody>
+        <Toolbar
+          left={
+            <>
+              <span className="text-xs text-slate-400">Router</span>
+              <Select
+                value={routerId ?? ''}
+                onChange={(e) => setRid(e.target.value)}
+                className="w-full sm:w-64"
+              >
+                {routers.data?.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name} ({r.host})
+                  </option>
+                ))}
+              </Select>
+            </>
+          }
+        />
+
         {!canManage && (
           <Card className="p-3 text-xs text-amber-400">
             Anda hanya bisa melihat (read-only). Perlu peran operator/admin untuk mengubah.
@@ -165,7 +172,7 @@ export default function AccessControlPage() {
                 </p>
                 {[...new Set(BLOCK_SERVICES.map((s) => s.category))].map((cat) => (
                   <div key={cat} className="mb-3">
-                    <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <div className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-slate-500">
                       {cat}
                     </div>
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -210,7 +217,7 @@ export default function AccessControlPage() {
                         </IconTile>
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium text-slate-200">{svc.label}</div>
-                          <div className="truncate text-[11px] text-slate-500">
+                          <div className="truncate text-2xs text-slate-500">
                             {svc.domains.length} domain
                           </div>
                         </div>
@@ -292,7 +299,7 @@ function BlockRow({
       </IconTile>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-slate-200">{blockLabel(b)}</div>
-        <div className="truncate text-[11px] text-slate-500">
+        <div className="truncate text-2xs text-slate-500">
           {b.method} · {b.action}
         </div>
       </div>
@@ -323,7 +330,7 @@ function PerGroupIntents({
   if (perGroup.length === 0) return null;
   return (
     <div className="mt-3 border-t border-surface-border pt-3">
-      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Blok per grup</div>
+      <div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-slate-500">Blok per grup</div>
       <div className="space-y-1.5">
         {perGroup.map((i) => (
           <div key={i.id} className="flex items-center gap-2 text-sm">
@@ -422,7 +429,7 @@ function DeviceBlock({ routerId, canManage }: { routerId: string | null; canMana
               <div key={e.id} className="flex items-center gap-2 py-2 text-sm">
                 <span className="font-mono text-slate-200">{e.address}</span>
                 {e.dynamic && <Badge tone="slate">dinamis</Badge>}
-                {e.comment && <span className="truncate text-[11px] text-slate-500">{e.comment}</span>}
+                {e.comment && <span className="truncate text-2xs text-slate-500">{e.comment}</span>}
                 {canManage && !e.dynamic && (
                   <button
                     onClick={() => onRemove(e.id, e.address)}

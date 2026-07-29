@@ -24,17 +24,24 @@ const variants: Record<Variant, string> = {
     'bg-transparent text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800',
 };
 
+const BUTTON_BASE =
+  'inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-1.5 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed';
+
+/**
+ * Button classes for elements that cannot be a <button> — chiefly next/link
+ * <Link>s that should look like one. Without this, links styled "like a button"
+ * drifted into their own borders and paddings.
+ */
+export function buttonClass(variant: Variant = 'primary', className = ''): string {
+  return `${BUTTON_BASE} ${variants[variant]} ${className}`;
+}
+
 export function Button({
   variant = 'primary',
   className = '',
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
-  return (
-    <button
-      className={`inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-1.5 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${className}`}
-      {...props}
-    />
-  );
+  return <button className={buttonClass(variant, className)} {...props} />;
 }
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -323,7 +330,7 @@ export function MetricCard({
       <div className="min-w-0">
         <div className="truncate text-xs text-slate-400">{label}</div>
         <div className="text-xl font-semibold leading-tight text-slate-100">{value}</div>
-        {hint && <div className="truncate text-[11px] text-slate-500">{hint}</div>}
+        {hint && <div className="truncate text-2xs text-slate-500">{hint}</div>}
       </div>
     </div>
   );
@@ -474,6 +481,25 @@ export function StatusCounts({
 
 // --- DataTable --------------------------------------------------------------
 
+/**
+ * The table's visual contract, as raw class names.
+ *
+ * <DataTable> below is built from these, and screens whose tables are too
+ * entangled to drive from a column array (hotspot's inline add/edit rows) apply
+ * them directly. Either way there is ONE definition of a table's padding,
+ * header treatment and row hover — which is the whole point, since the old code
+ * had 7 different <th> paddings across 9 tables.
+ */
+export const TABLE = {
+  table: 'r-table w-full text-sm',
+  head: 'border-b border-surface-border text-left text-2xs font-semibold uppercase tracking-wide text-slate-500',
+  th: 'px-3 py-2 font-semibold',
+  thDense: 'px-2.5 py-1.5 font-semibold',
+  row: 'border-t border-surface-border transition-colors hover:bg-surface/50',
+  td: 'px-3 py-2',
+  tdDense: 'px-2.5 py-1.5',
+} as const;
+
 export type Column<T> = {
   key: string;
   header: ReactNode;
@@ -548,17 +574,18 @@ export function DataTable<T>({
   if (rows.length === 0)
     return <Card className={`p-6 text-center text-sm text-slate-400 ${className}`}>{empty}</Card>;
 
-  const pad = dense ? 'px-2.5 py-1.5' : 'px-3 py-2';
+  const th = dense ? TABLE.thDense : TABLE.th;
+  const pad = dense ? TABLE.tdDense : TABLE.td;
 
   return (
     <Card className={`overflow-x-auto ${className}`}>
-      <table className="r-table w-full text-sm">
+      <table className={TABLE.table}>
         <thead>
-          <tr className="border-b border-surface-border text-left text-2xs font-semibold uppercase tracking-wide text-slate-500">
+          <tr className={TABLE.head}>
             {columns.map((c) => (
               <th
                 key={c.key}
-                className={`${pad} font-semibold ${c.align === 'right' ? 'text-right' : ''} ${
+                className={`${th} ${c.align === 'right' ? 'text-right' : ''} ${
                   c.hideBelow ? HIDE_BELOW[c.hideBelow] : ''
                 }`}
               >
@@ -573,7 +600,7 @@ export function DataTable<T>({
             const expanded = expandedKey === key && renderExpanded;
             return (
               <Fragment key={key}>
-                <tr className="border-t border-surface-border transition-colors hover:bg-surface/50">
+                <tr className={TABLE.row}>
                   {columns.map((c) => {
                     const label = c.label === null ? undefined : c.label ?? (typeof c.header === 'string' ? c.header : undefined);
                     return (

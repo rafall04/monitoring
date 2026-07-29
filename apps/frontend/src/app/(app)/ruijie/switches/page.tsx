@@ -6,6 +6,7 @@ import type { RuijiePortDTO, RuijieRouterPublic } from '@noc/shared';
 import { useRuijieFleetPorts, useRuijiePortHealth, useRuijieRouters } from '@/lib/queries';
 import { isRuijieSwitch, PortTile } from '@/components/ruijie-ports';
 import {
+  Badge,
   Card,
   EmptyState,
   ErrorState,
@@ -148,22 +149,18 @@ function SwitchCard({
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           {degraded.size > 0 ? (
-            <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
-              {degraded.size} port lambat
-            </span>
+            <Badge tone="red">{degraded.size} port lambat</Badge>
           ) : flaps > 0 ? (
-            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-              flapping {flaps}×
-            </span>
+            <Badge tone="amber">flapping {flaps}×</Badge>
           ) : (
             ports &&
             ports.length > 0 && (
-              <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">{up}/{ports.length} up</span>
+              <span className="text-micro font-medium text-emerald-600 dark:text-emerald-400">{up}/{ports.length} up</span>
             )
           )}
           <Link
             href={`/ruijie/${encodeURIComponent(s.groupName)}`}
-            className="text-[10px] text-slate-500 hover:text-slate-300"
+            className="text-micro text-slate-500 hover:text-slate-300"
           >
             detail →
           </Link>

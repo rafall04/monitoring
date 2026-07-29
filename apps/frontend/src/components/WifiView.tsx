@@ -93,12 +93,12 @@ export default function WifiView({ devices, wifiLinks, updatedAt, onSelect }: Wi
                     {g.apName}
                   </span>
                   {g.ssids.size > 0 && (
-                    <span className="block truncate text-[10px] text-slate-500">
+                    <span className="block truncate text-micro text-slate-500">
                       SSID {[...g.ssids].join(', ')}
                     </span>
                   )}
                 </span>
-                <span className="shrink-0 rounded-full border border-surface-border px-2 py-0.5 text-[11px] text-slate-300">
+                <span className="shrink-0 rounded-full border border-surface-border px-2 py-0.5 text-2xs text-slate-300">
                   {g.rows.length}
                 </span>
                 <SignalBars rssi={bestRssi(g)} />
@@ -117,7 +117,7 @@ export default function WifiView({ devices, wifiLinks, updatedAt, onSelect }: Wi
         <section className="mt-4 rounded-lg border border-dashed border-surface-border bg-surface-raised/30">
           <header className="flex items-center gap-2 border-b border-surface-border px-3 py-2">
             <span className="text-sm font-semibold text-slate-400">Tidak terhubung WiFi</span>
-            <span className="rounded-full border border-surface-border px-2 py-0.5 text-[11px] text-slate-500">
+            <span className="rounded-full border border-surface-border px-2 py-0.5 text-2xs text-slate-500">
               {offline.length}
             </span>
             <span className="ml-auto text-xs text-slate-600">device mati / kabel / di luar jangkauan</span>
@@ -166,12 +166,12 @@ function DeviceRow({
       <span className="shrink-0" style={{ color }} dangerouslySetInnerHTML={{ __html: glyph(device) }} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium text-slate-200">{device.name}</span>
-        <span className="block truncate text-[10px] text-slate-500">
+        <span className="block truncate text-micro text-slate-500">
           {device.ipAddress ?? '—'}
           {link.band ? ` · ${link.band}` : ''}
         </span>
       </span>
-      <span className="shrink-0 text-[10px] tabular-nums text-slate-500">{link.rssi ?? '—'}</span>
+      <span className="shrink-0 text-micro tabular-nums text-slate-500">{link.rssi ?? '—'}</span>
       <SignalBars rssi={link.rssi} />
     </button>
   );

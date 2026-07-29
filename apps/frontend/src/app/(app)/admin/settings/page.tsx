@@ -202,7 +202,7 @@ export default function AdminSettingsPage() {
               </button>
             )}
           </div>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-2xs text-slate-500">
             Logo + nama tampil di sidebar dan halaman login. Jangan lupa Simpan.
           </p>
         </div>
@@ -256,7 +256,7 @@ export default function AdminSettingsPage() {
           <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
             Extra RouterOS script (opsional)
           </span>
-          <p className="mb-2 text-[11px] text-slate-500">
+          <p className="mb-2 text-2xs text-slate-500">
             Dijalankan di MikroTik <em>setelah</em> webhook NOC. Contoh: nyalakan LED, log custom, fetch ke alat lain. Kosongkan untuk tidak ada tambahan.
           </p>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -285,7 +285,7 @@ export default function AdminSettingsPage() {
           <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
             Telegram message templates
           </span>
-          <p className="mb-2 text-[11px] text-slate-500">
+          <p className="mb-2 text-2xs text-slate-500">
             Placeholder yang tersedia:{' '}
             {ALERT_PLACEHOLDERS.map((p) => (
               <code key={p} className="mx-0.5 rounded bg-surface px-1 text-slate-300">
@@ -324,7 +324,7 @@ export default function AdminSettingsPage() {
             <TextInput value={String(form.auditRetentionDays)} onChange={(e) => setForm({ ...form, auditRetentionDays: Number(e.target.value) })} />
           </Field>
         </div>
-        <p className="text-[11px] text-slate-500">
+        <p className="text-2xs text-slate-500">
           Worker harian akan membersihkan data lebih lama dari batas ini.
         </p>
       </Card>

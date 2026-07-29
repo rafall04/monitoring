@@ -54,7 +54,7 @@ function Rollup({ devs }: { devs: Device[] }) {
   const r = rollup(devs);
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold"
       style={{ color: rollColor(r), border: `1px solid ${rollColor(r)}55` }}
       title={`${r.up} up · ${r.down} down · ${r.unknown} unknown · ${r.maint} maintenance`}
     >
@@ -97,7 +97,7 @@ function DeviceChip({
         <span className="shrink-0" style={{ color }} dangerouslySetInnerHTML={{ __html: glyph(device) }} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-xs font-medium text-slate-200">{device.name}</span>
-          <span className="block text-[10px]" style={{ color }}>
+          <span className="block text-micro" style={{ color }}>
             {STATUS_LABELS[s]}
             {device.isCritical ? ' ★' : ''}
           </span>
@@ -108,7 +108,7 @@ function DeviceChip({
           <button
             disabled={isFirst}
             onClick={() => onMove(-1)}
-            className="px-1 text-[10px] text-slate-500 hover:text-slate-200 disabled:opacity-30"
+            className="px-1 text-micro text-slate-500 hover:text-slate-200 disabled:opacity-30"
             title="Move earlier"
           >
             ◀
@@ -116,7 +116,7 @@ function DeviceChip({
           <button
             disabled={isLast}
             onClick={() => onMove(1)}
-            className="px-1 text-[10px] text-slate-500 hover:text-slate-200 disabled:opacity-30"
+            className="px-1 text-micro text-slate-500 hover:text-slate-200 disabled:opacity-30"
             title="Move later"
           >
             ▶
@@ -268,7 +268,7 @@ export default function LineView({
                 name={area.name}
                 className="text-sm font-semibold text-slate-100"
               />
-              <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+              <span className="rounded bg-surface px-1.5 py-0.5 text-micro uppercase tracking-wide text-slate-500">
                 {area.kind}
               </span>
               <Rollup devs={inArea(area.id)} />

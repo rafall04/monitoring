@@ -8,11 +8,13 @@ import {
   Card,
   EmptyState,
   ErrorState,
+  FilterBar,
   Loading,
   Page,
   PageBody,
   PageHeader,
   Select,
+  TABLE,
 } from '@/components/ui';
 
 const PAGE_SIZE = 50;
@@ -56,36 +58,34 @@ export default function AuditPage() {
       <PageHeader
         title="Aktivitas"
         subtitle={data ? `${data.total} entri · jejak aktivitas admin & operator` : 'Jejak audit sistem'}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={entity}
-              onChange={(e) => onFilter(setEntity)(e.target.value)}
-              className="w-36"
-            >
-              <option value="">Semua entity</option>
-              {data?.facets.entities.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </Select>
-            <Select
-              value={action}
-              onChange={(e) => onFilter(setAction)(e.target.value)}
-              className="w-44"
-            >
-              <option value="">Semua aksi</option>
-              {data?.facets.actions.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </Select>
-          </div>
-        }
       />
       <PageBody width="wide">
+        <FilterBar count={data?.total} countLabel="entri">
+          <Select
+            value={entity}
+            onChange={(e) => onFilter(setEntity)(e.target.value)}
+            className="w-full sm:w-36"
+          >
+            <option value="">Semua entity</option>
+            {data?.facets.entities.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={action}
+            onChange={(e) => onFilter(setAction)(e.target.value)}
+            className="w-full sm:w-44"
+          >
+            <option value="">Semua aksi</option>
+            {data?.facets.actions.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
+          </Select>
+        </FilterBar>
         {q.isError ? (
           <ErrorState onRetry={() => void q.refetch()}>Gagal memuat log audit.</ErrorState>
         ) : q.isLoading ? (
@@ -94,15 +94,15 @@ export default function AuditPage() {
           <EmptyState>Tidak ada aktivitas{entity || action ? ' untuk filter ini' : ''}.</EmptyState>
         ) : (
           <Card className="overflow-x-auto p-0">
-            <table className="r-table w-full text-sm">
-              <thead className="text-left text-xs uppercase text-slate-500">
+            <table className={TABLE.table}>
+              <thead className={TABLE.head}>
                 <tr className="border-b border-surface-border">
-                  <th className="px-4 py-2">Waktu</th>
-                  <th className="px-2">Pelaku</th>
-                  <th className="px-2">Aksi</th>
-                  <th className="px-2">Entity</th>
-                  <th className="px-2">IP</th>
-                  <th className="px-2"></th>
+                  <th className={TABLE.thDense}>Waktu</th>
+                  <th className={TABLE.thDense}>Pelaku</th>
+                  <th className={TABLE.thDense}>Aksi</th>
+                  <th className={TABLE.thDense}>Entity</th>
+                  <th className={TABLE.thDense}>IP</th>
+                  <th className={TABLE.thDense}></th>
                 </tr>
               </thead>
               <tbody>
@@ -111,34 +111,34 @@ export default function AuditPage() {
                   return (
                     <Fragment key={a.id}>
                       <tr className="border-t border-surface-border align-top">
-                        <td data-label="Waktu" className="whitespace-nowrap px-4 py-2 text-slate-300">
+                        <td data-label="Waktu" className={`${TABLE.tdDense} whitespace-nowrap text-slate-300`}>
                           {fmt(a.createdAt)}
                         </td>
-                        <td data-label="Pelaku" className="px-2 py-2">
+                        <td data-label="Pelaku" className={TABLE.tdDense}>
                           {a.user ? (
                             <span className="text-slate-100">
                               {a.user.name}{' '}
-                              <span className="text-[10px] text-slate-500">({a.user.role})</span>
+                              <span className="text-micro text-slate-500">({a.user.role})</span>
                             </span>
                           ) : (
                             <span className="text-slate-500">—</span>
                           )}
                         </td>
-                        <td data-label="Aksi" className="px-2 py-2">
+                        <td data-label="Aksi" className={TABLE.tdDense}>
                           <ActionPill action={a.action} />
                         </td>
-                        <td data-label="Entity" className="px-2 py-2 text-slate-300">
+                        <td data-label="Entity" className={`${TABLE.tdDense} text-slate-300`}>
                           {a.entity}
                           {a.entityId && (
-                            <span className="ml-1 font-mono text-[10px] text-slate-500">
+                            <span className="ml-1 font-mono text-micro text-slate-500">
                               {a.entityId.slice(0, 8)}
                             </span>
                           )}
                         </td>
-                        <td data-label="IP" className="px-2 py-2 font-mono text-xs text-slate-500">
+                        <td data-label="IP" className={`${TABLE.tdDense} font-mono text-xs text-slate-500`}>
                           {a.ip ?? '—'}
                         </td>
-                        <td className="px-2 py-2 text-right">
+                        <td className={`${TABLE.tdDense} text-right`}>
                           {hasDetail && (
                             <button
                               className="text-accent hover:opacity-80"
@@ -209,8 +209,8 @@ function ActionPill({ action }: { action: string }) {
 function JsonBlock({ label, value }: { label: string; value: unknown }) {
   return (
     <div className="min-w-0">
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-      <pre className="overflow-x-auto rounded bg-surface p-2 text-[11px] leading-snug text-slate-300">
+      <div className="mb-1 text-micro font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <pre className="overflow-x-auto rounded bg-surface p-2 text-2xs leading-snug text-slate-300">
         {JSON.stringify(value, null, 2)}
       </pre>
     </div>

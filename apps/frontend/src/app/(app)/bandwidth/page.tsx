@@ -353,7 +353,7 @@ function QueueManager({
                   <IconTile tone="sky"><Ic d={LIST} /></IconTile>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-slate-200">{q.name}</div>
-                    <div className="truncate font-mono text-[11px] text-slate-500">
+                    <div className="truncate font-mono text-2xs text-slate-500">
                       {q.target} · ↓{fmtBytes(down)} ↑{fmtBytes(up)}
                     </div>
                   </div>
@@ -372,7 +372,7 @@ function QueueManager({
             })}
           </div>
           {hotspotCount > 0 && (
-            <p className="mt-3 text-[11px] text-slate-500">
+            <p className="mt-3 text-2xs text-slate-500">
               + {hotspotCount} queue hotspot (otomatis, diatur dari profil Hotspot — tidak diedit di sini).
             </p>
           )}
@@ -430,7 +430,7 @@ function LeaseManager({ routerId, canManage }: { routerId: string | null; canMan
               </div>
             )}
           </div>
-          <p className="mb-2 text-[11px] text-slate-500">
+          <p className="mb-2 text-2xs text-slate-500">
             {q ? `${rows.length} lease cocok` : `Menampilkan ${rows.length} lease yang sudah ada limit — cari untuk membatasi lease lain.`}
           </p>
           <div className="divide-y divide-surface-border">
@@ -438,10 +438,10 @@ function LeaseManager({ routerId, canManage }: { routerId: string | null; canMan
             {rows.map((l) => (
               <div key={l.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
                 <span className="font-mono text-slate-200">{l.address}</span>
-                <span className="truncate font-mono text-[11px] text-slate-500">{l.macAddress}</span>
-                {l.hostName && <span className="truncate text-[11px] text-slate-400">{l.hostName}</span>}
+                <span className="truncate font-mono text-2xs text-slate-500">{l.macAddress}</span>
+                {l.hostName && <span className="truncate text-2xs text-slate-400">{l.hostName}</span>}
                 {l.dynamic && <Badge tone="slate">dinamis</Badge>}
-                {l.rateLimit ? <Badge tone="amber">{fmtRateDU(l.rateLimit)}</Badge> : <span className="text-[11px] text-slate-600">tanpa limit</span>}
+                {l.rateLimit ? <Badge tone="amber">{fmtRateDU(l.rateLimit)}</Badge> : <span className="text-2xs text-slate-600">tanpa limit</span>}
                 {canManage && (
                   <span className="ml-auto flex gap-3">
                     <button onClick={() => apply(l.id, toDhcp(rate), `Dibatasi ${fmtRate(rate)}`)} className="text-xs text-accent hover:opacity-80">

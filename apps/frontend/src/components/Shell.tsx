@@ -64,7 +64,7 @@ export function Shell({ children }: { children: ReactNode }) {
   };
 
   const sectionLabel = (label: string) => (
-    <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+    <div className="px-3 pb-1 pt-4 text-micro font-semibold uppercase tracking-wider text-slate-500">
       {label}
     </div>
   );
@@ -150,7 +150,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <button onClick={() => void logout()} className="text-red-400 hover:text-red-300">
             Sign out
           </button>
-          <div className="mt-3 text-[10px] text-slate-600">© {new Date().getFullYear()} RAF</div>
+          <div className="mt-3 text-micro text-slate-600">© {new Date().getFullYear()} RAF</div>
         </div>
       </aside>
 

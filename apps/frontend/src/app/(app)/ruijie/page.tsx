@@ -5,7 +5,17 @@ import Link from 'next/link';
 import type { RuijiePortHealthRow, RuijieRouterPublic } from '@noc/shared';
 import { useAuth } from '@/lib/auth';
 import { useRuijiePortHealth, useRuijieRouters } from '@/lib/queries';
-import { Card, EmptyState, ErrorState, Loading, Page, PageBody, PageHeader } from '@/components/ui';
+import {
+  Badge,
+  buttonClass,
+  Card,
+  EmptyState,
+  ErrorState,
+  Loading,
+  Page,
+  PageBody,
+  PageHeader,
+} from '@/components/ui';
 
 /** 1000 → "1G", 2500 → "2.5G", 100 → "100M", 0 → "—". */
 function fmtMbit(mbit: number): string {
@@ -54,7 +64,7 @@ export default function RuijiePage() {
         actions={
           <Link
             href="/ruijie/switches"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border bg-surface/60 px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent/60 hover:text-slate-100"
+            className={buttonClass('secondary')}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <rect x="2" y="9" width="20" height="6" rx="1.5" />
@@ -110,19 +120,15 @@ function PortHealthBoard() {
   const { summary, rows } = data;
 
   return (
-    <Card className="mb-4 p-4">
+    <Card className="p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-semibold text-slate-100">Kesehatan Port LAN</h2>
+        <h2 className="text-lg font-semibold text-slate-100">Kesehatan Port LAN</h2>
         <span className="flex flex-wrap items-center gap-2 text-xs">
           {summary.degraded > 0 && (
-            <span className="rounded-full bg-rose-500/15 px-2 py-0.5 font-semibold text-rose-400">
-              {summary.degraded} lambat
-            </span>
+            <Badge tone="red">{summary.degraded} lambat</Badge>
           )}
           {summary.flapping > 0 && (
-            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-semibold text-amber-400">
-              {summary.flapping} flapping
-            </span>
+            <Badge tone="amber">{summary.flapping} flapping</Badge>
           )}
           <span className="text-slate-500">
             {summary.monitoredPorts} port · {shortAgo(summary.lastPolledAt)}

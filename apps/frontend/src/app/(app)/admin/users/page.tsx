@@ -6,7 +6,19 @@ import { ROLES, type AppUserPublic, type Role, type Site } from '@noc/shared';
 import { api } from '@/lib/api';
 import { qk, useAppUsers, useSites } from '@/lib/queries';
 import { useConfirm, useToast } from '@/lib/toast';
-import { Button, Card, Field, Loading, Page, PageBody, PageHeader, Select, TextInput } from '@/components/ui';
+import {
+  Button,
+  Card,
+  Field,
+  FilterBar,
+  Loading,
+  Page,
+  PageBody,
+  PageHeader,
+  Select,
+  TABLE,
+  TextInput,
+} from '@/components/ui';
 
 const ROLE_HINT: Record<Role, string> = {
   viewer: 'Read-only — pantau peta, status device, Ruijie & laporan. Tak bisa mengubah apa pun.',
@@ -69,13 +81,13 @@ export default function AdminUsersPage() {
         actions={<Button onClick={() => setShowAdd(true)}>+ Tambah user</Button>}
       />
       <PageBody>
-        <div className="flex flex-wrap items-center gap-2">
-          <TextInput
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari nama / email…"
-            className="w-full sm:w-56"
-          />
+        <FilterBar
+          search={search}
+          onSearch={setSearch}
+          placeholder="Cari nama / email…"
+          count={filtered.length}
+          countLabel="user"
+        >
           <Select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="w-36">
             <option value="">Semua role</option>
             {ROLES.map((r) => (
@@ -89,8 +101,7 @@ export default function AdminUsersPage() {
             <option value="active">Aktif</option>
             <option value="inactive">Nonaktif</option>
           </Select>
-          <span className="text-xs text-slate-500">{filtered.length} user</span>
-        </div>
+        </FilterBar>
 
         <Card className="overflow-x-auto p-4">
           {users.isLoading ? (
@@ -100,28 +111,28 @@ export default function AdminUsersPage() {
               {users.data?.length ? 'Tak ada user yang cocok dengan filter.' : 'Belum ada user.'}
             </p>
           ) : (
-            <table className="r-table w-full text-sm">
-              <thead className="text-left text-xs uppercase text-slate-500">
+            <table className={TABLE.table}>
+              <thead className={TABLE.head}>
                 <tr>
-                  <th className="py-1">Nama</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Cakupan</th>
-                  <th>Status</th>
-                  <th></th>
+                  <th className={TABLE.thDense}>Nama</th>
+                  <th className={TABLE.thDense}>Email</th>
+                  <th className={TABLE.thDense}>Role</th>
+                  <th className={TABLE.thDense}>Cakupan</th>
+                  <th className={TABLE.thDense}>Status</th>
+                  <th className={TABLE.thDense}></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((u) => (
                   <Fragment key={u.id}>
-                    <tr className="border-t border-surface-border">
-                      <td data-label="Nama" className="py-1.5">{u.name}</td>
-                      <td data-label="Email">{u.email}</td>
-                      <td data-label="Role">{u.role}</td>
-                      <td data-label="Cakupan" className="text-xs text-slate-400">
+                    <tr className={TABLE.row}>
+                      <td data-label="Nama" className={`${TABLE.tdDense} `}>{u.name}</td>
+                      <td data-label="Email" className={TABLE.tdDense}>{u.email}</td>
+                      <td data-label="Role" className={TABLE.tdDense}>{u.role}</td>
+                      <td data-label="Cakupan" className={`${TABLE.tdDense} text-xs text-slate-400`}>
                         {u.role === 'super_admin' ? 'semua' : `${u.scopeSiteIds.length} site`}
                       </td>
-                      <td data-label="Status">
+                      <td data-label="Status" className={TABLE.tdDense}>
                         <button
                           className={u.isActive ? 'text-emerald-400' : 'text-slate-500'}
                           onClick={() => toggleActive.mutate({ id: u.id, isActive: !u.isActive })}
@@ -129,7 +140,7 @@ export default function AdminUsersPage() {
                           {u.isActive ? 'aktif' : 'nonaktif'}
                         </button>
                       </td>
-                      <td className="space-x-3 text-right">
+                      <td className={`${TABLE.tdDense} space-x-3 text-right`}>
                         <button
                           className="text-accent hover:opacity-80"
                           onClick={() => setEditId((cur) => (cur === u.id ? null : u.id))}
@@ -348,7 +359,7 @@ function ScopedSitesPicker({
       <div className="max-h-44 space-y-2 overflow-y-auto rounded border border-surface-border p-2">
         {[...groups.entries()].map(([region, ss]) => (
           <div key={region}>
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{region}</div>
+            <div className="mb-1 text-micro font-semibold uppercase tracking-wide text-slate-500">{region}</div>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               {ss.map((s) => (
                 <label key={s.id} className="flex items-center gap-1.5 text-sm text-slate-300">

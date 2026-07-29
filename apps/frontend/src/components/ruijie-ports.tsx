@@ -79,19 +79,19 @@ export function PortTile({ p, flagged }: { p: RuijiePortDTO; flagged?: boolean }
         }
       />
       <span
-        className={`max-w-full truncate text-[10px] font-medium ${p.up ? 'text-slate-700 dark:text-slate-200' : 'text-slate-500'}`}
+        className={`max-w-full truncate text-micro font-medium ${p.up ? 'text-slate-700 dark:text-slate-200' : 'text-slate-500'}`}
       >
         {p.name}
       </span>
       <span
-        className={`text-[10px] font-semibold leading-none ${
+        className={`text-micro font-semibold leading-none ${
           flagged ? 'text-rose-600 dark:text-rose-400' : p.up ? speedTone(p.speed) : 'text-slate-500'
         }`}
       >
         {label}
       </span>
       {p.medium && p.medium.toLowerCase() !== 'copper' && (
-        <span className="text-[9px] uppercase text-sky-600 dark:text-sky-400">{p.medium}</span>
+        <span className="text-micro uppercase text-sky-600 dark:text-sky-400">{p.medium}</span>
       )}
     </div>
   );
@@ -119,7 +119,7 @@ export function UplinkChip({ ports, loading }: { ports: RuijiePortDTO[] | undefi
     return (
       <span
         title={title}
-        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium text-slate-500"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-500/10 px-2 py-0.5 text-micro font-medium text-slate-500"
       >
         <JackIcon className="h-3 w-3 text-slate-400 dark:text-slate-600" /> LAN —
       </span>
@@ -128,7 +128,7 @@ export function UplinkChip({ ports, loading }: { ports: RuijiePortDTO[] | undefi
   return (
     <span
       title={title}
-      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold"
+      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-micro font-semibold"
     >
       <JackIcon className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
       <span className={speedTone(top?.speed ?? null)}>↑{speedShort(top?.speed ?? null) || 'Up'}</span>
