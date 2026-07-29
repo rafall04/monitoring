@@ -62,6 +62,40 @@ html:not(.dark) .text-slate-500 {
   color: #64748b;
 }
 
+/* Same treatment for the SEMANTIC status colors. Without this, the ~80 places
+   that write a bare `text-red-400` / `text-amber-400` / … (i.e. everything that
+   bypassed <Badge>, whose TONES map already pairs `-700` with `dark:-400`)
+   render at dark-mode brightness on a white card — washed out and below AA.
+   These selectors match ONLY the bare utility: Tailwind compiles `dark:text-red-400`
+   to `.dark .dark\:text-red-400`, a different class, so explicit light/dark pairs
+   are never overridden. Targets shades 200–400; 500+ are already readable. */
+html:not(.dark) .text-red-200,
+html:not(.dark) .text-red-300,
+html:not(.dark) .text-red-400 {
+  color: #b91c1c; /* red-700 */
+}
+html:not(.dark) .text-rose-300,
+html:not(.dark) .text-rose-400 {
+  color: #be123c; /* rose-700 */
+}
+html:not(.dark) .text-amber-300,
+html:not(.dark) .text-amber-400 {
+  color: #b45309; /* amber-700 */
+}
+html:not(.dark) .text-emerald-200,
+html:not(.dark) .text-emerald-300,
+html:not(.dark) .text-emerald-400 {
+  color: #047857; /* emerald-700 */
+}
+html:not(.dark) .text-sky-300,
+html:not(.dark) .text-sky-400 {
+  color: #0369a1; /* sky-700 */
+}
+html:not(.dark) .text-violet-300,
+html:not(.dark) .text-violet-400 {
+  color: #6d28d9; /* violet-700 */
+}
+
 /* Leaflet tiles look better with a dark backdrop while loading */
 .leaflet-container {
   background: #0b1220;

@@ -1,5 +1,6 @@
 'use client';
 
+import { Fragment } from 'react';
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -118,11 +119,17 @@ export function Legend() {
 
 const PAGE_WIDTHS = {
   narrow: 'max-w-3xl',
-  default: 'max-w-6xl',
-  wide: 'max-w-7xl',
+  default: 'max-w-[1440px]',
+  wide: 'max-w-[1800px]',
   full: 'max-w-none',
 } as const;
 export type PageWidth = keyof typeof PAGE_WIDTHS;
+
+/**
+ * The one horizontal gutter every page uses, ramped mobile → NOC display. Header
+ * and body share it so the title always sits exactly above the content column.
+ */
+const PAGE_PAD = 'px-3 sm:px-4 md:px-5 lg:px-6 xl:px-8';
 
 /** Full-height column: a fixed header on top, a single scrolling body below. */
 export function Page({ children }: { children: ReactNode }) {
@@ -130,9 +137,12 @@ export function Page({ children }: { children: ReactNode }) {
 }
 
 /**
- * Sticky page header bar (stays put while the body scrolls). Title + optional
- * subtitle on the left; optional `actions` (tabs, filters, buttons) on the
- * right. `width` matches PageBody so the title aligns with the content column.
+ * Sticky page header bar (stays put while the body scrolls).
+ *
+ * Deliberately kept to title + subtitle + ONE primary action. Stats, tabs,
+ * filters and secondary buttons belong in a <Toolbar> at the top of the body —
+ * cramming them here is what used to wrap the header onto 2–3 rows and steal
+ * height from the map/floorplan below.
  */
 export function PageHeader({
   title,
@@ -148,10 +158,10 @@ export function PageHeader({
   return (
     <header className="shrink-0 border-b border-surface-border bg-surface-raised">
       <div
-        className={`mx-auto flex w-full ${PAGE_WIDTHS[width]} flex-col gap-x-4 gap-y-2 px-5 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-6`}
+        className={`mx-auto flex w-full ${PAGE_WIDTHS[width]} ${PAGE_PAD} flex-col gap-x-4 gap-y-2 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:py-3`}
       >
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold text-slate-100">{title}</h1>
+          <h1 className="truncate text-xl font-semibold text-slate-100">{title}</h1>
           {subtitle && <p className="mt-0.5 truncate text-xs text-slate-400">{subtitle}</p>}
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -173,7 +183,7 @@ export function PageBody({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div
-        className={`mx-auto w-full ${PAGE_WIDTHS[width]} space-y-6 px-5 py-5 sm:px-6 sm:py-6 ${className}`}
+        className={`mx-auto w-full ${PAGE_WIDTHS[width]} ${PAGE_PAD} space-y-5 py-4 sm:py-5 ${className}`}
       >
         {children}
       </div>
@@ -354,9 +364,243 @@ export function Badge({
   const t = TONES[tone];
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${t.bg} ${t.fg} ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-medium ${t.bg} ${t.fg} ${className}`}
     >
       {children}
     </span>
+  );
+}
+
+// ===========================================================================
+// v3 — the shared control + table idioms. Before these existed each page rolled
+// its own filter row and table (9 tables → 7 different <th> paddings, 4 <td>
+// paddings, 4 with no mobile treatment), which is what made the app read as
+// untidy. Everything below is mobile-first and ramps to the 3xl NOC breakpoint.
+// ===========================================================================
+
+/**
+ * Secondary control row for the top of a PageBody: stats/tabs on the left,
+ * actions on the right. This is where everything that used to be crammed into
+ * PageHeader's `actions` belongs. Stacks vertically on phones.
+ */
+export function Toolbar({
+  left,
+  right,
+  className = '',
+}: {
+  left?: ReactNode;
+  right?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 ${className}`}
+    >
+      {left && <div className="flex min-w-0 flex-wrap items-center gap-2">{left}</div>}
+      {right && <div className="flex flex-wrap items-center gap-2 sm:justify-end">{right}</div>}
+    </div>
+  );
+}
+
+/**
+ * Search + filter controls + result count, in one layout. `children` takes the
+ * page's own <Select>s; the count is pushed to the far end on ≥sm.
+ */
+export function FilterBar({
+  search,
+  onSearch,
+  placeholder = 'Cari…',
+  children,
+  count,
+  countLabel = 'baris',
+  className = '',
+}: {
+  search?: string;
+  onSearch?: (v: string) => void;
+  placeholder?: string;
+  children?: ReactNode;
+  count?: number;
+  countLabel?: string;
+  className?: string;
+}) {
+  return (
+    <div className={`flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center ${className}`}>
+      {onSearch && (
+        <TextInput
+          value={search ?? ''}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder={placeholder}
+          className="w-full sm:w-56 xl:w-72"
+        />
+      )}
+      {children}
+      {count !== undefined && (
+        <span className="text-xs text-slate-500 sm:ml-auto">
+          {count} {countLabel}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Status counts + availability, identical on Overview cards and site headers. */
+export function StatusCounts({
+  up,
+  down,
+  unknown = 0,
+  maintenance = 0,
+  availabilityPct,
+}: {
+  up: number;
+  down: number;
+  unknown?: number;
+  maintenance?: number;
+  availabilityPct?: number;
+}) {
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <Badge tone="emerald">{up} up</Badge>
+      {down > 0 && <Badge tone="red">{down} down</Badge>}
+      {unknown > 0 && <Badge tone="slate">{unknown} ?</Badge>}
+      {maintenance > 0 && <Badge tone="sky">{maintenance} mnt</Badge>}
+      {availabilityPct !== undefined && (
+        <span className="rounded-full border border-surface-border bg-surface px-2 py-0.5 text-2xs font-semibold text-slate-100">
+          {availabilityPct}%
+        </span>
+      )}
+    </span>
+  );
+}
+
+// --- DataTable --------------------------------------------------------------
+
+export type Column<T> = {
+  key: string;
+  header: ReactNode;
+  cell: (row: T) => ReactNode;
+  align?: 'left' | 'right';
+  /**
+   * Stacked-card label on phones; falls back to `header` when it is a string.
+   * Pass `null` for cells that should stay full-width when stacked (action
+   * buttons, inline edit forms).
+   */
+  label?: string | null;
+  /**
+   * Drop this column below the given breakpoint so narrow screens are not
+   * forced into horizontal scroll. Below 640px the table stacks into cards
+   * instead, where every column is shown regardless.
+   */
+  hideBelow?: 'md' | 'lg' | 'xl';
+  className?: string;
+};
+
+// Static strings — Tailwind's JIT cannot see interpolated class names.
+const HIDE_BELOW: Record<NonNullable<Column<unknown>['hideBelow']>, string> = {
+  md: 'hidden md:table-cell',
+  lg: 'hidden lg:table-cell',
+  xl: 'hidden xl:table-cell',
+};
+
+/**
+ * The single table idiom: uniform header/cell padding, hover rows, built-in
+ * loading / error / empty states, automatic mobile stacking via `r-table`, and
+ * an optional expanded detail row.
+ *
+ * Renders its own <Card>, so callers must not wrap it in another one.
+ */
+export function DataTable<T>({
+  columns,
+  rows,
+  rowKey,
+  dense = false,
+  loading = false,
+  error = false,
+  onRetry,
+  empty = 'Tidak ada data.',
+  expandedKey,
+  renderExpanded,
+  className = '',
+}: {
+  columns: ReadonlyArray<Column<T>>;
+  rows: readonly T[];
+  rowKey: (row: T) => string;
+  dense?: boolean;
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
+  empty?: ReactNode;
+  expandedKey?: string | null;
+  renderExpanded?: (row: T) => ReactNode;
+  className?: string;
+}) {
+  if (error)
+    return (
+      <Card className={className}>
+        <ErrorState onRetry={onRetry} />
+      </Card>
+    );
+  if (loading)
+    return (
+      <Card className={className}>
+        <Loading />
+      </Card>
+    );
+  if (rows.length === 0)
+    return <Card className={`p-6 text-center text-sm text-slate-400 ${className}`}>{empty}</Card>;
+
+  const pad = dense ? 'px-2.5 py-1.5' : 'px-3 py-2';
+
+  return (
+    <Card className={`overflow-x-auto ${className}`}>
+      <table className="r-table w-full text-sm">
+        <thead>
+          <tr className="border-b border-surface-border text-left text-2xs font-semibold uppercase tracking-wide text-slate-500">
+            {columns.map((c) => (
+              <th
+                key={c.key}
+                className={`${pad} font-semibold ${c.align === 'right' ? 'text-right' : ''} ${
+                  c.hideBelow ? HIDE_BELOW[c.hideBelow] : ''
+                }`}
+              >
+                {c.header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const key = rowKey(row);
+            const expanded = expandedKey === key && renderExpanded;
+            return (
+              <Fragment key={key}>
+                <tr className="border-t border-surface-border transition-colors hover:bg-surface/50">
+                  {columns.map((c) => {
+                    const label = c.label === null ? undefined : c.label ?? (typeof c.header === 'string' ? c.header : undefined);
+                    return (
+                      <td
+                        key={c.key}
+                        data-label={label}
+                        className={`${pad} ${c.align === 'right' ? 'text-right' : ''} ${
+                          c.hideBelow ? HIDE_BELOW[c.hideBelow] : ''
+                        } ${c.className ?? ''}`}
+                      >
+                        {c.cell(row)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                {expanded && (
+                  <tr className="border-t border-surface-border bg-surface/40">
+                    <td colSpan={columns.length} className="p-3">
+                      {renderExpanded(row)}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </Card>
   );
 }
