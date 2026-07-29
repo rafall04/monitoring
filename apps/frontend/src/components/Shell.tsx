@@ -73,21 +73,21 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className="flex h-screen">
       {navOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
           onClick={() => setNavOpen(false)}
           aria-hidden
         />
       )}
 
       <aside
-        className={`z-40 w-64 flex-col border-r border-surface-border bg-surface-raised md:static md:flex md:w-60 ${
+        className={`z-40 w-64 flex-col border-r border-surface-border bg-surface-raised lg:static lg:flex lg:w-60 ${
           navOpen ? 'fixed inset-y-0 left-0 flex' : 'hidden'
         }`}
       >
         <div className="flex items-center justify-between gap-2 px-4 py-4">
           <Brand orgName={branding.orgName} logoUrl={branding.logoUrl} />
           <button
-            className="text-slate-400 hover:text-slate-200 md:hidden"
+            className="noc-tap inline-flex items-center text-slate-400 hover:text-slate-200 lg:hidden"
             onClick={() => setNavOpen(false)}
             aria-label="Close menu"
           >
@@ -155,7 +155,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-surface-border bg-surface-raised px-4 py-3 md:hidden">
+        <header className="flex items-center gap-3 border-b border-surface-border bg-surface-raised px-4 py-3 lg:hidden">
           <button
             onClick={() => setNavOpen(true)}
             aria-label="Open menu"

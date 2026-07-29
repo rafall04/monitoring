@@ -245,8 +245,8 @@ export default function AdminSitesPage() {
                   >
                     Script
                   </Button>
-                  <button className="text-accent hover:opacity-80" onClick={() => setEditRouterId((c) => (c === r.id ? null : r.id))}>{editRouterId === r.id ? 'close' : 'edit'}</button>
-                  <button className="text-red-400 hover:text-red-300" onClick={() => askDeleteRouter(r)}>delete</button>
+                  <button className="noc-tap inline-flex items-center text-accent hover:opacity-80" onClick={() => setEditRouterId((c) => (c === r.id ? null : r.id))}>{editRouterId === r.id ? 'close' : 'edit'}</button>
+                  <button className="noc-tap inline-flex items-center text-red-400 hover:text-red-300" onClick={() => askDeleteRouter(r)}>delete</button>
                 </div>
               </div>
               {testResult[r.id] && <div className="mt-1 text-xs text-slate-400">{testResult[r.id]}</div>}
@@ -264,7 +264,7 @@ export default function AdminSitesPage() {
         <Card className="p-4">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="font-semibold text-slate-200">Netwatch script · {scriptFor.host}</h2>
-            <button className="text-slate-400" onClick={() => setScriptFor(null)}>✕</button>
+            <button className="noc-tap inline-flex items-center text-slate-400" onClick={() => setScriptFor(null)}>✕</button>
           </div>
           <p className="mb-2 text-xs text-slate-400">
             Paste ke terminal router, atau install via API. Webhook update status realtime.
@@ -325,11 +325,11 @@ function SiteRow({ site, onDelete, onUploaded }: { site: Site; onDelete: () => v
           <span className="font-medium text-slate-100">{site.name}</span>{' '}
           <span className="text-slate-500">· {site.mapMode}</span>
         </div>
-        <button className="text-red-400 hover:text-red-300" onClick={onDelete}>delete</button>
+        <button className="noc-tap inline-flex items-center text-red-400 hover:text-red-300" onClick={onDelete}>delete</button>
       </div>
       {site.mapMode === 'floorplan' && (
         <div className="mt-2 flex flex-wrap items-end gap-2">
-          <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-xs text-slate-400" />
+          <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="noc-tap block text-xs text-slate-400" />
           <Field label="W"><TextInput value={dims.w} onChange={(e) => setDims({ ...dims, w: e.target.value })} className="w-20" /></Field>
           <Field label="H"><TextInput value={dims.h} onChange={(e) => setDims({ ...dims, h: e.target.value })} className="w-20" /></Field>
           <Button variant="secondary" onClick={upload} disabled={!file || busy}>{busy ? 'Uploading…' : 'Upload floorplan'}</Button>

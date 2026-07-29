@@ -148,14 +148,14 @@ function OpenIncidents({ canAck }: { canAck: boolean }) {
           <div className="flex justify-end gap-1.5 text-xs">
             {r.ackBy ? (
               <button
-                className="text-slate-400 hover:text-slate-200"
+                className="noc-tap inline-flex items-center text-slate-400 hover:text-slate-200"
                 onClick={() => unack.mutate(r.deviceId)}
               >
                 unack
               </button>
             ) : (
               <button
-                className="rounded-md bg-emerald-500/15 px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-300"
+                className="noc-tap inline-flex items-center rounded-md bg-emerald-500/15 px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-300"
                 onClick={() => ack.mutate(r.deviceId)}
               >
                 Acknowledge
@@ -217,7 +217,7 @@ function SilenceMenu({
   return (
     <div className="relative">
       <button
-        className={`rounded px-2 py-1 ${
+        className={`noc-tap inline-flex items-center rounded px-2 py-1 ${
           silenced ? 'bg-amber-500/15 text-amber-300' : 'text-slate-400 hover:text-slate-200'
         }`}
         onClick={() => setOpen((v) => !v)}
@@ -229,7 +229,7 @@ function SilenceMenu({
           {[15, 60, 240, 1440].map((m) => (
             <button
               key={m}
-              className="block w-full px-3 py-1 text-left text-xs hover:bg-slate-800"
+              className="noc-tap flex w-full items-center px-3 py-1 text-left text-xs hover:bg-slate-800"
               onClick={() => {
                 onPick(m);
                 setOpen(false);
@@ -240,7 +240,7 @@ function SilenceMenu({
           ))}
           {silenced && (
             <button
-              className="block w-full border-t border-surface-border px-3 py-1 text-left text-xs text-red-400 hover:bg-slate-800"
+              className="noc-tap flex w-full items-center border-t border-surface-border px-3 py-1 text-left text-xs text-red-400 hover:bg-slate-800"
               onClick={() => {
                 onPick(0);
                 setOpen(false);

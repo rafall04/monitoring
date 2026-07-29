@@ -71,7 +71,7 @@ export default function RuijieSwitchesPage() {
             : 'Switch Ruijie terkelola'
         }
         actions={
-          <Link href="/ruijie" className="text-sm text-slate-400 hover:text-slate-200">
+          <Link href="/ruijie" className="noc-tap inline-flex items-center text-sm text-slate-400 hover:text-slate-200">
             ← Ruijie WiFi
           </Link>
         }
@@ -160,7 +160,7 @@ function SwitchCard({
           )}
           <Link
             href={`/ruijie/${encodeURIComponent(s.groupName)}`}
-            className="text-micro text-slate-500 hover:text-slate-300"
+            className="noc-tap inline-flex items-center text-micro text-slate-500 hover:text-slate-300"
           >
             detail →
           </Link>

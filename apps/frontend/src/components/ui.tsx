@@ -24,8 +24,9 @@ const variants: Record<Variant, string> = {
     'bg-transparent text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800',
 };
 
+// noc-tap: compact on a mouse, 44px hit target on touch/phone (see globals.css).
 const BUTTON_BASE =
-  'inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-1.5 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed';
+  'noc-tap inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-1.5 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed';
 
 /**
  * Button classes for elements that cannot be a <button> — chiefly next/link
@@ -66,7 +67,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 }
 
 const inputBase =
-  'noc-focus w-full rounded-lg border border-surface-border bg-surface/70 px-3 py-1.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-600';
+  'noc-focus noc-tap w-full rounded-lg border border-surface-border bg-surface/70 px-3 py-1.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-600';
 
 export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputBase} ${props.className ?? ''}`} />;
@@ -219,7 +220,7 @@ export function Tabs<T extends string>({
           key={t.value}
           type="button"
           onClick={() => onChange(t.value)}
-          className={`rounded-lg px-3 py-1.5 transition ${
+          className={`noc-tap inline-flex items-center justify-center rounded-lg px-3 py-1.5 transition ${
             value === t.value
               ? 'noc-accent-grad text-white shadow-sm shadow-accent/30'
               : 'text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-800'

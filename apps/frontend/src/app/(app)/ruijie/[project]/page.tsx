@@ -46,7 +46,7 @@ export default function RuijieProjectPage() {
         actions={
           <Link
             href="/ruijie"
-            className="text-sm text-slate-400 hover:text-slate-200"
+            className="noc-tap inline-flex items-center text-sm text-slate-400 hover:text-slate-200"
           >
             ← Semua project
           </Link>

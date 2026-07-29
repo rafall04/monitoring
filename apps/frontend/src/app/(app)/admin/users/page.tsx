@@ -134,7 +134,7 @@ export default function AdminUsersPage() {
                       </td>
                       <td data-label="Status" className={TABLE.tdDense}>
                         <button
-                          className={u.isActive ? 'text-emerald-400' : 'text-slate-500'}
+                          className={`noc-tap inline-flex items-center ${u.isActive ? 'text-emerald-400' : 'text-slate-500'}`}
                           onClick={() => toggleActive.mutate({ id: u.id, isActive: !u.isActive })}
                         >
                           {u.isActive ? 'aktif' : 'nonaktif'}
@@ -142,12 +142,12 @@ export default function AdminUsersPage() {
                       </td>
                       <td className={`${TABLE.tdDense} space-x-3 text-right`}>
                         <button
-                          className="text-accent hover:opacity-80"
+                          className="noc-tap inline-flex items-center text-accent hover:opacity-80"
                           onClick={() => setEditId((cur) => (cur === u.id ? null : u.id))}
                         >
                           {editId === u.id ? 'tutup' : 'edit'}
                         </button>
-                        <button className="text-red-400 hover:text-red-300" onClick={() => askDelete(u.id, u.name)}>
+                        <button className="noc-tap inline-flex items-center text-red-400 hover:text-red-300" onClick={() => askDelete(u.id, u.name)}>
                           hapus
                         </button>
                       </td>
@@ -347,10 +347,10 @@ function ScopedSitesPicker({
           Cakupan site · {selected.length} dipilih
         </span>
         <span className="flex gap-3 text-xs">
-          <button type="button" className="text-accent hover:opacity-80" onClick={() => onChange(sites.map((s) => s.id))}>
+          <button type="button" className="noc-tap inline-flex items-center text-accent hover:opacity-80" onClick={() => onChange(sites.map((s) => s.id))}>
             Semua
           </button>
-          <button type="button" className="text-slate-400 hover:text-slate-200" onClick={() => onChange([])}>
+          <button type="button" className="noc-tap inline-flex items-center text-slate-400 hover:text-slate-200" onClick={() => onChange([])}>
             Kosongkan
           </button>
         </span>
@@ -395,7 +395,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
       >
         <div className="flex items-center justify-between border-b border-surface-border px-5 py-3">
           <h3 className="text-base font-semibold text-slate-100">{title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200" aria-label="Tutup">
+          <button onClick={onClose} className="noc-tap inline-flex items-center text-slate-400 hover:text-slate-200" aria-label="Tutup">
             ✕
           </button>
         </div>

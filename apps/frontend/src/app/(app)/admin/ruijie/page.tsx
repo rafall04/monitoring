@@ -185,16 +185,16 @@ function AccountsPanel() {
                     </td>
                     <td className={`${TABLE.tdDense} space-x-3 whitespace-nowrap text-right text-xs`}>
                       <button
-                        className="text-accent hover:opacity-80"
+                        className="noc-tap inline-flex items-center text-accent hover:opacity-80"
                         onClick={() => setPickerFor((cur) => (cur === a.id ? null : a.id))}
                       >
                         Project
                       </button>
-                      <button className="text-accent hover:opacity-80" onClick={() => void test(a.id)}>
+                      <button className="noc-tap inline-flex items-center text-accent hover:opacity-80" onClick={() => void test(a.id)}>
                         Test
                       </button>
                       <button
-                        className="text-red-400 hover:text-red-300"
+                        className="noc-tap inline-flex items-center text-red-400 hover:text-red-300"
                         onClick={() => void remove(a.id, a.label)}
                       >
                         Hapus

@@ -289,7 +289,7 @@ export default function HotspotPage() {
                         {canManage && (
                           <td className={`${TABLE.tdDense} space-x-3 text-right`}>
                             <button
-                              className="text-accent hover:opacity-80"
+                              className="noc-tap inline-flex items-center text-accent hover:opacity-80"
                               onClick={() =>
                                 u['.id'] &&
                                 setEditUser({
@@ -303,7 +303,7 @@ export default function HotspotPage() {
                               edit
                             </button>
                             <button
-                              className="text-red-400 hover:text-red-300"
+                              className="noc-tap inline-flex items-center text-red-400 hover:text-red-300"
                               onClick={() => u['.id'] && askDeleteUser(u['.id'], u.name)}
                             >
                               delete
@@ -456,7 +456,7 @@ export default function HotspotPage() {
                         {canManageProfiles && (
                           <td className={`${TABLE.tdDense} text-right`}>
                             <button
-                              className="text-accent hover:opacity-80"
+                              className="noc-tap inline-flex items-center text-accent hover:opacity-80"
                               onClick={() =>
                                 p['.id'] &&
                                 setEditProfile({

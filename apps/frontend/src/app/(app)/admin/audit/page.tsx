@@ -141,7 +141,7 @@ export default function AuditPage() {
                         <td className={`${TABLE.tdDense} text-right`}>
                           {hasDetail && (
                             <button
-                              className="text-accent hover:opacity-80"
+                              className="noc-tap inline-flex items-center text-accent hover:opacity-80"
                               onClick={() => setOpenId((c) => (c === a.id ? null : a.id))}
                             >
                               {openId === a.id ? 'tutup' : 'detail'}
