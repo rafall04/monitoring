@@ -58,6 +58,62 @@ export async function applyDeviceStatusByHost(
   return { changed, device };
 }
 
+/**
+ * Batch form of applyDeviceStatusByHost for the poller, which reconciles a
+ * router's ENTIRE Netwatch table on every cycle.
+ *
+ * The per-host function issues one findFirst and one Redis SET per entry. At
+ * 197 devices that is ~10 queries/sec and unnoticeable; at the ~730 hosts this
+ * fleet is heading for it becomes ~36 queries/sec sustained forever, almost all
+ * of it to rediscover that nothing changed. Instead: one findMany for the whole
+ * router, compare in memory, pipeline the heartbeat writes, and fall back to
+ * the full single-device path only for real transitions — which is where the
+ * transaction, StatusEvent, publish and Telegram alert live.
+ */
+export async function applyDeviceStatusesByHost(
+  deps: StatusEngineDeps,
+  routerId: string,
+  updates: Array<{ host: string; status: DeviceStatus; occurredAt?: Date }>,
+  source: StatusSource,
+): Promise<{ matched: number; changed: number }> {
+  if (updates.length === 0) return { matched: 0, changed: 0 };
+
+  const devices = await deps.prisma.device.findMany({
+    where: { routerId, ipAddress: { in: updates.map((u) => u.host) } },
+  });
+  const byIp = new Map(devices.map((d) => [d.ipAddress as string, d]));
+
+  const heartbeats: Array<[string, string]> = [];
+  const transitions: Array<{ device: Device; status: DeviceStatus; at: Date }> = [];
+
+  for (const u of updates) {
+    const device = byIp.get(u.host);
+    if (!device) continue; // netwatch entry we do not track — ignored, as before
+    const at = u.occurredAt ?? new Date();
+    if (device.status === u.status) {
+      heartbeats.push([
+        REDIS_KEYS.deviceStatus(device.id),
+        JSON.stringify({ status: u.status, at: at.toISOString() }),
+      ]);
+    } else {
+      transitions.push({ device, status: u.status, at });
+    }
+  }
+
+  if (heartbeats.length > 0) {
+    // One round trip instead of one per device.
+    const pipe = deps.redisPub.pipeline();
+    for (const [k, v] of heartbeats) pipe.set(k, v);
+    await pipe.exec();
+  }
+
+  for (const t of transitions) {
+    await applyDeviceStatus(deps, t.device, t.status, source, t.at);
+  }
+
+  return { matched: byIp.size, changed: transitions.length };
+}
+
 /** Apply a status to a known device row. Returns whether the status changed. */
 export async function applyDeviceStatus(
   deps: StatusEngineDeps,

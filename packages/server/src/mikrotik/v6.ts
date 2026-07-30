@@ -78,6 +78,8 @@ function parsePct(t: string | undefined): number | null {
 export class RouterOsV6Client implements MikrotikClient {
   private conn: RouterOSAPI | null = null;
   private connected = false;
+  /** In-flight connect, so concurrent callers share one socket. */
+  private connecting: Promise<RouterOSAPI> | null = null;
   private readonly cfg: MikrotikConfig;
 
   constructor(cfg: MikrotikConfig) {
@@ -86,6 +88,22 @@ export class RouterOsV6Client implements MikrotikClient {
 
   private async api(): Promise<RouterOSAPI> {
     if (this.conn && this.connected) return this.conn;
+    // Collapse concurrent first-use into ONE connect. Without this, two calls
+    // issued in the same tick both see a null conn and each open their own
+    // socket + login; the later assignment wins and the earlier socket is
+    // orphaned, never closed. getResource() does exactly that (it Promise.all's
+    // getIdentity with a resource print), so every poll of every router was
+    // opening two connections and leaking one — measured on production.
+    if (this.connecting) return this.connecting;
+    this.connecting = this.openConnection();
+    try {
+      return await this.connecting;
+    } finally {
+      this.connecting = null;
+    }
+  }
+
+  private async openConnection(): Promise<RouterOSAPI> {
     const timeoutSec = Math.max(2, Math.ceil((this.cfg.timeoutMs ?? 8000) / 1000));
     const conn = new RouterOSAPI({
       host: this.cfg.host,
@@ -180,6 +198,10 @@ export class RouterOsV6Client implements MikrotikClient {
     for (const r of rows) {
       if (r['.id']) await this.write('/tool/netwatch/remove', [`=.id=${r['.id']}`]);
     }
+  }
+
+  async removeNetwatchById(id: string): Promise<void> {
+    await this.write('/tool/netwatch/remove', [`=.id=${id}`]);
   }
 
   async listHotspotServers(): Promise<string[]> {

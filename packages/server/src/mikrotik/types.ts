@@ -94,6 +94,12 @@ export interface MikrotikClient {
   listNetwatch(): Promise<NetwatchEntry[]>;
   addNetwatch(input: AddNetwatchInput): Promise<void>;
   removeNetwatchByHost(host: string): Promise<void>;
+  /**
+   * Remove by RouterOS id. Saves the lookup round-trip when the caller already
+   * listed the table — which matters in bulk loops, where removeNetwatchByHost
+   * would otherwise issue a filtered print per device.
+   */
+  removeNetwatchById(id: string): Promise<void>;
 
   listHotspotServers(): Promise<string[]>;
   listHotspotProfiles(): Promise<HotspotProfile[]>;

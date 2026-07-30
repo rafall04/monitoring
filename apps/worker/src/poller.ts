@@ -1,5 +1,5 @@
 import {
-  applyDeviceStatusByHost,
+  applyDeviceStatusesByHost,
   clientForRouter,
   updateRouterStatus,
   type RouterMikrotik,
@@ -23,17 +23,17 @@ export async function pollRouter(
     await updateRouterStatus(deps, router, 'online', resource);
 
     const entries = await client.listNetwatch();
-    for (const e of entries) {
-      if (!e.host) continue;
-      const status: DeviceStatus =
-        e.status === 'up' ? 'up' : e.status === 'down' ? 'down' : 'unknown';
-      await applyDeviceStatusByHost(deps, {
-        routerId: router.id,
-        host: e.host,
-        status,
-        source: 'polling',
-      });
-    }
+    await applyDeviceStatusesByHost(
+      deps,
+      router.id,
+      entries
+        .filter((e) => e.host)
+        .map((e) => ({
+          host: e.host,
+          status: (e.status === 'up' ? 'up' : e.status === 'down' ? 'down' : 'unknown') as DeviceStatus,
+        })),
+      'polling',
+    );
 
     await reconcileNetwatchFlags(deps, router.id, entries.map((e) => e.host).filter(Boolean));
 

@@ -188,7 +188,18 @@ export async function routerRoutes(app: FastifyInstance) {
 
     const client = clientForRouter(r);
     const results: Array<{ device: string; ok: boolean; reason?: string }> = [];
+    const installedIps: string[] = [];
     try {
+      // List once and delete by id, instead of a filtered print per device.
+      // The old loop cost 3 round-trips per device (print + remove + add); this
+      // costs 1 for a device with no existing entry and 2 otherwise. Across a
+      // few hundred devices that is the difference between a request that
+      // finishes and one that times out.
+      const existing = await client.listNetwatch();
+      const idByHost = new Map(
+        existing.filter((e) => e.host && e.id).map((e) => [e.host, e.id as string]),
+      );
+
       for (const d of r.devices) {
         if (!d.ipAddress) {
           results.push({ device: d.name, ok: false, reason: 'no ip address' });
@@ -204,9 +215,10 @@ export async function routerRoutes(app: FastifyInstance) {
             telegram: d.isCritical ? routerTelegram : undefined, // alert critical devices only
             cfg,
           };
-          await client.removeNetwatchByHost(d.ipAddress);
+          const oldId = idByHost.get(d.ipAddress);
+          if (oldId) await client.removeNetwatchById(oldId);
           await client.addNetwatch(netwatchApiInput(params));
-          await prisma.device.update({ where: { id: d.id }, data: { netwatchSynced: true } });
+          installedIps.push(d.ipAddress);
           results.push({ device: d.name, ok: true });
         } catch (e) {
           results.push({ device: d.name, ok: false, reason: (e as Error)?.message ?? String(e) });
@@ -214,6 +226,16 @@ export async function routerRoutes(app: FastifyInstance) {
       }
     } finally {
       await client.close();
+    }
+
+    // One UPDATE instead of one per device. The poller re-derives this flag
+    // from the router anyway; writing it here just avoids a stale-looking UI
+    // for the few seconds until the next poll.
+    if (installedIps.length) {
+      await prisma.device.updateMany({
+        where: { routerId: r.id, ipAddress: { in: installedIps } },
+        data: { netwatchSynced: true },
+      });
     }
     await writeAudit(req, { action: 'netwatch-install', entity: 'router', entityId: id, after: { results } });
     return { results };
