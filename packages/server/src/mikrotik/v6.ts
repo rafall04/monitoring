@@ -156,6 +156,10 @@ export class RouterOsV6Client implements MikrotikClient {
       since: r['since'],
       comment: r['comment'],
       name: r['name'],
+      interval: r['interval'],
+      hasUpScript: (r['up-script'] ?? '').length > 0,
+      hasDownScript: (r['down-script'] ?? '').length > 0,
+      disabled: r['disabled'] === 'true',
     }));
   }
 
