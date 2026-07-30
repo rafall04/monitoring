@@ -335,9 +335,21 @@ export default function SiteMapPage() {
                 {
                   onSuccess: (d) => {
                     setSelected(null);
-                    if (patch.syncNetwatch) {
-                      if (d.netwatchError) toast.error(`Netwatch gagal di-update: ${d.netwatchError}`);
-                      else toast.ok(`Netwatch untuk "${d.name}" diperbarui di router ✓`);
+                    // The backend re-installs the router entry on its own when a
+                    // field baked into it changed, so the failure branch must key
+                    // off netwatchError itself — not off whether the caller asked
+                    // for a sync. Otherwise renaming a device while the router is
+                    // unreachable reported a cheerful "Tersimpan" and the router
+                    // kept the old entry.
+                    if (d.netwatchError) {
+                      toast.error(`Tersimpan, tetapi Netwatch GAGAL: ${d.netwatchError}`);
+                    } else if (
+                      patch.syncNetwatch ||
+                      patch.ipAddress !== undefined ||
+                      patch.name !== undefined ||
+                      patch.isCritical !== undefined
+                    ) {
+                      toast.ok(`Tersimpan · Netwatch "${d.name}" diperbarui di router ✓`);
                     } else {
                       toast.ok('Tersimpan');
                     }
