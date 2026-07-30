@@ -70,7 +70,7 @@ export default function ProfilePage() {
             <TextInput value={user.role} disabled />
           </Field>
         </div>
-        <p className="text-[11px] text-slate-500">
+        <p className="text-2xs text-slate-500">
           Email + role hanya bisa diubah oleh super_admin (mencegah lock-out).
         </p>
         <div>
@@ -118,7 +118,7 @@ export default function ProfilePage() {
           <Button onClick={() => changePw.mutate()} disabled={changePw.isPending || !canChangePw}>
             {changePw.isPending ? 'Mengubah…' : 'Ubah password'}
           </Button>
-          <span className="ml-3 text-[11px] text-slate-500">
+          <span className="ml-3 text-2xs text-slate-500">
             Setelah berhasil, semua session aktif di device lain akan logout.
           </span>
         </div>

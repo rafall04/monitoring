@@ -27,7 +27,18 @@ import InspectPanel from '@/components/InspectPanel';
 import LineView from '@/components/LineView';
 import MarkerPanel from '@/components/MarkerPanel';
 import WifiView from '@/components/WifiView';
-import { Badge, Button, ErrorState, Legend, Page, PageHeader, Spinner, Tabs } from '@/components/ui';
+import {
+  Button,
+  buttonClass,
+  ErrorState,
+  Legend,
+  Page,
+  PageHeader,
+  Spinner,
+  StatusCounts,
+  Tabs,
+  Toolbar,
+} from '@/components/ui';
 
 // Leaflet touches `window`, so the map must be client-only.
 const MapView = dynamic(() => import('@/components/MapView'), {
@@ -122,68 +133,104 @@ export default function SiteMapPage() {
   const wifiGroups = [...new Set(wifiRouters.map((r) => r.groupName))];
   const wifiHref = wifiGroups.length === 1 ? `/ruijie/${encodeURIComponent(wifiGroups[0]!)}` : '/ruijie';
 
+  // Why the Denah tab cannot draw anything useful, if that is the case. A
+  // floorplan site needs BOTH an uploaded image and devices carrying map
+  // coordinates; a geo site needs lat/lng. Missing either makes Leaflet pile
+  // every marker on one point, which reads as "one device" rather than "not
+  // set up yet".
+  const isFloorplan = site.data.mapMode === 'floorplan';
+  const placed = (devices.data ?? []).some((d) =>
+    isFloorplan ? d.mapX != null && d.mapY != null : d.geoLat != null && d.geoLng != null,
+  );
+  const denahBlocker =
+    isFloorplan && !site.data.floorplanImageUrl
+      ? {
+          title: 'Denah belum diunggah',
+          body: `Site ini memakai mode denah, tetapi gambar denahnya belum ada. Semua ${devices.data?.length ?? 0} device sudah punya Area/Line, jadi gunakan tab "Line / Area" sementara ini.`,
+          href: canManageStructure ? '/admin/sites' : null,
+          cta: 'Unggah denah di Sites & Routers',
+        }
+      : !placed && (devices.data?.length ?? 0) > 0
+        ? {
+            title: 'Belum ada device di denah',
+            body: 'Denah sudah ada, tetapi belum ada device yang ditempatkan di atasnya. Tekan "Edit", lalu klik ruang kosong untuk menambah atau seret marker untuk memposisikan.',
+            href: null,
+            cta: '',
+          }
+        : null;
+
   return (
     <Page>
+      {/* Row 1 — identity + the edit affordances only. Everything else moved to
+          the toolbar below: this header used to carry 11 controls and wrapped to
+          3 rows on a long site name, eating height the floorplan needs. */}
       <PageHeader
         width="full"
         title={site.data.name}
         subtitle={`${site.data.region ? `${site.data.region} · ` : ''}${devices.data?.length ?? 0} devices`}
         actions={
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
-            {(s || (can('ruijie:view') && wifiRouters.length > 0)) && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                {s && (
-                  <>
-                    <Badge tone="emerald">{s.up} up</Badge>
-                    {s.down > 0 && <Badge tone="red">{s.down} down</Badge>}
-                    {s.unknown > 0 && <Badge tone="slate">{s.unknown} ?</Badge>}
-                    {s.maintenance > 0 && <Badge tone="sky">{s.maintenance} mnt</Badge>}
-                    <span className="rounded-full border border-surface-border bg-surface px-2.5 py-0.5 text-sm font-semibold text-slate-100">
-                      {s.availabilityPct}%
-                    </span>
-                  </>
-                )}
-                {can('ruijie:view') && wifiRouters.length > 0 && (
-                  <Link
-                    href={wifiHref}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-0.5 text-sm font-medium text-accent transition hover:bg-accent/25"
-                    title="WiFi Ruijie di site ini"
-                  >
-                    <WifiIcon />
-                    {wifiClients} client · {wifiOnline}/{wifiRouters.length} AP
-                  </Link>
-                )}
-              </div>
+          <>
+            {canCreate && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSelected(null);
+                  setAdding('manual');
+                }}
+              >
+                + Add device
+              </Button>
             )}
-            <div className="flex flex-wrap items-center gap-2">
-              <Tabs tabs={VIEW_TABS} value={tab} onChange={setTab} />
-              {tab === 'denah' && <Legend />}
-              {canCreate && (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setSelected(null);
-                    setAdding('manual');
-                  }}
-                >
-                  + Add device
-                </Button>
-              )}
-              {(canEditPos || canCreate || canManageStructure) && (
-                <Button
-                  variant={editMode ? 'primary' : 'secondary'}
-                  onClick={() => {
-                    setEditMode((v) => !v);
-                    setAdding(null);
-                  }}
-                >
-                  {editMode ? 'Done editing' : 'Edit'}
-                </Button>
-              )}
-            </div>
-          </div>
+            {(canEditPos || canCreate || canManageStructure) && (
+              <Button
+                variant={editMode ? 'primary' : 'secondary'}
+                onClick={() => {
+                  setEditMode((v) => !v);
+                  setAdding(null);
+                }}
+              >
+                {editMode ? 'Done editing' : 'Edit'}
+              </Button>
+            )}
+          </>
         }
       />
+
+      {/* Row 2 — live state on the left, view switching on the right. Fixed two
+          rows total, so the map area's height never depends on name length. */}
+      <div className="shrink-0 border-b border-surface-border bg-surface-raised/60 px-3 py-2 sm:px-4 md:px-5 lg:px-6 xl:px-8">
+        <Toolbar
+          left={
+            <>
+              {s && (
+                <StatusCounts
+                  up={s.up}
+                  down={s.down}
+                  unknown={s.unknown}
+                  maintenance={s.maintenance}
+                  availabilityPct={s.availabilityPct}
+                />
+              )}
+              {can('ruijie:view') && wifiRouters.length > 0 && (
+                <Link
+                  href={wifiHref}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2 py-0.5 text-2xs font-medium text-accent transition hover:bg-accent/25"
+                  title="WiFi Ruijie di site ini"
+                >
+                  <WifiIcon />
+                  {wifiClients} client · {wifiOnline}/{wifiRouters.length} AP
+                </Link>
+              )}
+            </>
+          }
+          right={
+            <>
+              {tab === 'denah' && <Legend />}
+              <Tabs tabs={VIEW_TABS} value={tab} onChange={setTab} />
+            </>
+          }
+        />
+      </div>
 
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
@@ -210,6 +257,22 @@ export default function SiteMapPage() {
                 setSelected(d);
               }}
             />
+          ) : denahBlocker ? (
+            // Without a floorplan image (or with nothing placed on it) Leaflet
+            // still mounts and drops EVERY marker on the same coordinate — in
+            // production that is all 70 of SF 1's devices stacked on one pixel
+            // over a blank canvas. Say what is missing instead of rendering it.
+            <div className="flex h-full items-center justify-center p-6">
+              <div className="max-w-md text-center">
+                <p className="text-base font-medium text-slate-200">{denahBlocker.title}</p>
+                <p className="mt-1.5 text-sm text-slate-400">{denahBlocker.body}</p>
+                {denahBlocker.href && (
+                  <Link href={denahBlocker.href} className={`${buttonClass('secondary')} mt-4`}>
+                    {denahBlocker.cta}
+                  </Link>
+                )}
+              </div>
+            </div>
           ) : (
             <>
               <MapView

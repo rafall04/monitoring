@@ -27,6 +27,7 @@ import {
   PageHeader,
   Select,
   TextInput,
+  TABLE,
 } from '@/components/ui';
 
 // Ruijie Cloud account management — credentials + which projects the NOC
@@ -152,25 +153,25 @@ function AccountsPanel() {
       ) : (
         <>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs uppercase text-slate-500">
+            <table className={TABLE.table}>
+              <thead className={TABLE.head}>
                 <tr>
-                  <th className="py-1">Label</th>
-                  <th>App ID</th>
-                  <th>Dipantau</th>
-                  <th>Status</th>
-                  <th className="text-right">Aksi</th>
+                  <th className={TABLE.thDense}>Label</th>
+                  <th className={TABLE.thDense}>App ID</th>
+                  <th className={TABLE.thDense}>Dipantau</th>
+                  <th className={TABLE.thDense}>Status</th>
+                  <th className={`${TABLE.thDense} text-right`}>Aksi</th>
                 </tr>
               </thead>
               <tbody>
                 {(accounts.data ?? []).map((a) => (
                   <tr key={a.id} className="border-t border-surface-border">
-                    <td className="py-1.5">{a.label}</td>
-                    <td className="font-mono text-[11px] text-slate-400">{a.appId}</td>
-                    <td className="whitespace-nowrap">
+                    <td className={`${TABLE.tdDense} `}>{a.label}</td>
+                    <td className={`${TABLE.tdDense} font-mono text-2xs text-slate-400`}>{a.appId}</td>
+                    <td className={`${TABLE.tdDense} whitespace-nowrap`}>
                       {a.routerCount} router · {a.monitoredGroupIds.length} project
                     </td>
-                    <td className="text-xs">
+                    <td className={`${TABLE.tdDense} text-xs`}>
                       {a.lastError ? (
                         <span className="text-red-400" title={a.lastError}>
                           error
@@ -182,18 +183,18 @@ function AccountsPanel() {
                       )}
                       {testMsg[a.id] && <span className="ml-2 text-slate-400">{testMsg[a.id]}</span>}
                     </td>
-                    <td className="space-x-3 whitespace-nowrap py-1.5 text-right text-xs">
+                    <td className={`${TABLE.tdDense} space-x-3 whitespace-nowrap text-right text-xs`}>
                       <button
-                        className="text-accent hover:opacity-80"
+                        className="noc-tap inline-flex items-center text-accent hover:opacity-80"
                         onClick={() => setPickerFor((cur) => (cur === a.id ? null : a.id))}
                       >
                         Project
                       </button>
-                      <button className="text-accent hover:opacity-80" onClick={() => void test(a.id)}>
+                      <button className="noc-tap inline-flex items-center text-accent hover:opacity-80" onClick={() => void test(a.id)}>
                         Test
                       </button>
                       <button
-                        className="text-red-400 hover:text-red-300"
+                        className="noc-tap inline-flex items-center text-red-400 hover:text-red-300"
                         onClick={() => void remove(a.id, a.label)}
                       >
                         Hapus
@@ -281,7 +282,7 @@ function ProjectPicker({ account, onClose }: { account: RuijieAccountPublic; onC
         <Button variant="ghost" onClick={onClose}>
           Tutup
         </Button>
-        <span className="text-[11px] text-slate-500">
+        <span className="text-2xs text-slate-500">
           Centang site yang dipantau NOC; sisanya (rumah/pribadi) diabaikan.
         </span>
       </div>

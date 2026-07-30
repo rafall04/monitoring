@@ -19,8 +19,10 @@ import {
   PageBody,
   PageHeader,
   Select,
+  TABLE,
   Tabs,
   TextInput,
+  Toolbar,
 } from '@/components/ui';
 
 type Tab = 'users' | 'profiles' | 'active' | 'vouchers';
@@ -199,27 +201,34 @@ export default function HotspotPage() {
         actions={<Tabs tabs={HOTSPOT_TABS} value={tab} onChange={setTab} />}
       />
       <PageBody>
-        <div className="max-w-xs">
-        <Field label="Router">
-          <Select value={rid} onChange={(e) => setRouterId(e.target.value)}>
-            {routers.data?.length ? (
-              routers.data.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name} ({r.host})
-                </option>
-              ))
-            ) : (
-              <option value="">No routers available</option>
-            )}
-          </Select>
-        </Field>
-        </div>
+        <Toolbar
+          left={
+            <>
+              <span className="text-xs text-slate-400">Router</span>
+              <Select
+                value={rid}
+                onChange={(e) => setRouterId(e.target.value)}
+                className="w-full sm:w-72"
+              >
+                {routers.data?.length ? (
+                  routers.data.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name} ({r.host})
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No routers available</option>
+                )}
+              </Select>
+            </>
+          }
+        />
 
       {/* ---------------- USERS ---------------- */}
       {tab === 'users' && (
         <Card className="p-4">
           {canManage && (
-            <div className="mb-4 flex flex-wrap items-end gap-2">
+            <div className="mb-4 grid grid-cols-1 items-end gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="Name">
                 <TextInput
                   value={newUser.name}
@@ -258,29 +267,29 @@ export default function HotspotPage() {
           ) : (
             <div className="overflow-x-auto">
               <table className="r-table w-full text-sm">
-                <thead className="text-left text-xs uppercase text-slate-500">
+                <thead className={TABLE.head}>
                   <tr>
-                    <th className="py-1">Name</th>
-                    <th>Profile</th>
-                    <th>Uptime</th>
-                    <th>Traffic (in/out)</th>
-                    {canManage && <th className="text-right">Actions</th>}
+                    <th className={TABLE.thDense}>Name</th>
+                    <th className={TABLE.thDense}>Profile</th>
+                    <th className={TABLE.thDense}>Uptime</th>
+                    <th className={TABLE.thDense}>Traffic (in/out)</th>
+                    {canManage && <th className={`${TABLE.thDense} text-right`}>Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {users.data?.map((u) => (
                     <Fragment key={u['.id'] ?? u.name}>
-                      <tr className="border-t border-surface-border">
-                        <td data-label="Name" className="py-1.5">{u.name}</td>
-                        <td data-label="Profile">{u.profile}</td>
-                        <td data-label="Uptime">{u.uptime}</td>
-                        <td data-label="Traffic">
+                      <tr className={TABLE.row}>
+                        <td data-label="Name" className={TABLE.tdDense}>{u.name}</td>
+                        <td data-label="Profile" className={TABLE.tdDense}>{u.profile}</td>
+                        <td data-label="Uptime" className={TABLE.tdDense}>{u.uptime}</td>
+                        <td data-label="Traffic" className={TABLE.tdDense}>
                           {formatBytes(u['bytes-in'])} / {formatBytes(u['bytes-out'])}
                         </td>
                         {canManage && (
-                          <td className="space-x-3 py-1.5 text-right">
+                          <td className={`${TABLE.tdDense} space-x-3 text-right`}>
                             <button
-                              className="text-accent hover:opacity-80"
+                              className="noc-tap inline-flex items-center text-accent hover:opacity-80"
                               onClick={() =>
                                 u['.id'] &&
                                 setEditUser({
@@ -294,7 +303,7 @@ export default function HotspotPage() {
                               edit
                             </button>
                             <button
-                              className="text-red-400 hover:text-red-300"
+                              className="noc-tap inline-flex items-center text-red-400 hover:text-red-300"
                               onClick={() => u['.id'] && askDeleteUser(u['.id'], u.name)}
                             >
                               delete
@@ -305,7 +314,7 @@ export default function HotspotPage() {
                       {editUser && editUser.id === u['.id'] && (
                         <tr className="border-t border-surface-border bg-surface">
                           <td colSpan={5} className="p-3">
-                            <div className="flex flex-wrap items-end gap-2">
+                            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-2 lg:grid-cols-4">
                               <Field label="Profile">
                                 {profileSelect(editUser.profile, (v) =>
                                   setEditUser((p) => (p ? { ...p, profile: v } : p)),
@@ -353,7 +362,7 @@ export default function HotspotPage() {
                   ))}
                   {users.data?.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-3 text-slate-500">
+                      <td colSpan={5} className="px-3 py-4 text-center text-slate-500">
                         No hotspot users on this router.
                       </td>
                     </tr>
@@ -369,7 +378,7 @@ export default function HotspotPage() {
       {tab === 'profiles' && (
         <Card className="p-4">
           {canManageProfiles ? (
-            <div className="mb-4 flex flex-wrap items-end gap-2">
+            <div className="mb-4 grid grid-cols-1 items-end gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="Name">
                 <TextInput
                   value={newProfile.name}
@@ -427,27 +436,27 @@ export default function HotspotPage() {
           ) : (
             <div className="overflow-x-auto">
               <table className="r-table w-full text-sm">
-                <thead className="text-left text-xs uppercase text-slate-500">
+                <thead className={TABLE.head}>
                   <tr>
-                    <th className="py-1">Name</th>
-                    <th>Rate limit</th>
-                    <th>Shared</th>
-                    <th>Session timeout</th>
-                    {canManageProfiles && <th className="text-right">Actions</th>}
+                    <th className={TABLE.thDense}>Name</th>
+                    <th className={TABLE.thDense}>Rate limit</th>
+                    <th className={TABLE.thDense}>Shared</th>
+                    <th className={TABLE.thDense}>Session timeout</th>
+                    {canManageProfiles && <th className={`${TABLE.thDense} text-right`}>Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {profiles.data?.map((p) => (
                     <Fragment key={p['.id'] ?? p.name}>
-                      <tr className="border-t border-surface-border">
-                        <td data-label="Name" className="py-1.5">{p.name}</td>
-                        <td data-label="Rate limit">{p['rate-limit'] ?? '—'}</td>
-                        <td data-label="Shared">{p['shared-users'] ?? '—'}</td>
-                        <td data-label="Session timeout">{p['session-timeout'] ?? '—'}</td>
+                      <tr className={TABLE.row}>
+                        <td data-label="Name" className={TABLE.tdDense}>{p.name}</td>
+                        <td data-label="Rate limit" className={TABLE.tdDense}>{p['rate-limit'] ?? '—'}</td>
+                        <td data-label="Shared" className={TABLE.tdDense}>{p['shared-users'] ?? '—'}</td>
+                        <td data-label="Session timeout" className={TABLE.tdDense}>{p['session-timeout'] ?? '—'}</td>
                         {canManageProfiles && (
-                          <td className="py-1.5 text-right">
+                          <td className={`${TABLE.tdDense} text-right`}>
                             <button
-                              className="text-accent hover:opacity-80"
+                              className="noc-tap inline-flex items-center text-accent hover:opacity-80"
                               onClick={() =>
                                 p['.id'] &&
                                 setEditProfile({
@@ -467,7 +476,7 @@ export default function HotspotPage() {
                       {editProfile && editProfile.id === p['.id'] && (
                         <tr className="border-t border-surface-border bg-surface">
                           <td colSpan={5} className="p-3">
-                            <div className="flex flex-wrap items-end gap-2">
+                            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-2 lg:grid-cols-4">
                               <Field label="Rate limit">
                                 <TextInput
                                   value={editProfile.rateLimit}
@@ -527,7 +536,7 @@ export default function HotspotPage() {
                   ))}
                   {profiles.data?.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-3 text-slate-500">
+                      <td colSpan={5} className="px-3 py-4 text-center text-slate-500">
                         No profiles on this router.
                       </td>
                     </tr>
@@ -564,40 +573,40 @@ export default function HotspotPage() {
               })()}
               <div className="overflow-x-auto">
                 <table className="r-table w-full text-sm">
-                  <thead className="text-left text-xs uppercase text-slate-500">
+                  <thead className={TABLE.head}>
                     <tr>
-                      <th className="py-1">User</th>
-                      <th>Address</th>
-                      <th>MAC</th>
-                      <th>Uptime</th>
-                      <th>Idle</th>
-                      <th>Traffic (↓in / ↑out)</th>
-                      {canDisconnect && <th className="text-right">Actions</th>}
+                      <th className={TABLE.thDense}>User</th>
+                      <th className={TABLE.thDense}>Address</th>
+                      <th className={TABLE.thDense}>MAC</th>
+                      <th className={TABLE.thDense}>Uptime</th>
+                      <th className={TABLE.thDense}>Idle</th>
+                      <th className={TABLE.thDense}>Traffic (↓in / ↑out)</th>
+                      {canDisconnect && <th className={`${TABLE.thDense} text-right`}>Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {sessions.data?.map((a) => (
                       <tr key={a['.id'] ?? a.address} className="border-t border-surface-border">
-                        <td data-label="User" className="py-1.5">
+                        <td data-label="User" className={TABLE.tdDense}>
                           <div>
                             <div className="font-medium text-slate-200">{a.user}</div>
                             {a['login-by'] && (
-                              <div className="text-[10px] text-slate-500">via {a['login-by']}</div>
+                              <div className="text-micro text-slate-500">via {a['login-by']}</div>
                             )}
                           </div>
                         </td>
-                        <td data-label="Address" className="font-mono text-xs">{a.address}</td>
-                        <td data-label="MAC" className="font-mono text-xs">{a['mac-address']}</td>
-                        <td data-label="Uptime">
+                        <td data-label="Address" className={`${TABLE.tdDense} font-mono text-xs`}>{a.address}</td>
+                        <td data-label="MAC" className={`${TABLE.tdDense} font-mono text-xs`}>{a['mac-address']}</td>
+                        <td data-label="Uptime" className={TABLE.tdDense}>
                           <div>
                             <div>{a.uptime}</div>
                             {a['session-time-left'] && (
-                              <div className="text-[10px] text-slate-500">sisa {a['session-time-left']}</div>
+                              <div className="text-micro text-slate-500">sisa {a['session-time-left']}</div>
                             )}
                           </div>
                         </td>
-                        <td data-label="Idle" className="text-slate-400">{a['idle-time'] ?? '—'}</td>
-                        <td data-label="Traffic">
+                        <td data-label="Idle" className={`${TABLE.tdDense} text-slate-400`}>{a['idle-time'] ?? '—'}</td>
+                        <td data-label="Traffic" className={TABLE.tdDense}>
                           <span className="whitespace-nowrap">
                             <span className="text-sky-600 dark:text-sky-400">↓ {formatBytes(a['bytes-in'])}</span>
                             <span className="mx-1 text-slate-500">/</span>
@@ -605,7 +614,7 @@ export default function HotspotPage() {
                           </span>
                         </td>
                         {canDisconnect && (
-                          <td className="py-1.5 text-right">
+                          <td className={`${TABLE.tdDense} text-right`}>
                             <button
                               className="text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300"
                               onClick={() => a['.id'] && disconnect.mutate(a['.id'])}
@@ -618,7 +627,7 @@ export default function HotspotPage() {
                     ))}
                     {sessions.data?.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="py-3 text-slate-500">
+                        <td colSpan={7} className="px-3 py-4 text-center text-slate-500">
                           No active sessions.
                         </td>
                       </tr>
@@ -638,7 +647,7 @@ export default function HotspotPage() {
             <p className="text-slate-400">You cannot generate vouchers.</p>
           ) : (
             <>
-              <div className="mb-4 flex flex-wrap items-end gap-2">
+              <div className="mb-4 grid grid-cols-1 items-end gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="Count">
                   <TextInput
                     type="number"
@@ -709,19 +718,19 @@ export default function HotspotPage() {
               {voucherRows.length > 0 && (
                 <div className="overflow-x-auto">
                   <table className="r-table w-full text-sm">
-                    <thead className="text-left text-xs uppercase text-slate-500">
+                    <thead className={TABLE.head}>
                       <tr>
-                        <th className="py-1">Username</th>
-                        <th>Password</th>
-                        <th>Profile</th>
+                        <th className={TABLE.thDense}>Username</th>
+                        <th className={TABLE.thDense}>Password</th>
+                        <th className={TABLE.thDense}>Profile</th>
                       </tr>
                     </thead>
                     <tbody>
                       {voucherRows.map((v) => (
                         <tr key={v.username} className="border-t border-surface-border">
-                          <td data-label="Username" className="py-1.5">{v.username}</td>
-                          <td data-label="Password">{v.password}</td>
-                          <td data-label="Profile">{v.profile ?? ''}</td>
+                          <td data-label="Username" className={TABLE.tdDense}>{v.username}</td>
+                          <td data-label="Password" className={TABLE.tdDense}>{v.password}</td>
+                          <td data-label="Profile" className={TABLE.tdDense}>{v.profile ?? ''}</td>
                         </tr>
                       ))}
                     </tbody>

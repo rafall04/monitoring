@@ -100,7 +100,7 @@ export default function InspectPanel({
         {wifi && (
           <div className="rounded-lg border border-surface-border bg-surface/40 p-3">
             <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+              <span className="text-2xs font-medium uppercase tracking-wide text-slate-500">
                 Koneksi WiFi
               </span>
               <SignalBars rssi={wifi.rssi} />
@@ -134,7 +134,7 @@ export default function InspectPanel({
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-2">
-      <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</span>
+      <span className="shrink-0 text-2xs font-medium uppercase tracking-wide text-slate-500">{label}</span>
       <span className="min-w-0 break-words text-right text-sm text-slate-200">{children}</span>
     </div>
   );
@@ -148,7 +148,7 @@ function Badge({ tone, children }: { tone: 'red' | 'amber' | 'slate'; children: 
         ? 'bg-amber-500/15 text-amber-400'
         : 'bg-slate-500/15 text-slate-300';
   return (
-    <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cls}`}>
+    <span className={`rounded px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide ${cls}`}>
       {children}
     </span>
   );

@@ -24,6 +24,7 @@ import {
   SectionHeader,
   Select,
   TextInput,
+  Toolbar,
 } from '@/components/ui';
 
 function Ic({ d }: { d: string }) {
@@ -103,17 +104,27 @@ export default function DiagnosticsPage() {
       <PageHeader
         title="Diagnostik"
         subtitle="Cek & perbaiki device dari sisi router: ping, traceroute, info jaringan, dan power-cycle PoE."
-        actions={
-          <Select value={routerId ?? ''} onChange={(e) => setRid(e.target.value)} className="w-full sm:w-64">
-            {routers.data?.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name} ({r.host})
-              </option>
-            ))}
-          </Select>
-        }
       />
       <PageBody>
+        <Toolbar
+          left={
+            <>
+              <span className="text-xs text-slate-400">Router</span>
+              <Select
+                value={routerId ?? ''}
+                onChange={(e) => setRid(e.target.value)}
+                className="w-full sm:w-64"
+              >
+                {routers.data?.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name} ({r.host})
+                  </option>
+                ))}
+              </Select>
+            </>
+          }
+        />
+
         {/* Target picker */}
         <Card className="p-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">

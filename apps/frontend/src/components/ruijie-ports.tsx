@@ -4,6 +4,14 @@ import type { RuijiePortDTO } from '@noc/shared';
 // uplink chip, and the dedicated Switch board. Keep presentation here; data
 // fetching stays in the pages.
 
+/**
+ * The uplink chip's shared shell. Deliberately NOT a <Badge>: it is one step
+ * smaller (text-micro) because it sits inline inside dense AP/switch rows, and
+ * the "up" variant leaves its foreground unset so speedTone() can colour the
+ * speed per link. Callers add only the background + weight.
+ */
+const UPLINK_CHIP = 'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-micro';
+
 /** True when a Ruijie device model is a managed switch (vs an AP/router). */
 export function isRuijieSwitch(model: string | null): boolean {
   const m = (model ?? '').toUpperCase();
@@ -79,19 +87,19 @@ export function PortTile({ p, flagged }: { p: RuijiePortDTO; flagged?: boolean }
         }
       />
       <span
-        className={`max-w-full truncate text-[10px] font-medium ${p.up ? 'text-slate-700 dark:text-slate-200' : 'text-slate-500'}`}
+        className={`max-w-full truncate text-micro font-medium ${p.up ? 'text-slate-700 dark:text-slate-200' : 'text-slate-500'}`}
       >
         {p.name}
       </span>
       <span
-        className={`text-[10px] font-semibold leading-none ${
+        className={`text-micro font-semibold leading-none ${
           flagged ? 'text-rose-600 dark:text-rose-400' : p.up ? speedTone(p.speed) : 'text-slate-500'
         }`}
       >
         {label}
       </span>
       {p.medium && p.medium.toLowerCase() !== 'copper' && (
-        <span className="text-[9px] uppercase text-sky-600 dark:text-sky-400">{p.medium}</span>
+        <span className="text-micro uppercase text-sky-600 dark:text-sky-400">{p.medium}</span>
       )}
     </div>
   );
@@ -117,19 +125,13 @@ export function UplinkChip({ ports, loading }: { ports: RuijiePortDTO[] | undefi
     .join(' · ');
   if (ups.length === 0) {
     return (
-      <span
-        title={title}
-        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium text-slate-500"
-      >
+      <span title={title} className={`${UPLINK_CHIP} bg-slate-500/10 font-medium text-slate-500`}>
         <JackIcon className="h-3 w-3 text-slate-400 dark:text-slate-600" /> LAN —
       </span>
     );
   }
   return (
-    <span
-      title={title}
-      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold"
-    >
+    <span title={title} className={`${UPLINK_CHIP} bg-emerald-500/10 font-semibold`}>
       <JackIcon className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
       <span className={speedTone(top?.speed ?? null)}>↑{speedShort(top?.speed ?? null) || 'Up'}</span>
       {ports.length > 3 && <span className="font-medium text-slate-500">{ups.length}/{ports.length}</span>}

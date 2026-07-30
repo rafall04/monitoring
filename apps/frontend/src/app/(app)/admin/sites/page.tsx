@@ -169,7 +169,7 @@ export default function AdminSitesPage() {
       {/* Sites */}
       <Card className="p-4">
         <h2 className="mb-3 font-semibold text-slate-200">Sites</h2>
-        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           <Field label="Company">
             <Select value={siteForm.companyId} onChange={(e) => setSiteForm({ ...siteForm, companyId: e.target.value })}>
               <option value="">—</option>
@@ -199,7 +199,7 @@ export default function AdminSitesPage() {
       {/* Routers */}
       <Card className="p-4">
         <h2 className="mb-3 font-semibold text-slate-200">Routers (MikroTik)</h2>
-        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           <Field label="Site">
             <Select value={routerForm.siteId} onChange={(e) => setRouterForm({ ...routerForm, siteId: e.target.value })}>
               <option value="">—</option>
@@ -245,8 +245,8 @@ export default function AdminSitesPage() {
                   >
                     Script
                   </Button>
-                  <button className="text-accent hover:opacity-80" onClick={() => setEditRouterId((c) => (c === r.id ? null : r.id))}>{editRouterId === r.id ? 'close' : 'edit'}</button>
-                  <button className="text-red-400 hover:text-red-300" onClick={() => askDeleteRouter(r)}>delete</button>
+                  <button className="noc-tap inline-flex items-center text-accent hover:opacity-80" onClick={() => setEditRouterId((c) => (c === r.id ? null : r.id))}>{editRouterId === r.id ? 'close' : 'edit'}</button>
+                  <button className="noc-tap inline-flex items-center text-red-400 hover:text-red-300" onClick={() => askDeleteRouter(r)}>delete</button>
                 </div>
               </div>
               {testResult[r.id] && <div className="mt-1 text-xs text-slate-400">{testResult[r.id]}</div>}
@@ -264,7 +264,7 @@ export default function AdminSitesPage() {
         <Card className="p-4">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="font-semibold text-slate-200">Netwatch script · {scriptFor.host}</h2>
-            <button className="text-slate-400" onClick={() => setScriptFor(null)}>✕</button>
+            <button className="noc-tap inline-flex items-center text-slate-400" onClick={() => setScriptFor(null)}>✕</button>
           </div>
           <p className="mb-2 text-xs text-slate-400">
             Paste ke terminal router, atau install via API. Webhook update status realtime.
@@ -325,11 +325,11 @@ function SiteRow({ site, onDelete, onUploaded }: { site: Site; onDelete: () => v
           <span className="font-medium text-slate-100">{site.name}</span>{' '}
           <span className="text-slate-500">· {site.mapMode}</span>
         </div>
-        <button className="text-red-400 hover:text-red-300" onClick={onDelete}>delete</button>
+        <button className="noc-tap inline-flex items-center text-red-400 hover:text-red-300" onClick={onDelete}>delete</button>
       </div>
       {site.mapMode === 'floorplan' && (
         <div className="mt-2 flex flex-wrap items-end gap-2">
-          <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-xs text-slate-400" />
+          <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="noc-tap block text-xs text-slate-400" />
           <Field label="W"><TextInput value={dims.w} onChange={(e) => setDims({ ...dims, w: e.target.value })} className="w-20" /></Field>
           <Field label="H"><TextInput value={dims.h} onChange={(e) => setDims({ ...dims, h: e.target.value })} className="w-20" /></Field>
           <Button variant="secondary" onClick={upload} disabled={!file || busy}>{busy ? 'Uploading…' : 'Upload floorplan'}</Button>
@@ -364,7 +364,7 @@ function SiteRow({ site, onDelete, onUploaded }: { site: Site; onDelete: () => v
           <Button variant="secondary" onClick={() => testTg.mutate()} disabled={testTg.isPending}>Kirim tes</Button>
         </div>
         {tgMsg && <div className="mt-1 text-xs text-slate-400">{tgMsg}</div>}
-        <p className="mt-1 text-[11px] text-slate-500">
+        <p className="mt-1 text-2xs text-slate-500">
           server = NOC yang kirim (token aman di server) · router = script Netwatch yang kirim (perlu Install/Sync di router) · hanya device is_critical.
         </p>
       </div>

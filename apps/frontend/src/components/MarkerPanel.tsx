@@ -118,7 +118,7 @@ export default function MarkerPanel(props: MarkerPanelProps) {
         <h3 className="text-sm font-semibold text-slate-100">
           {mode === 'add' ? 'Add device' : 'Edit device'}
         </h3>
-        <button onClick={props.onClose} className="text-slate-400 hover:text-slate-200">
+        <button onClick={props.onClose} className="noc-tap inline-flex items-center text-slate-400 hover:text-slate-200">
           ✕
         </button>
       </div>

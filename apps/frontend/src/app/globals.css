@@ -62,6 +62,40 @@ html:not(.dark) .text-slate-500 {
   color: #64748b;
 }
 
+/* Same treatment for the SEMANTIC status colors. Without this, the ~80 places
+   that write a bare `text-red-400` / `text-amber-400` / … (i.e. everything that
+   bypassed <Badge>, whose TONES map already pairs `-700` with `dark:-400`)
+   render at dark-mode brightness on a white card — washed out and below AA.
+   These selectors match ONLY the bare utility: Tailwind compiles `dark:text-red-400`
+   to `.dark .dark\:text-red-400`, a different class, so explicit light/dark pairs
+   are never overridden. Targets shades 200–400; 500+ are already readable. */
+html:not(.dark) .text-red-200,
+html:not(.dark) .text-red-300,
+html:not(.dark) .text-red-400 {
+  color: #b91c1c; /* red-700 */
+}
+html:not(.dark) .text-rose-300,
+html:not(.dark) .text-rose-400 {
+  color: #be123c; /* rose-700 */
+}
+html:not(.dark) .text-amber-300,
+html:not(.dark) .text-amber-400 {
+  color: #b45309; /* amber-700 */
+}
+html:not(.dark) .text-emerald-200,
+html:not(.dark) .text-emerald-300,
+html:not(.dark) .text-emerald-400 {
+  color: #047857; /* emerald-700 */
+}
+html:not(.dark) .text-sky-300,
+html:not(.dark) .text-sky-400 {
+  color: #0369a1; /* sky-700 */
+}
+html:not(.dark) .text-violet-300,
+html:not(.dark) .text-violet-400 {
+  color: #6d28d9; /* violet-700 */
+}
+
 /* Leaflet tiles look better with a dark backdrop while loading */
 .leaflet-container {
   background: #0b1220;
@@ -168,4 +202,42 @@ html:not(.dark) .text-slate-500 {
 .noc-focus:focus {
   border-color: rgb(var(--accent));
   box-shadow: 0 0 0 3px rgb(var(--accent) / 0.22);
+}
+
+/* ===== Touch targets =====================================================
+   The desktop density is deliberately compact (this is a NOC console watched
+   on a big screen), which leaves controls at 28–33px and bare in-row text
+   actions at 16–18px — fine for a mouse, unhittable with a thumb.
+
+   Grow them to the 44px WCAG 2.5.5 / Apple HIG target below lg (1024px, where
+   the shell is still a drawer and the device is almost certainly touch) OR
+   whenever the pointer is coarse. `pointer: coarse` is the part that
+   matters for tablets: a 1024px iPad is still a finger, so width alone is the
+   wrong signal. Desktop is untouched.                                        */
+@media (max-width: 1023px), (pointer: coarse) {
+  .noc-tap {
+    min-height: 44px;
+  }
+  /* Row actions ("edit", "hapus", "detail") are bare <button>s with no padding.
+     Rather than touch ~125 call sites, give every control inside a data cell
+     the same target. */
+  table.r-table td button,
+  table.r-table td a,
+  table.r-table td select {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+  /* Native checkboxes render ~13px. Enlarge the box, and make the label that
+     wraps it the real 44px target — clicking a label toggles its control, so
+     the pair is what the finger actually aims at. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 20px;
+    height: 20px;
+  }
+  label:has(> input[type='checkbox']),
+  label:has(> input[type='radio']) {
+    min-height: 44px;
+  }
 }
