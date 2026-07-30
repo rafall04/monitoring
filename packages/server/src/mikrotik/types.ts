@@ -44,6 +44,17 @@ export interface NetwatchEntry {
   since?: string;
   comment?: string;
   name?: string;
+  /** Ping interval as RouterOS reports it, e.g. "30s" / "00:00:10". */
+  interval?: string;
+  /**
+   * Whether the entry actually carries our webhook scripts. An entry without
+   * them still shows a status on the router, but never pushes a change to the
+   * NOC — detection then falls back to the 20s poller. Needed to tell a
+   * properly wired entry from a hand-made one.
+   */
+  hasUpScript?: boolean;
+  hasDownScript?: boolean;
+  disabled?: boolean;
 }
 
 export interface AddNetwatchInput {
@@ -83,6 +94,12 @@ export interface MikrotikClient {
   listNetwatch(): Promise<NetwatchEntry[]>;
   addNetwatch(input: AddNetwatchInput): Promise<void>;
   removeNetwatchByHost(host: string): Promise<void>;
+  /**
+   * Remove by RouterOS id. Saves the lookup round-trip when the caller already
+   * listed the table — which matters in bulk loops, where removeNetwatchByHost
+   * would otherwise issue a filtered print per device.
+   */
+  removeNetwatchById(id: string): Promise<void>;
 
   listHotspotServers(): Promise<string[]>;
   listHotspotProfiles(): Promise<HotspotProfile[]>;

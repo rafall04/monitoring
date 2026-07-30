@@ -188,7 +188,18 @@ export async function routerRoutes(app: FastifyInstance) {
 
     const client = clientForRouter(r);
     const results: Array<{ device: string; ok: boolean; reason?: string }> = [];
+    const installedIps: string[] = [];
     try {
+      // List once and delete by id, instead of a filtered print per device.
+      // The old loop cost 3 round-trips per device (print + remove + add); this
+      // costs 1 for a device with no existing entry and 2 otherwise. Across a
+      // few hundred devices that is the difference between a request that
+      // finishes and one that times out.
+      const existing = await client.listNetwatch();
+      const idByHost = new Map(
+        existing.filter((e) => e.host && e.id).map((e) => [e.host, e.id as string]),
+      );
+
       for (const d of r.devices) {
         if (!d.ipAddress) {
           results.push({ device: d.name, ok: false, reason: 'no ip address' });
@@ -204,9 +215,10 @@ export async function routerRoutes(app: FastifyInstance) {
             telegram: d.isCritical ? routerTelegram : undefined, // alert critical devices only
             cfg,
           };
-          await client.removeNetwatchByHost(d.ipAddress);
+          const oldId = idByHost.get(d.ipAddress);
+          if (oldId) await client.removeNetwatchById(oldId);
           await client.addNetwatch(netwatchApiInput(params));
-          await prisma.device.update({ where: { id: d.id }, data: { netwatchSynced: true } });
+          installedIps.push(d.ipAddress);
           results.push({ device: d.name, ok: true });
         } catch (e) {
           results.push({ device: d.name, ok: false, reason: (e as Error)?.message ?? String(e) });
@@ -215,8 +227,93 @@ export async function routerRoutes(app: FastifyInstance) {
     } finally {
       await client.close();
     }
+
+    // One UPDATE instead of one per device. The poller re-derives this flag
+    // from the router anyway; writing it here just avoids a stale-looking UI
+    // for the few seconds until the next poll.
+    if (installedIps.length) {
+      await prisma.device.updateMany({
+        where: { routerId: r.id, ipAddress: { in: installedIps } },
+        data: { netwatchSynced: true },
+      });
+    }
     await writeAudit(req, { action: 'netwatch-install', entity: 'router', entityId: id, after: { results } });
     return { results };
+  });
+
+  /**
+   * Compare what we think we monitor against what the router is actually
+   * watching, right now. This is the answer to "is it really synced?" — a
+   * question the old `Device.netwatchSynced` flag could not answer, because it
+   * recorded what the app had done rather than what is true.
+   *
+   * Read-only: it changes nothing, it only reports. Use `netwatch/install` to
+   * act on what it finds.
+   */
+  app.get('/:id/netwatch/drift', netwatchGuard, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const r = await prisma.routerMikrotik.findUnique({ where: { id }, include: { devices: true } });
+    if (!r) throw notFound('Router not found');
+    assertSiteAccess(req.appUser, r.siteId);
+
+    const cfg = await getNetwatchConfig();
+    const expectedIntervalSec = cfg.intervalSec;
+
+    const client = clientForRouter(r);
+    let entries;
+    try {
+      entries = await client.listNetwatch();
+    } catch (err) {
+      throw badGateway(`MikroTik error: ${(err as Error)?.message ?? err}`);
+    } finally {
+      await client.close();
+    }
+
+    const byHost = new Map(entries.filter((e) => e.host).map((e) => [e.host, e]));
+    const withIp = r.devices.filter((d) => d.ipAddress);
+
+    const missingOnRouter = withIp
+      .filter((d) => !byHost.has(d.ipAddress as string))
+      .map((d) => ({ id: d.id, name: d.name, ipAddress: d.ipAddress as string }));
+
+    const knownIps = new Set(withIp.map((d) => d.ipAddress as string));
+    const unknownOnRouter = [...byHost.keys()]
+      .filter((h) => !knownIps.has(h))
+      .map((h) => ({ host: h, comment: byHost.get(h)?.comment ?? null }));
+
+    // An entry with no scripts still shows a status on the router but never
+    // pushes it to us, so detection silently degrades to the poll interval.
+    const withoutWebhook = entries
+      .filter((e) => !e.hasUpScript || !e.hasDownScript)
+      .map((e) => e.host);
+
+    const disabled = entries.filter((e) => e.disabled).map((e) => e.host);
+
+    const intervals: Record<string, number> = {};
+    for (const e of entries) {
+      const k = e.interval ?? 'unknown';
+      intervals[k] = (intervals[k] ?? 0) + 1;
+    }
+
+    return {
+      routerId: r.id,
+      routerName: r.name,
+      deviceCount: r.devices.length,
+      devicesWithIp: withIp.length,
+      devicesWithoutIp: r.devices.length - withIp.length,
+      entryCount: entries.length,
+      missingOnRouter,
+      unknownOnRouter,
+      withoutWebhook,
+      disabled,
+      intervals,
+      expectedIntervalSec,
+      inSync:
+        missingOnRouter.length === 0 &&
+        unknownOnRouter.length === 0 &&
+        withoutWebhook.length === 0 &&
+        disabled.length === 0,
+    };
   });
 
   // Import devices from the router's EXISTING Netwatch table (auto-discovery).

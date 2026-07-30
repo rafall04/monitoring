@@ -158,8 +158,21 @@ export async function deviceRoutes(app: FastifyInstance) {
 
       let d = await prisma.device.update({ where: { id }, data: patch });
 
+      // Re-install the router entry whenever a field that is BAKED INTO it
+      // changed — the watched host, the label, or the criticality that decides
+      // whether the entry carries a Telegram call. `syncNetwatch` used to be a
+      // pure opt-in checkbox defaulting to false, so renaming a device or
+      // moving it to a new IP silently left the router watching the old one:
+      // the UI then showed some other machine's status under this device's
+      // name. An explicit true/false from the caller still wins.
+      const entryChanged =
+        (patch.ipAddress !== undefined && patch.ipAddress !== before.ipAddress) ||
+        (patch.name !== undefined && patch.name !== before.name) ||
+        (patch.isCritical !== undefined && patch.isCritical !== before.isCritical);
+      const shouldSync = syncNetwatch ?? entryChanged;
+
       let netwatchError: string | undefined;
-      if (syncNetwatch) {
+      if (shouldSync) {
         if (!d.ipAddress) {
           netwatchError = 'Device has no IP address';
         } else {
@@ -248,7 +261,13 @@ export async function deviceRoutes(app: FastifyInstance) {
       if (!before) throw notFound('Device not found');
       assertSiteAccess(req.appUser, before.siteId);
 
-      if (before.netwatchSynced && before.ipAddress) {
+      // Always try to remove the router entry, never gate on netwatchSynced.
+      // That flag was only set when the app itself installed the entry, so for
+      // anything imported or pasted in by hand (169 of 197 devices in prod) the
+      // removal was skipped and the router kept pinging a deleted device
+      // forever — which then reappeared on the next import-netwatch. Removing
+      // an entry that is not there is harmless; leaving an orphan is not.
+      if (before.ipAddress) {
         try {
           const client = clientForRouter(before.router);
           try {

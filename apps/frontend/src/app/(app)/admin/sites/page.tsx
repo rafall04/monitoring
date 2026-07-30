@@ -6,7 +6,18 @@ import type { Company, RouterPublic, RouterResource, Site } from '@noc/shared';
 import { api } from '@/lib/api';
 import { qk, useRouters, useSites } from '@/lib/queries';
 import { useConfirm, usePrompt, useToast } from '@/lib/toast';
-import { Button, Card, Field, Page, PageBody, PageHeader, Select, Spinner, TextInput } from '@/components/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  Field,
+  Page,
+  PageBody,
+  PageHeader,
+  Select,
+  Spinner,
+  TextInput,
+} from '@/components/ui';
 
 export default function AdminSitesPage() {
   const qc = useQueryClient();
@@ -29,6 +40,7 @@ export default function AdminSitesPage() {
   const [routerForm, setRouterForm] = useState({ siteId: '', name: '', host: '', apiPort: '8728', useTls: false, username: 'admin', password: '', routerosVersion: 'v6' });
   const [testResult, setTestResult] = useState<Record<string, string>>({});
   const [importMsg, setImportMsg] = useState<Record<string, string>>({});
+  const [drift, setDrift] = useState<Record<string, DriftState | undefined>>({});
   const [installMsg, setInstallMsg] = useState<Record<string, string>>({});
   const [editRouterId, setEditRouterId] = useState<string | null>(null);
   const [scriptFor, setScriptFor] = useState<{ routerId: string; host: string; cli: string; mode: string } | null>(null);
@@ -103,6 +115,18 @@ export default function AdminSitesPage() {
   const loadScript = async (routerId: string, host: string) => {
     const r = await api.get<{ cli: string; telegramMode: string }>(`/routers/${routerId}/netwatch/script?host=${encodeURIComponent(host)}`);
     setScriptFor({ routerId, host, cli: r.cli, mode: r.telegramMode });
+  };
+
+  // Read-only comparison of our device list against the router's live Netwatch
+  // table. Answers "is this really synced?" — which the stored flag could not.
+  const checkDrift = async (routerId: string) => {
+    setDrift((p) => ({ ...p, [routerId]: { loading: true } as DriftState }));
+    try {
+      const res = await api.get<DriftState>(`/routers/${routerId}/netwatch/drift`);
+      setDrift((p) => ({ ...p, [routerId]: res }));
+    } catch (e) {
+      setDrift((p) => ({ ...p, [routerId]: { error: (e as Error).message } as DriftState }));
+    }
   };
 
   const importNetwatch = async (routerId: string) => {
@@ -230,6 +254,7 @@ export default function AdminSitesPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button variant="secondary" onClick={() => testConn(r.id)}>Test</Button>
+                  <Button variant="secondary" onClick={() => checkDrift(r.id)}>Cek sinkron</Button>
                   <Button variant="secondary" onClick={() => installNetwatch(r.id)}>Sync Netwatch</Button>
                   <Button variant="secondary" onClick={() => importNetwatch(r.id)}>Import</Button>
                   <Button
@@ -252,6 +277,7 @@ export default function AdminSitesPage() {
               {testResult[r.id] && <div className="mt-1 text-xs text-slate-400">{testResult[r.id]}</div>}
               {importMsg[r.id] && <div className="mt-1 text-xs text-emerald-400">{importMsg[r.id]}</div>}
               {installMsg[r.id] && <div className="mt-1 text-xs text-emerald-400">{installMsg[r.id]}</div>}
+              {drift[r.id] && <DriftReport d={drift[r.id]!} />}
               {editRouterId === r.id && (
                 <EditRouterForm router={r} onSave={saveRouter} onCancel={() => setEditRouterId(null)} />
               )}
@@ -275,6 +301,100 @@ export default function AdminSitesPage() {
       )}
       </PageBody>
     </Page>
+  );
+}
+
+interface DriftState {
+  loading?: boolean;
+  error?: string;
+  deviceCount?: number;
+  devicesWithIp?: number;
+  devicesWithoutIp?: number;
+  entryCount?: number;
+  missingOnRouter?: Array<{ id: string; name: string; ipAddress: string }>;
+  unknownOnRouter?: Array<{ host: string; comment: string | null }>;
+  withoutWebhook?: string[];
+  disabled?: string[];
+  intervals?: Record<string, number>;
+  expectedIntervalSec?: number;
+  inSync?: boolean;
+}
+
+/**
+ * Shows how our device list differs from the router's live Netwatch table.
+ * Deliberately verbose about *what* is wrong: "not synced" is only actionable
+ * if you can see which device, and why.
+ */
+function DriftReport({ d }: { d: DriftState }) {
+  if (d.loading) return <div className="mt-2 text-xs text-slate-400">memeriksa router…</div>;
+  if (d.error) return <div className="mt-2 text-xs text-red-400">gagal cek: {d.error}</div>;
+
+  // Entries whose ping interval differs from the app's configured default. Not
+  // an error — but detection is that much slower than the UI implies.
+  const expected = d.expectedIntervalSec;
+  const offInterval = Object.entries(d.intervals ?? {}).filter(([k]) => {
+    if (expected == null) return false;
+    const m = /^(\d+)s$/.exec(k) ?? /^00:00:(\d+)$/.exec(k);
+    return !m || Number(m[1]) !== expected;
+  });
+
+  return (
+    <div className="mt-2 space-y-1 rounded-lg border border-surface-border bg-surface/40 p-2.5 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        {d.inSync ? (
+          <Badge tone="emerald">✓ sinkron</Badge>
+        ) : (
+          <Badge tone="red">tidak sinkron</Badge>
+        )}
+        <span className="text-slate-400">
+          {d.devicesWithIp} device ber-IP · {d.entryCount} entry di router
+          {d.devicesWithoutIp ? ` · ${d.devicesWithoutIp} device tanpa IP` : ''}
+        </span>
+      </div>
+
+      {!!d.missingOnRouter?.length && (
+        <div className="text-red-400">
+          {d.missingOnRouter.length} device TIDAK dipantau (tak ada entry) —{' '}
+          <span className="text-slate-400">
+            {d.missingOnRouter.slice(0, 4).map((x) => `${x.name} (${x.ipAddress})`).join(', ')}
+            {d.missingOnRouter.length > 4 ? `, +${d.missingOnRouter.length - 4} lagi` : ''}
+          </span>
+          <span className="ml-1 text-slate-500">→ tekan "Sync Netwatch"</span>
+        </div>
+      )}
+
+      {!!d.unknownOnRouter?.length && (
+        <div className="text-amber-400">
+          {d.unknownOnRouter.length} entry di router tanpa device —{' '}
+          <span className="text-slate-400">
+            {d.unknownOnRouter.slice(0, 4).map((x) => x.host).join(', ')}
+            {d.unknownOnRouter.length > 4 ? `, +${d.unknownOnRouter.length - 4} lagi` : ''}
+          </span>
+          <span className="ml-1 text-slate-500">→ "Import" untuk mengadopsi, atau hapus di router</span>
+        </div>
+      )}
+
+      {!!d.withoutWebhook?.length && (
+        <div className="text-amber-400">
+          {d.withoutWebhook.length} entry tanpa webhook — perubahan status baru terdeteksi saat
+          polling, bukan realtime. <span className="text-slate-500">→ "Sync Netwatch"</span>
+        </div>
+      )}
+
+      {!!d.disabled?.length && (
+        <div className="text-red-400">{d.disabled.length} entry dinonaktifkan di router</div>
+      )}
+
+      {offInterval.length > 0 && (
+        <div className="text-slate-400">
+          Interval ping:{' '}
+          {Object.entries(d.intervals ?? {}).map(([k, n]) => `${n}× ${k}`).join(', ')}
+          {expected != null && (
+            <span className="text-amber-400"> · setting aplikasi {expected}s</span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
