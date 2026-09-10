@@ -329,66 +329,208 @@ export class RouterOsV6Client implements MikrotikClient {
   }
 
   private readonly BLOCK_CHAIN = 'noc-block';
+  private readonly RFC1918_LIST = 'noc-rfc1918';
+  // A group's QUIC (udp/443) drop is infra shared by all that group's service
+  // intents. Its comment deliberately lacks the 'NOC:<group>|<service>' shape so
+  // listBlockIntents never lists it as a toggleable service.
+  private quicComment(group: string): string {
+    return `NOC-QUIC:${group}`;
+  }
+
+  private groupOf(id: string): string {
+    const bar = id.indexOf('|');
+    return bar >= 0 ? id.slice(0, bar) : 'semua';
+  }
 
   async ensureBlockChain(): Promise<void> {
     const fwd = await this.write('/ip/firewall/filter/print', ['?chain=forward']);
-    if (fwd.some((r) => r['action'] === 'jump' && r['jump-target'] === this.BLOCK_CHAIN)) return;
+    if (!fwd.some((r) => r['action'] === 'jump' && r['jump-target'] === this.BLOCK_CHAIN)) {
+      const params = [
+        '=chain=forward',
+        '=action=jump',
+        `=jump-target=${this.BLOCK_CHAIN}`,
+        '=comment=NOC: managed block chain',
+      ];
+      // Put it at the very top of forward so blocks win before fasttrack/accept.
+      const firstId = fwd[0]?.['.id'];
+      if (firstId) params.push(`=place-before=${firstId}`);
+      await this.write('/ip/firewall/filter/add', params);
+    }
+    // The RFC1918 exclusion list the per-group QUIC drops reference (created lazily
+    // in createIntent). Seeded here so it always exists first. Idempotent.
+    await this.ensureRfc1918();
+  }
+
+  /** Seed the local-ranges list the QUIC drop excludes, so only internet-bound
+   *  udp/443 is killed (never intra-LAN). Idempotent. */
+  private async ensureRfc1918(): Promise<void> {
+    const cidrs = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10'];
+    const rows = await this.write('/ip/firewall/address-list/print', [`?list=${this.RFC1918_LIST}`]);
+    const have = new Set(rows.map((r) => r['address']));
+    for (const c of cidrs) {
+      if (!have.has(c)) {
+        await this.write('/ip/firewall/address-list/add', [
+          `=list=${this.RFC1918_LIST}`,
+          `=address=${c}`,
+          '=comment=NOC rfc1918',
+        ]);
+      }
+    }
+  }
+
+  /** Ensure ONE QUIC (udp/443 → internet) drop for a group. tls-host can't parse
+   *  QUIC, so this forces HTTP/3 clients back to TCP where the SNI drops bite. Scoped
+   *  to the group (router-wide only for 'semua'); created enabled. Idempotent. */
+  private async ensureQuicDrop(group: string): Promise<void> {
+    const comment = this.quicComment(group);
+    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    if (rows.some((r) => (r['comment'] ?? '').trim() === comment)) return;
     const params = [
-      '=chain=forward',
-      '=action=jump',
-      `=jump-target=${this.BLOCK_CHAIN}`,
-      '=comment=NOC: managed block chain',
+      `=chain=${this.BLOCK_CHAIN}`,
+      '=action=drop',
+      '=protocol=udp',
+      '=dst-port=443',
+      `=dst-address-list=!${this.RFC1918_LIST}`,
+      `=comment=${comment}`,
     ];
-    // Put it at the very top of forward so blocks win before fasttrack/accept.
-    const firstId = fwd[0]?.['.id'];
-    if (firstId) params.push(`=place-before=${firstId}`);
+    if (group !== 'semua') params.push(`=src-address-list=noc-grp-${group}`);
     await this.write('/ip/firewall/filter/add', params);
+  }
+
+  /** Keep a group's QUIC drop in lockstep with its services: enabled iff at least one
+   *  service intent in the group is enabled. No-op if the QUIC rule is absent. */
+  private async syncGroupQuic(group: string): Promise<void> {
+    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const quic = rows.find((r) => (r['comment'] ?? '').trim() === this.quicComment(group));
+    const rid = quic?.['.id'];
+    if (!rid) return;
+    const prefix = `NOC:${group}|`;
+    const anyEnabled = rows.some(
+      (r) => (r['comment'] ?? '').trim().startsWith(prefix) && r['disabled'] !== 'true',
+    );
+    await this.write('/ip/firewall/filter/set', [`=.id=${rid}`, `=disabled=${anyEnabled ? 'no' : 'yes'}`]);
   }
 
   async listBlockIntents(): Promise<BlockIntent[]> {
     const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
-    return rows.map((r) => {
+    // One intent = several rules sharing comment `NOC:<group>|<service>`. Collapse
+    // them into a single BlockIntent (id = the '<group>|<service>' key); active only
+    // when EVERY member rule is enabled. Rows without that exact comment (the per-group
+    // QUIC drop 'NOC-QUIC:*', or manual/legacy rules) are not intents — skip them.
+    const byKey = new Map<string, BlockIntent>();
+    for (const r of rows) {
       const m = /^NOC:([^|]+)\|(.+)$/.exec((r['comment'] ?? '').trim());
-      return {
-        id: r['.id'] ?? '',
-        group: m?.[1] ?? 'semua',
-        service: m?.[2] ?? ((r['dst-address-list'] ?? '').replace('noc-svc-', '') || '?'),
-        active: r['disabled'] !== 'true',
-      };
-    });
+      if (!m) continue;
+      const group = m[1];
+      const service = m[2];
+      if (group === undefined || service === undefined) continue;
+      const key = `${group}|${service}`;
+      const enabled = r['disabled'] !== 'true';
+      const prev = byKey.get(key);
+      if (prev) prev.active = prev.active && enabled;
+      else byKey.set(key, { id: key, group, service, active: enabled });
+    }
+    return [...byKey.values()];
   }
 
-  async ensureServiceDomains(service: string, domains: string[]): Promise<void> {
+  /** Fill noc-svc-<service> with the service addresses (auto-resolving domains AND
+   *  static CIDRs both live here). Idempotent. */
+  async ensureServiceDomains(service: string, addresses: string[]): Promise<void> {
     const list = `noc-svc-${service}`;
     const rows = await this.write('/ip/firewall/address-list/print', [`?list=${list}`]);
     const have = new Set(rows.map((r) => r['address']));
-    for (const d of domains) {
-      if (!have.has(d)) {
+    for (const a of addresses) {
+      if (!have.has(a)) {
         await this.write('/ip/firewall/address-list/add', [
           `=list=${list}`,
-          `=address=${d}`,
+          `=address=${a}`,
           '=comment=NOC svc',
         ]);
       }
     }
   }
 
-  async createIntent(input: { group: string; service: string }): Promise<void> {
-    const params = [
-      `=chain=${this.BLOCK_CHAIN}`,
-      '=action=drop',
-      `=dst-address-list=noc-svc-${input.service}`,
-      `=comment=NOC:${input.group}|${input.service}`,
-    ];
-    if (input.group !== 'semua') params.push(`=src-address-list=noc-grp-${input.group}`);
-    await this.write('/ip/firewall/filter/add', params);
+  async createIntent(input: { group: string; service: string; tlsHosts?: string[] }): Promise<void> {
+    const comment = `NOC:${input.group}|${input.service}`;
+    const src = input.group !== 'semua' ? [`=src-address-list=noc-grp-${input.group}`] : [];
+    // The group's QUIC drop is shared infra for all its services — ensure it exists
+    // (tied to this group's lifecycle via setIntentActive/removeIntent).
+    await this.ensureQuicDrop(input.group);
+    // Snapshot the chain so re-running (e.g. from a toggle-on) converges — adds only
+    // the rules that are missing — instead of stacking duplicates.
+    const existing = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const sameComment = existing.filter((r) => (r['comment'] ?? '').trim() === comment);
+
+    // (1) address-list drop — covers resolved domains AND the static ipRanges that
+    //     the route folded into noc-svc-<service> (the no-SNI media/call traffic).
+    const dstList = `noc-svc-${input.service}`;
+    if (!sameComment.some((r) => r['dst-address-list'] === dstList && !r['tls-host'])) {
+      await this.write('/ip/firewall/filter/add', [
+        `=chain=${this.BLOCK_CHAIN}`,
+        '=action=drop',
+        `=dst-address-list=${dstList}`,
+        ...src,
+        `=comment=${comment}`,
+      ]);
+    }
+    // (2) one tls-host (SNI) drop per glob — MUST carry protocol=tcp (RouterOS 6.49
+    //     rejects tls-host without it: "tls host matcher valid only for tcp").
+    for (const host of input.tlsHosts ?? []) {
+      if (sameComment.some((r) => r['tls-host'] === host)) continue;
+      await this.write('/ip/firewall/filter/add', [
+        `=chain=${this.BLOCK_CHAIN}`,
+        '=action=drop',
+        '=protocol=tcp',
+        `=tls-host=${host}`,
+        ...src,
+        `=comment=${comment}`,
+      ]);
+    }
   }
 
+  /** Toggle every rule of the intent set keyed by '<group>|<service>', then re-sync
+   *  the group's QUIC drop so it is enabled iff the group still has an active service. */
   async setIntentActive(id: string, active: boolean): Promise<void> {
-    await this.write('/ip/firewall/filter/set', [`=.id=${id}`, `=disabled=${active ? 'no' : 'yes'}`]);
+    const comment = `NOC:${id}`;
+    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    for (const r of rows) {
+      if ((r['comment'] ?? '').trim() !== comment) continue;
+      const rid = r['.id'];
+      if (rid) {
+        await this.write('/ip/firewall/filter/set', [`=.id=${rid}`, `=disabled=${active ? 'no' : 'yes'}`]);
+      }
+    }
+    await this.syncGroupQuic(this.groupOf(id));
   }
 
+  /** Remove every rule of the intent set keyed by '<group>|<service>'. When the group
+   *  has no service intents left, tear down its QUIC drop too (no orphaned global
+   *  udp/443 blackhole); otherwise re-sync it. */
   async removeIntent(id: string): Promise<void> {
+    const comment = `NOC:${id}`;
+    const group = this.groupOf(id);
+    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    for (const r of rows) {
+      if ((r['comment'] ?? '').trim() !== comment) continue;
+      const rid = r['.id'];
+      if (rid) await this.write('/ip/firewall/filter/remove', [`=.id=${rid}`]);
+    }
+    const after = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const prefix = `NOC:${group}|`;
+    if (!after.some((r) => (r['comment'] ?? '').trim().startsWith(prefix))) {
+      const quicComment = this.quicComment(group);
+      for (const r of after) {
+        if ((r['comment'] ?? '').trim() !== quicComment) continue;
+        const rid = r['.id'];
+        if (rid) await this.write('/ip/firewall/filter/remove', [`=.id=${rid}`]);
+      }
+    } else {
+      await this.syncGroupQuic(group);
+    }
+  }
+
+  /** Remove a single filter rule by raw RouterOS .id (legacy /blocks cleanup). */
+  async removeFilterRule(id: string): Promise<void> {
     await this.write('/ip/firewall/filter/remove', [`=.id=${id}`]);
   }
 

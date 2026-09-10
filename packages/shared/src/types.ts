@@ -354,48 +354,72 @@ export interface AddressListEntry {
 
 // ---- Managed block system (clean layer: noc-block chain + noc-svc/noc-grp) ---
 
-/** One NOC-managed block rule in the `noc-block` chain: group × service. */
+/** One NOC-managed block intent = the SET of noc-block rules for a group × service
+ *  (domain/IP address-list drop + tls-host SNI drops), aggregated into one on/off. */
 export interface BlockIntent {
-  id: string;
+  id: string; // synthetic key '<group>|<service>' — addresses the whole rule set
   group: string; // 'semua' = all devices, else a noc-grp-<group> address-list
   service: string; // service key (whatsapp, tiktok, …) or 'internet'
-  active: boolean;
+  active: boolean; // true only when every rule in the set is enabled
 }
 
-/** A blockable service: a friendly label + the domains that define it (RouterOS
- *  resolves the domains to IPs — no Layer7, no manual IP maintenance). */
+/** A blockable service. `domains` seed the auto-resolving address-list; `sniGlobs`
+ *  drive tls-host (SNI) drops that catch TLS by hostname regardless of the (rotating)
+ *  IP; `ipRanges` are static CIDRs for no-SNI traffic (media/calls) of apps that own
+ *  their ASN. The three layers + a global QUIC block are what actually holds. */
 export interface BlockServiceDef {
   key: string;
   label: string;
   category: string; // for grouping in the UI
   domains: string[];
+  sniGlobs?: string[]; // tls-host globs, e.g. '*whatsapp*' (emitted with protocol=tcp)
+  ipRanges?: string[]; // static CIDRs (own-ASN apps: Meta, Telegram) for no-SNI traffic
 }
 
-/** Curated service catalog, grouped by category. Domain-based (RouterOS resolves
- *  to IPs); best-effort for CDN/IP-heavy apps (games/streaming). */
+/** Meta / AS32934 CIDRs — shared by WhatsApp + Facebook/Instagram; they cover the
+ *  no-SNI media/edge servers WhatsApp falls back to (the exact leak seen on SF1).
+ *  Static snapshot — refresh periodically (Meta publishes its prefix list). */
+const META_CIDRS = [
+  '157.240.0.0/16', '31.13.24.0/21', '31.13.64.0/18', '129.134.0.0/16', '173.252.64.0/18',
+  '179.60.192.0/22', '185.60.216.0/22', '102.132.96.0/20', '69.171.224.0/19', '57.144.0.0/14',
+  '66.220.144.0/20', '204.15.20.0/22',
+];
+/** Telegram AS62041/AS44907 CIDRs — Telegram runs its own ASN, so IP-range blocking
+ *  is precise and needed for its no-SNI MTProto traffic. */
+const TELEGRAM_CIDRS = [
+  '91.108.4.0/22', '91.108.8.0/21', '91.108.16.0/21', '91.108.56.0/22', '91.105.192.0/23',
+  '149.154.160.0/20', '185.76.151.0/24', '95.161.64.0/20',
+];
+
+/** Curated service catalog, grouped by category. Each toggle drops via three
+ *  complementary layers on the router — domain/IP address-list, tls-host SNI, and a
+ *  global QUIC (udp/443) block — instead of domains alone. Best-effort for apps that
+ *  ride shared CDNs (games/streaming/WeChat), where an IP-range block would over-block
+ *  so we rely on SNI + domains. */
 export const BLOCK_SERVICES: BlockServiceDef[] = [
   // --- Sosial media ---
-  { key: 'whatsapp', label: 'WhatsApp', category: 'Sosial media', domains: ['whatsapp.com', 'whatsapp.net', 'g.whatsapp.net', 'mmg.whatsapp.net'] },
-  { key: 'facebook', label: 'Facebook / Instagram', category: 'Sosial media', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com'] },
-  { key: 'tiktok', label: 'TikTok', category: 'Sosial media', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'byteoversea.com', 'ibytedtos.com', 'musical.ly'] },
-  { key: 'twitter', label: 'X / Twitter', category: 'Sosial media', domains: ['twitter.com', 'x.com', 't.co', 'twimg.com'] },
-  { key: 'telegram', label: 'Telegram', category: 'Sosial media', domains: ['telegram.org', 't.me', 'telegram.me', 'telegra.ph'] },
-  { key: 'snapchat', label: 'Snapchat', category: 'Sosial media', domains: ['snapchat.com', 'sc-cdn.net', 'snap-dev.net'] },
-  { key: 'line', label: 'LINE', category: 'Sosial media', domains: ['line.me', 'line-apps.com', 'line-scdn.net'] },
-  { key: 'discord', label: 'Discord', category: 'Sosial media', domains: ['discord.com', 'discord.gg', 'discordapp.com', 'discordapp.net'] },
+  { key: 'whatsapp', label: 'WhatsApp', category: 'Sosial media', domains: ['whatsapp.com', 'whatsapp.net', 'g.whatsapp.net', 'mmg.whatsapp.net'], sniGlobs: ['*whatsapp*'], ipRanges: META_CIDRS },
+  { key: 'facebook', label: 'Facebook / Instagram', category: 'Sosial media', domains: ['facebook.com', 'fbcdn.net', 'instagram.com', 'cdninstagram.com', 'fb.com'], sniGlobs: ['*facebook*', '*fbcdn*', '*fbsbx*', '*instagram*', '*cdninstagram*'], ipRanges: META_CIDRS },
+  { key: 'wechat', label: 'WeChat', category: 'Sosial media', domains: ['wechat.com', 'weixin.qq.com', 'wx.qq.com', 'wechatapp.com', 'weixinbridge.com'], sniGlobs: ['*wechat*', '*weixin*', '*tenpay*'] },
+  { key: 'tiktok', label: 'TikTok', category: 'Sosial media', domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'byteoversea.com', 'ibytedtos.com', 'musical.ly'], sniGlobs: ['*tiktok*', '*byteoversea*', '*ibytedtos*', '*muscdn*', '*.musical.ly'] },
+  { key: 'twitter', label: 'X / Twitter', category: 'Sosial media', domains: ['twitter.com', 'x.com', 't.co', 'twimg.com'], sniGlobs: ['*.twitter.com', '*.x.com', '*.t.co', '*twimg*'] },
+  { key: 'telegram', label: 'Telegram', category: 'Sosial media', domains: ['telegram.org', 't.me', 'telegram.me', 'telegra.ph'], sniGlobs: ['*telegram*', '*.t.me', '*telegra.ph*'], ipRanges: TELEGRAM_CIDRS },
+  { key: 'snapchat', label: 'Snapchat', category: 'Sosial media', domains: ['snapchat.com', 'sc-cdn.net', 'snap-dev.net'], sniGlobs: ['*snapchat*', '*sc-cdn*', '*snap-dev*'] },
+  { key: 'line', label: 'LINE', category: 'Sosial media', domains: ['line.me', 'line-apps.com', 'line-scdn.net'], sniGlobs: ['*.line.me', '*line-apps*', '*line-scdn*'] },
+  { key: 'discord', label: 'Discord', category: 'Sosial media', domains: ['discord.com', 'discord.gg', 'discordapp.com', 'discordapp.net'], sniGlobs: ['*discord*'] },
   // --- Video / streaming ---
-  { key: 'youtube', label: 'YouTube', category: 'Video / streaming', domains: ['youtube.com', 'youtu.be', 'youtubei.googleapis.com', 'ytimg.com', 'googlevideo.com'] },
-  { key: 'netflix', label: 'Netflix', category: 'Video / streaming', domains: ['netflix.com', 'nflxvideo.net', 'nflximg.net', 'nflxext.com'] },
-  { key: 'twitch', label: 'Twitch', category: 'Video / streaming', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
-  { key: 'spotify', label: 'Spotify', category: 'Video / streaming', domains: ['spotify.com', 'scdn.co', 'spotifycdn.com'] },
+  { key: 'youtube', label: 'YouTube', category: 'Video / streaming', domains: ['youtube.com', 'youtu.be', 'youtubei.googleapis.com', 'ytimg.com', 'googlevideo.com'], sniGlobs: ['*.youtube.com', '*googlevideo*', '*ytimg*', '*.youtu.be', '*youtubei*'] },
+  { key: 'netflix', label: 'Netflix', category: 'Video / streaming', domains: ['netflix.com', 'nflxvideo.net', 'nflximg.net', 'nflxext.com'], sniGlobs: ['*netflix*', '*nflxvideo*', '*nflximg*', '*nflxext*'] },
+  { key: 'twitch', label: 'Twitch', category: 'Video / streaming', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'], sniGlobs: ['*twitch*', '*ttvnw*', '*jtvnw*'] },
+  { key: 'spotify', label: 'Spotify', category: 'Video / streaming', domains: ['spotify.com', 'scdn.co', 'spotifycdn.com'], sniGlobs: ['*spotify*', '*.scdn.co', '*spotifycdn*'] },
   // --- Game ---
-  { key: 'freefire', label: 'Free Fire / Garena', category: 'Game', domains: ['garena.com', 'ff.garena.com', 'freefiremobile.com'] },
-  { key: 'mobilelegends', label: 'Mobile Legends', category: 'Game', domains: ['mobilelegends.com', 'mtghub.com'] },
-  { key: 'pubg', label: 'PUBG Mobile', category: 'Game', domains: ['pubgmobile.com', 'igamecj.com'] },
-  { key: 'roblox', label: 'Roblox', category: 'Game', domains: ['roblox.com', 'rbxcdn.com'] },
-  { key: 'steam', label: 'Steam', category: 'Game', domains: ['steampowered.com', 'steamcommunity.com', 'steamstatic.com', 'steamcontent.com'] },
+  { key: 'freefire', label: 'Free Fire / Garena', category: 'Game', domains: ['garena.com', 'ff.garena.com', 'freefiremobile.com'], sniGlobs: ['*garena*', '*freefire*'] },
+  { key: 'mobilelegends', label: 'Mobile Legends', category: 'Game', domains: ['mobilelegends.com', 'mtghub.com'], sniGlobs: ['*mobilelegends*', '*mtghub*'] },
+  { key: 'pubg', label: 'PUBG Mobile', category: 'Game', domains: ['pubgmobile.com', 'igamecj.com'], sniGlobs: ['*pubgmobile*', '*igamecj*'] },
+  { key: 'roblox', label: 'Roblox', category: 'Game', domains: ['roblox.com', 'rbxcdn.com'], sniGlobs: ['*roblox*', '*rbxcdn*'] },
+  { key: 'steam', label: 'Steam', category: 'Game', domains: ['steampowered.com', 'steamcommunity.com', 'steamstatic.com', 'steamcontent.com'], sniGlobs: ['*steampowered*', '*steamcommunity*', '*steamstatic*', '*steamcontent*'] },
   // --- Konten lain ---
-  { key: 'adult', label: 'Konten dewasa (parsial)', category: 'Konten lain', domains: ['pornhub.com', 'xvideos.com', 'xnxx.com', 'xhamster.com', 'redtube.com'] },
+  { key: 'adult', label: 'Konten dewasa (parsial)', category: 'Konten lain', domains: ['pornhub.com', 'xvideos.com', 'xnxx.com', 'xhamster.com', 'redtube.com'], sniGlobs: ['*pornhub*', '*xvideos*', '*xnxx*', '*xhamster*', '*redtube*'] },
 ];
 
 // ---- Bandwidth / QoS (simple queues + DHCP lease rate-limit) -----------------

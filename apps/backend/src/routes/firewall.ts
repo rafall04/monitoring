@@ -17,8 +17,9 @@ import { badGateway, badRequest, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import { assertSiteAccess, authenticate, requirePermission } from '../plugins/rbac';
 
-// RouterOS ids look like "*E" / "*1D" — not cuids, so a permissive string.
-const rosId = z.string().min(1).max(64);
+// RouterOS ids look like "*E" / "*1D"; managed-intent keys are '<group>|<service>'.
+// Both are permissive strings — 128 comfortably fits a long group+service composite.
+const rosId = z.string().min(1).max(128);
 
 async function routerWithAccess(req: FastifyRequest, routerId: string): Promise<RouterMikrotik> {
   const r = await prisma.routerMikrotik.findUnique({ where: { id: routerId } });
@@ -99,8 +100,10 @@ export async function firewallRoutes(app: FastifyInstance) {
     const result = await withClient(r, async (c) => {
       const bak = await backup(c);
       await c.ensureBlockChain();
-      await c.ensureServiceDomains(svc.key, svc.domains);
-      await c.createIntent({ group: body.group, service: svc.key });
+      // noc-svc-<key> holds domains (auto-resolving) + static IP ranges together;
+      // createIntent adds the address-list drop + one tls-host (SNI) drop per glob.
+      await c.ensureServiceDomains(svc.key, [...svc.domains, ...(svc.ipRanges ?? [])]);
+      await c.createIntent({ group: body.group, service: svc.key, tlsHosts: svc.sniGlobs });
       return bak;
     });
     await writeAudit(req, {
@@ -118,6 +121,21 @@ export async function firewallRoutes(app: FastifyInstance) {
     const r = await routerWithAccess(req, id);
     const result = await withClient(r, async (c) => {
       const bak = await backup(c);
+      if (active) {
+        // Turning ON converges the set first (createIntent is idempotent), so any
+        // layers missing from an older/partial intent — SNI, IP ranges, the group
+        // QUIC drop — are materialized before we enable. Without this, re-enabling a
+        // pre-existing domain-only intent would silently keep leaking.
+        const bar = ruleId.indexOf('|');
+        const group = bar >= 0 ? ruleId.slice(0, bar) : 'semua';
+        const service = bar >= 0 ? ruleId.slice(bar + 1) : ruleId;
+        const svc = BLOCK_SERVICES.find((s) => s.key === service);
+        await c.ensureBlockChain();
+        if (svc) {
+          await c.ensureServiceDomains(svc.key, [...svc.domains, ...(svc.ipRanges ?? [])]);
+          await c.createIntent({ group, service: svc.key, tlsHosts: svc.sniGlobs });
+        }
+      }
       await c.setIntentActive(ruleId, active);
       return bak;
     });
@@ -153,7 +171,7 @@ export async function firewallRoutes(app: FastifyInstance) {
     const r = await routerWithAccess(req, id);
     const result = await withClient(r, async (c) => {
       const bak = await backup(c);
-      await c.removeIntent(ruleId); // /ip/firewall/filter/remove by id
+      await c.removeFilterRule(ruleId); // legacy: remove ONE rule by raw RouterOS .id
       return bak;
     });
     await writeAudit(req, {

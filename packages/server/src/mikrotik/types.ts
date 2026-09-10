@@ -122,13 +122,20 @@ export interface MikrotikClient {
   addAddressListEntry(input: AddAddressListInput): Promise<void>;
   removeAddressListEntry(id: string): Promise<void>;
 
-  // Managed block system (clean noc-block chain + noc-svc/noc-grp lists)
+  // Managed block system (clean noc-block chain + noc-svc/noc-grp lists).
+  // An "intent" is the SET of rules for one group×service (domain/IP drop +
+  // tls-host SNI drops), all sharing comment `NOC:<group>|<service>`. ensureBlockChain
+  // also seeds the noc-rfc1918 list + the one global QUIC (udp/443) drop. The `id`
+  // passed to setIntentActive/removeIntent is the synthetic key '<group>|<service>'
+  // (from listBlockIntents), and toggles/removes every rule in that set.
   ensureBlockChain(): Promise<void>;
   listBlockIntents(): Promise<BlockIntent[]>;
-  ensureServiceDomains(service: string, domains: string[]): Promise<void>;
-  createIntent(input: { group: string; service: string }): Promise<void>;
+  ensureServiceDomains(service: string, addresses: string[]): Promise<void>;
+  createIntent(input: { group: string; service: string; tlsHosts?: string[] }): Promise<void>;
   setIntentActive(id: string, active: boolean): Promise<void>;
   removeIntent(id: string): Promise<void>;
+  /** Remove a single filter rule by raw RouterOS .id (legacy /blocks cleanup). */
+  removeFilterRule(id: string): Promise<void>;
 
   // Bandwidth / QoS
   listSimpleQueues(): Promise<SimpleQueueDTO[]>;

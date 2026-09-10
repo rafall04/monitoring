@@ -168,7 +168,10 @@ export default function AccessControlPage() {
             ) : (
               <>
                 <p className="mb-3 text-xs text-slate-500">
-                  Blokir per layanan (berbasis domain, tanpa Layer7). Berlaku untuk semua device di router ini.
+                  Blokir per layanan: SNI (tls-host) + blok QUIC + rentang IP, bukan sekadar domain
+                  (tanpa Layer7). Berlaku untuk semua device di router ini. Catatan: WhatsApp &amp;
+                  Facebook/Instagram berbagi IP Meta — memblokir salah satu ikut memengaruhi yang lain
+                  di level IP; blok QUIC memaksa HTTP/3 turun ke TCP untuk semua trafik selama ada layanan diblokir.
                 </p>
                 {[...new Set(BLOCK_SERVICES.map((s) => s.category))].map((cat) => (
                   <div key={cat} className="mb-3">
@@ -219,6 +222,8 @@ export default function AccessControlPage() {
                           <div className="truncate text-sm font-medium text-slate-200">{svc.label}</div>
                           <div className="truncate text-2xs text-slate-500">
                             {svc.domains.length} domain
+                            {svc.sniGlobs?.length ? ` · ${svc.sniGlobs.length} SNI` : ''}
+                            {svc.ipRanges?.length ? ` · ${svc.ipRanges.length} IP` : ''}
                           </div>
                         </div>
                         <Badge tone={on ? 'red' : 'slate'}>{on ? 'diblokir' : 'terbuka'}</Badge>
