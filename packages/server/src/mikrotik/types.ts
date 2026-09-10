@@ -1,4 +1,6 @@
 import type {
+  AccessMember,
+  AccessProfile,
   AddressListEntry,
   BlockIntent,
   DeviceNetInfo,
@@ -81,6 +83,7 @@ export interface UpsertHotspotProfileInput {
   rateLimit?: string;
   sharedUsers?: string;
   sessionTimeout?: string;
+  addressList?: string; // '' clears the binding; set to noc-grp-<name> for an Access Profile
 }
 
 /**
@@ -136,6 +139,18 @@ export interface MikrotikClient {
   removeIntent(id: string): Promise<void>;
   /** Remove a single filter rule by raw RouterOS .id (legacy /blocks cleanup). */
   removeFilterRule(id: string): Promise<void>;
+
+  // Access profiles: a hotspot user-profile bound to address-list noc-grp-<name>,
+  // whose blocklist policy is enforced by the per-group block engine above. Members
+  // join the group via the profile (hotspot login), a static subnet/IP entry, or a
+  // per-MAC mangle tag (which follows the device across VLANs).
+  listAccessProfiles(): Promise<AccessProfile[]>;
+  createAccessProfile(name: string): Promise<void>;
+  /** Tear down a profile's policy/members and unbind it (keeps the hotspot profile). */
+  deleteAccessProfile(name: string): Promise<void>;
+  listGroupMembers(name: string): Promise<AccessMember[]>;
+  addGroupMac(name: string, mac: string): Promise<void>;
+  removeGroupMac(name: string, mac: string): Promise<void>;
 
   // Bandwidth / QoS
   listSimpleQueues(): Promise<SimpleQueueDTO[]>;

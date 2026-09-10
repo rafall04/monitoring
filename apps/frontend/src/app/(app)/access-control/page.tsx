@@ -1,17 +1,30 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { BLOCK_SERVICES, type BlockIntent, type FirewallBlockRule } from '@noc/shared';
+import {
+  BLOCK_SERVICES,
+  type AccessMember,
+  type AccessProfile,
+  type BlockIntent,
+  type FirewallBlockRule,
+} from '@noc/shared';
 import { useAuth } from '@/lib/auth';
 import {
+  useAccessMembers,
+  useAccessProfiles,
+  useAddAccessMember,
   useAddAddressEntry,
   useAddressList,
   useBlockIntents,
+  useCreateAccessProfile,
   useCreateIntent,
+  useDeleteAccessProfile,
   useFirewallBlocks,
+  useRemoveAccessMember,
   useRemoveAddressEntry,
   useRemoveBlock,
   useRouters,
+  useSetAccessPolicy,
   useToggleBlock,
   useToggleIntent,
 } from '@/lib/queries';
@@ -155,6 +168,10 @@ export default function AccessControlPage() {
           <Card className="p-3 text-xs text-amber-400">
             Anda hanya bisa melihat (read-only). Perlu peran operator/admin untuk mengubah.
           </Card>
+        )}
+
+        {can('access:view') && (
+          <AccessProfilesSection routerId={routerId} canManage={can('access:manage')} />
         )}
 
         {/* ---- Managed service blocks (clean layer) ---- */}
@@ -348,6 +365,289 @@ function PerGroupIntents({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ---- Access profiles: per-profile app policy + membership -------------------
+
+function AccessProfilesSection({ routerId, canManage }: { routerId: string | null; canManage: boolean }) {
+  const profiles = useAccessProfiles(routerId);
+  const createProfile = useCreateAccessProfile(routerId ?? '');
+  const toast = useToast();
+  const [newName, setNewName] = useState('');
+
+  const create = () => {
+    const name = newName.trim();
+    if (!name) return;
+    createProfile.mutate(
+      { name },
+      {
+        onSuccess: () => {
+          toast.ok(`Profil "${name}" dibuat`);
+          setNewName('');
+        },
+        onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+      },
+    );
+  };
+
+  return (
+    <section>
+      <SectionHeader title="Profil Akses" icon={<Ic d={SHIELD} />} tone="red" />
+      <Card className="p-4">
+        <p className="mb-3 text-xs text-slate-500">
+          Buat profil (mis. staf-kantor, staf-produksi, atasan), pilih app yang diblokir, lalu isi
+          anggotanya lewat login hotspot, MAC (ikut lintas VLAN), atau subnet. Kebijakan mengikuti
+          anggotanya ke mana pun di jaringan.
+        </p>
+        {canManage && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            <TextInput
+              value={newName}
+              onChange={(e) => setNewName(e.target.value.replace(/[^A-Za-z0-9._-]/g, ''))}
+              placeholder="nama-profil (huruf/angka . _ -)"
+              className="w-full sm:w-72"
+            />
+            <Button onClick={create} disabled={createProfile.isPending || !newName.trim()}>
+              Buat profil
+            </Button>
+          </div>
+        )}
+        {profiles.isError ? (
+          <ErrorState onRetry={() => void profiles.refetch()}>Gagal memuat profil.</ErrorState>
+        ) : profiles.isLoading ? (
+          <Loading />
+        ) : (profiles.data ?? []).length === 0 ? (
+          <p className="py-3 text-center text-sm text-slate-500">Belum ada profil akses.</p>
+        ) : (
+          <div className="space-y-2">
+            {(profiles.data ?? []).map((p) => (
+              <ProfileCard key={p.name} routerId={routerId ?? ''} profile={p} canManage={canManage} />
+            ))}
+          </div>
+        )}
+      </Card>
+    </section>
+  );
+}
+
+function ProfileCard({
+  routerId,
+  profile,
+  canManage,
+}: {
+  routerId: string;
+  profile: AccessProfile;
+  canManage: boolean;
+}) {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const setPolicy = useSetAccessPolicy(routerId);
+  const del = useDeleteAccessProfile(routerId);
+  const [tab, setTab] = useState<null | 'apps' | 'members'>(null);
+  const [sel, setSel] = useState<string[]>(profile.services);
+
+  const openApps = () => {
+    setSel(profile.services);
+    setTab((t) => (t === 'apps' ? null : 'apps'));
+  };
+  const toggleSvc = (key: string) =>
+    setSel((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]));
+
+  const saveApps = () => {
+    setPolicy.mutate(
+      { name: profile.name, services: sel },
+      {
+        onSuccess: (r) => {
+          toast.ok(`Kebijakan "${profile.name}" disimpan`);
+          if (r.backup === 'failed') toast.error('Tersimpan, tapi backup config GAGAL.');
+          setTab(null);
+        },
+        onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+      },
+    );
+  };
+
+  const remove = async () => {
+    const ok = await confirm({
+      title: `Hapus profil "${profile.name}"?`,
+      body: 'Semua blokir + anggota tetap + binding profil ini dihapus dari router (config di-backup dulu). Profil hotspot-nya sendiri tetap ada.',
+      confirmLabel: 'Hapus',
+      danger: true,
+    });
+    if (!ok) return;
+    del.mutate(profile.name, {
+      onSuccess: () => toast.ok('Profil dihapus'),
+      onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+    });
+  };
+
+  return (
+    <div className="rounded-lg border border-surface-border bg-surface/50 p-3">
+      <div className="flex items-center gap-3">
+        <IconTile tone="red">
+          <Ic d={SHIELD} />
+        </IconTile>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium text-slate-200">{profile.name}</div>
+          <div className="truncate text-2xs text-slate-500">
+            {profile.services.length} app diblokir · {profile.memberCount} anggota tetap
+          </div>
+        </div>
+        <Badge tone="slate">{profile.mode}</Badge>
+        {canManage && (
+          <>
+            <button
+              onClick={openApps}
+              className="rounded-md border border-surface-border px-2 py-1 text-2xs text-slate-300 hover:bg-surface"
+            >
+              App
+            </button>
+            <button
+              onClick={() => setTab((t) => (t === 'members' ? null : 'members'))}
+              className="rounded-md border border-surface-border px-2 py-1 text-2xs text-slate-300 hover:bg-surface"
+            >
+              Anggota
+            </button>
+            <button
+              onClick={remove}
+              className="text-xs text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300"
+            >
+              hapus
+            </button>
+          </>
+        )}
+      </div>
+
+      {tab === 'apps' && (
+        <div className="mt-3 border-t border-surface-border pt-3">
+          <div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-slate-500">
+            Centang app yang DIBLOKIR untuk profil ini
+          </div>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {BLOCK_SERVICES.map((svc) => (
+              <label key={svc.key} className="flex items-center gap-2 text-xs text-slate-300">
+                <input type="checkbox" checked={sel.includes(svc.key)} onChange={() => toggleSvc(svc.key)} />
+                {svc.label}
+              </label>
+            ))}
+          </div>
+          <div className="mt-3 flex gap-2">
+            <Button onClick={saveApps} disabled={setPolicy.isPending}>
+              Simpan
+            </Button>
+            <button
+              onClick={() => setTab(null)}
+              className="rounded-md border border-surface-border px-3 text-xs text-slate-300 hover:bg-surface"
+            >
+              Batal
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tab === 'members' && <MembersEditor routerId={routerId} name={profile.name} canManage={canManage} />}
+    </div>
+  );
+}
+
+function MembersEditor({
+  routerId,
+  name,
+  canManage,
+}: {
+  routerId: string;
+  name: string;
+  canManage: boolean;
+}) {
+  const members = useAccessMembers(routerId, name);
+  const add = useAddAccessMember(routerId);
+  const remove = useRemoveAccessMember(routerId);
+  const toast = useToast();
+  const [kind, setKind] = useState<'mac' | 'subnet' | 'ip'>('mac');
+  const [value, setValue] = useState('');
+
+  const doAdd = () => {
+    const v = value.trim();
+    if (!v) return;
+    add.mutate(
+      { name, kind, value: v },
+      {
+        onSuccess: () => {
+          toast.ok('Anggota ditambah');
+          setValue('');
+        },
+        onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+      },
+    );
+  };
+  const doRemove = (m: AccessMember) =>
+    remove.mutate(
+      { name, kind: m.kind, value: m.value },
+      {
+        onSuccess: () => toast.ok('Anggota dihapus'),
+        onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+      },
+    );
+
+  const placeholder =
+    kind === 'mac' ? 'AA:BB:CC:DD:EE:FF' : kind === 'subnet' ? '192.168.131.0/24' : '192.168.131.10';
+
+  return (
+    <div className="mt-3 border-t border-surface-border pt-3">
+      <div className="mb-1 text-2xs font-semibold uppercase tracking-wide text-slate-500">
+        Anggota profil — siapa yang kena kebijakan ini
+      </div>
+      <p className="mb-2 text-2xs text-slate-500">
+        MAC mengikuti device lintas VLAN; perubahan berlaku ≤10 menit. Subnet/IP untuk device tetap.
+      </p>
+      {canManage && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          <Select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as 'mac' | 'subnet' | 'ip')}
+            className="w-28"
+          >
+            <option value="mac">MAC</option>
+            <option value="subnet">Subnet</option>
+            <option value="ip">IP</option>
+          </Select>
+          <TextInput
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={placeholder}
+            className="w-full sm:w-56"
+          />
+          <Button onClick={doAdd} disabled={add.isPending || !value.trim()}>
+            Tambah
+          </Button>
+        </div>
+      )}
+      {members.isLoading ? (
+        <Loading />
+      ) : (members.data ?? []).length === 0 ? (
+        <p className="text-2xs text-slate-500">
+          Belum ada anggota tetap. (Anggota lewat login hotspot bersifat dinamis dan tidak tampil di sini.)
+        </p>
+      ) : (
+        <div className="space-y-1">
+          {(members.data ?? []).map((m) => (
+            <div key={`${m.kind}-${m.id}`} className="flex items-center gap-2 text-xs">
+              <Badge tone="slate">{m.kind}</Badge>
+              <span className="text-slate-300">{m.value}</span>
+              {canManage && (
+                <button
+                  onClick={() => doRemove(m)}
+                  className="ml-auto text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300"
+                >
+                  hapus
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

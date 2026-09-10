@@ -329,8 +329,32 @@ export const hotspotProfileUpsertSchema = z.object({
   rateLimit: z.string().max(64).optional(), // e.g. "2M/2M"
   sharedUsers: z.string().max(16).optional(), // e.g. "1"
   sessionTimeout: z.string().max(64).optional(), // e.g. "1h"
+  addressList: z.string().max(64).optional(), // '' clears; noc-grp-<name> = Access Profile
 });
 export type HotspotProfileUpsertInput = z.infer<typeof hotspotProfileUpsertSchema>;
+
+// ---- Access profiles --------------------------------------------------------
+// The profile name flows into RouterOS list names (noc-grp-<name>, noc-allow-<name>)
+// and rule comments, so it is bounded to nocName and kept short so the prefixed
+// list name stays under RouterOS's length limit.
+export const accessProfileCreateSchema = z.object({
+  name: nocName.max(48),
+  mode: z.enum(['blocklist', 'allowlist']).default('blocklist'),
+});
+export type AccessProfileCreateInput = z.infer<typeof accessProfileCreateSchema>;
+
+export const accessPolicySchema = z.object({
+  mode: z.enum(['blocklist', 'allowlist']),
+  services: z.array(nocName).max(64),
+  enforce: z.boolean().optional(), // allowlist only: activate the deny-all drop (default off)
+});
+export type AccessPolicyInput = z.infer<typeof accessPolicySchema>;
+
+export const accessMemberSchema = z.object({
+  kind: z.enum(['subnet', 'ip', 'mac']),
+  value: z.string().min(1).max(64),
+});
+export type AccessMemberInput = z.infer<typeof accessMemberSchema>;
 
 export const voucherGenSchema = z.object({
   count: z.number().int().min(1).max(1000),

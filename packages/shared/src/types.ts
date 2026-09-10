@@ -497,6 +497,37 @@ export interface HotspotProfile {
   'rate-limit'?: string;
   'shared-users'?: string;
   'session-timeout'?: string;
+  'address-list'?: string; // set to noc-grp-<name> to make this profile an Access Profile
+}
+
+// ---- Access profiles (per-profile app policy, enforced by the noc-block engine) --
+
+export const ACCESS_MODES = ['blocklist', 'allowlist'] as const;
+export type AccessMode = (typeof ACCESS_MODES)[number];
+
+export const ACCESS_MEMBER_KINDS = ['subnet', 'ip', 'mac'] as const;
+export type AccessMemberKind = (typeof ACCESS_MEMBER_KINDS)[number];
+
+/** An Access Profile = a hotspot user-profile bound to address-list `noc-grp-<name>`,
+ *  carrying an app policy. Composed live from router artifacts — there is no DB row.
+ *  Anyone who logs in under the profile (or is tagged into the group by MAC/subnet)
+ *  gets the policy, wherever on the network they are. */
+export interface AccessProfile {
+  name: string; // hotspot user-profile name = the profile id
+  group: string; // noc-grp-<name> — the src-address-list every member lands in
+  mode: AccessMode; // 'allowlist' if a NOC-ALLOW:<name> rule exists, else 'blocklist'
+  services: string[]; // service keys applied (blocked in blocklist; allowed in allowlist)
+  active: boolean; // blocklist: every service rule enabled; allowlist: deny-all enabled
+  memberCount: number; // configured members (static subnet/ip entries + MAC-tag rules)
+}
+
+/** One configured way a device joins a profile's group. Runtime/dynamic entries
+ *  (from a live hotspot login) are not listed here — only the persistent config. */
+export interface AccessMember {
+  id: string; // router .id: an address-list entry (.id) or a mangle rule (.id) for MAC
+  kind: AccessMemberKind;
+  value: string; // subnet/ip = the CIDR/IP; mac = the MAC address
+  source: 'static' | 'mac'; // static = address-list entry; mac = add-src-to-address-list rule
 }
 
 export interface VoucherRow {

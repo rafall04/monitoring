@@ -8,6 +8,8 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import type {
+  AccessMember,
+  AccessProfile,
   AddressListEntry,
   AppUserPublic,
   AuditLogPage,
@@ -152,6 +154,80 @@ export function useRemoveIntent(routerId: string) {
     mutationFn: (ruleId: string) =>
       api.del<WriteResult>(`/firewall/${routerId}/intents/${encodeURIComponent(ruleId)}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'intents'] }),
+  });
+}
+
+// ---- Access profiles (per-profile app policy) -------------------------------
+export function useAccessProfiles(routerId: string | null) {
+  return useQuery({
+    queryKey: ['firewall', routerId, 'profiles'],
+    queryFn: () => api.get<AccessProfile[]>(`/firewall/${routerId}/profiles`),
+    enabled: Boolean(routerId),
+    refetchInterval: 30_000,
+  });
+}
+export function useCreateAccessProfile(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { name: string }) =>
+      api.post<WriteResult>(`/firewall/${routerId}/profiles`, { name: v.name, mode: 'blocklist' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'profiles'] }),
+  });
+}
+export function useDeleteAccessProfile(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      api.del<WriteResult>(`/firewall/${routerId}/profiles/${encodeURIComponent(name)}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'profiles'] }),
+  });
+}
+export function useSetAccessPolicy(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { name: string; services: string[] }) =>
+      api.post<WriteResult>(`/firewall/${routerId}/profiles/${encodeURIComponent(v.name)}/policy`, {
+        mode: 'blocklist',
+        services: v.services,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'profiles'] }),
+  });
+}
+export function useAccessMembers(routerId: string | null, name: string | null) {
+  return useQuery({
+    queryKey: ['firewall', routerId, 'profiles', name, 'members'],
+    queryFn: () =>
+      api.get<AccessMember[]>(
+        `/firewall/${routerId}/profiles/${encodeURIComponent(name ?? '')}/members`,
+      ),
+    enabled: Boolean(routerId && name),
+  });
+}
+export function useAddAccessMember(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { name: string; kind: 'subnet' | 'ip' | 'mac'; value: string }) =>
+      api.post<WriteResult>(`/firewall/${routerId}/profiles/${encodeURIComponent(v.name)}/members`, {
+        kind: v.kind,
+        value: v.value,
+      }),
+    onSuccess: (_r, v) => {
+      qc.invalidateQueries({ queryKey: ['firewall', routerId, 'profiles', v.name, 'members'] });
+      qc.invalidateQueries({ queryKey: ['firewall', routerId, 'profiles'] });
+    },
+  });
+}
+export function useRemoveAccessMember(routerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { name: string; kind: 'subnet' | 'ip' | 'mac'; value: string }) =>
+      api.del<WriteResult>(
+        `/firewall/${routerId}/profiles/${encodeURIComponent(v.name)}/members?kind=${v.kind}&value=${encodeURIComponent(v.value)}`,
+      ),
+    onSuccess: (_r, v) => {
+      qc.invalidateQueries({ queryKey: ['firewall', routerId, 'profiles', v.name, 'members'] });
+      qc.invalidateQueries({ queryKey: ['firewall', routerId, 'profiles'] });
+    },
   });
 }
 

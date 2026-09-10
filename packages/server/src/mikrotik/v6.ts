@@ -6,6 +6,8 @@
 
 import { RouterOSAPI } from 'node-routeros';
 import type {
+  AccessMember,
+  AccessProfile,
   AddressListEntry,
   BlockIntent,
   DeviceNetInfo,
@@ -217,6 +219,7 @@ export class RouterOsV6Client implements MikrotikClient {
       'rate-limit': r['rate-limit'],
       'shared-users': r['shared-users'],
       'session-timeout': r['session-timeout'],
+      'address-list': r['address-list'],
     }));
   }
 
@@ -534,6 +537,156 @@ export class RouterOsV6Client implements MikrotikClient {
     await this.write('/ip/firewall/filter/remove', [`=.id=${id}`]);
   }
 
+  // ---- Access profiles ------------------------------------------------------
+  // A profile is a hotspot user-profile whose address-list = noc-grp-<name>; its
+  // blocklist policy is the per-group intents above. Group membership is fed by the
+  // profile (hotspot login), static subnet/IP entries, and per-MAC mangle tags.
+
+  private readonly MANGLE_TAG = '/ip/firewall/mangle';
+
+  // Names we must never turn into an Access Profile: 'default' is RouterOS's built-in
+  // hotspot user-profile, 'semua' is the block engine's reserved router-wide group.
+  private readonly RESERVED_ACCESS_NAMES = ['default', 'semua'];
+
+  async createAccessProfile(name: string): Promise<void> {
+    if (this.RESERVED_ACCESS_NAMES.includes(name.toLowerCase())) {
+      throw new Error(`Nama profil "${name}" dilindungi dan tidak boleh dipakai.`);
+    }
+    await this.ensureBlockChain();
+    const list = `noc-grp-${name}`;
+    const profs = await this.write('/ip/hotspot/user/profile/print', [`?name=${name}`]);
+    const existing = profs.find((r) => r['name'] === name);
+    if (existing && existing['.id']) {
+      // Never hijack a hotspot profile that already carries a different address-list
+      // (that binding belongs to something else — overwriting it is destructive).
+      const current = existing['address-list'] ?? '';
+      if (current && current !== list) {
+        throw new Error(
+          `Hotspot profile "${name}" sudah punya address-list "${current}". Pakai nama lain atau lepaskan binding-nya dulu.`,
+        );
+      }
+      await this.write('/ip/hotspot/user/profile/set', [`=.id=${existing['.id']}`, `=address-list=${list}`]);
+    } else {
+      await this.write('/ip/hotspot/user/profile/add', [`=name=${name}`, `=address-list=${list}`]);
+    }
+  }
+
+  async listAccessProfiles(): Promise<AccessProfile[]> {
+    const profs = await this.write('/ip/hotspot/user/profile/print');
+    const access = profs.filter((r) => (r['address-list'] ?? '').startsWith('noc-grp-'));
+    if (access.length === 0) return [];
+    const intents = await this.listBlockIntents();
+    const chain = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const out: AccessProfile[] = [];
+    for (const p of access) {
+      const name = p['name'];
+      if (!name) continue;
+      const allowRule = chain.find((r) => (r['comment'] ?? '').trim() === `NOC-ALLOW:${name}`);
+      const svc = intents.filter((i) => i.group === name);
+      const members = await this.listGroupMembers(name);
+      out.push({
+        name,
+        group: p['address-list'] ?? `noc-grp-${name}`,
+        mode: allowRule ? 'allowlist' : 'blocklist',
+        services: svc.map((i) => i.service),
+        active: allowRule
+          ? allowRule['disabled'] !== 'true'
+          : svc.length > 0 && svc.every((i) => i.active),
+        memberCount: members.length,
+      });
+    }
+    return out;
+  }
+
+  async listGroupMembers(name: string): Promise<AccessMember[]> {
+    const out: AccessMember[] = [];
+    const entries = await this.write('/ip/firewall/address-list/print', [`?list=noc-grp-${name}`]);
+    for (const e of entries) {
+      if (e['dynamic'] === 'true') continue; // runtime (hotspot/mac) tags aren't config
+      const id = e['.id'];
+      const addr = e['address'] ?? '';
+      if (!id || !addr) continue;
+      out.push({ id, kind: addr.includes('/') ? 'subnet' : 'ip', value: addr, source: 'static' });
+    }
+    const prefix = `NOC-MAC:${name}|`;
+    const mangle = await this.write(`${this.MANGLE_TAG}/print`, ['?action=add-src-to-address-list']);
+    for (const m of mangle) {
+      const comment = (m['comment'] ?? '').trim();
+      if (!comment.startsWith(prefix)) continue;
+      const id = m['.id'];
+      if (!id) continue;
+      out.push({ id, kind: 'mac', value: m['src-mac-address'] ?? comment.slice(prefix.length), source: 'mac' });
+    }
+    return out;
+  }
+
+  async addGroupMac(name: string, mac: string): Promise<void> {
+    const MAC = mac.toUpperCase(); // RouterOS stores MACs uppercase — match to avoid dupes
+    const comment = `NOC-MAC:${name}|${MAC}`;
+    const rows = await this.write(`${this.MANGLE_TAG}/print`, ['?action=add-src-to-address-list']);
+    if (rows.some((r) => (r['comment'] ?? '').trim() === comment)) return;
+    await this.write(`${this.MANGLE_TAG}/add`, [
+      '=chain=prerouting',
+      `=src-mac-address=${MAC}`,
+      '=action=add-src-to-address-list',
+      `=address-list=noc-grp-${name}`,
+      // 10m (not 1h): RouterOS won't let us delete the dynamic group entry this rule
+      // creates, so a shorter rolling timeout bounds how long a removed MAC lingers in
+      // the group (active devices re-tag on their next packet).
+      '=address-list-timeout=10m',
+      `=comment=${comment}`,
+    ]);
+  }
+
+  async removeGroupMac(name: string, mac: string): Promise<void> {
+    const comment = `NOC-MAC:${name}|${mac.toUpperCase()}`;
+    const rows = await this.write(`${this.MANGLE_TAG}/print`, ['?action=add-src-to-address-list']);
+    for (const r of rows) {
+      if ((r['comment'] ?? '').trim() !== comment) continue;
+      const id = r['.id'];
+      if (id) await this.write(`${this.MANGLE_TAG}/remove`, [`=.id=${id}`]);
+    }
+  }
+
+  async deleteAccessProfile(name: string): Promise<void> {
+    // 1) blocklist service intents for this group (+ its QUIC infra, via removeIntent)
+    const intents = await this.listBlockIntents();
+    for (const i of intents) if (i.group === name) await this.removeIntent(`${name}|${i.service}`);
+    // 2) allowlist deny-all rule (Phase 2), by comment
+    const chain = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    for (const r of chain) {
+      if ((r['comment'] ?? '').trim() !== `NOC-ALLOW:${name}`) continue;
+      const id = r['.id'];
+      if (id) await this.write('/ip/firewall/filter/remove', [`=.id=${id}`]);
+    }
+    // 3) MAC-tag mangle rules
+    const prefix = `NOC-MAC:${name}|`;
+    const mangle = await this.write(`${this.MANGLE_TAG}/print`, ['?action=add-src-to-address-list']);
+    for (const m of mangle) {
+      if (!(m['comment'] ?? '').trim().startsWith(prefix)) continue;
+      const id = m['.id'];
+      if (id) await this.write(`${this.MANGLE_TAG}/remove`, [`=.id=${id}`]);
+    }
+    // 4) static group + allow-list members (dynamic entries expire on their own)
+    for (const list of [`noc-grp-${name}`, `noc-allow-${name}`]) {
+      const entries = await this.write('/ip/firewall/address-list/print', [`?list=${list}`]);
+      for (const e of entries) {
+        if (e['dynamic'] === 'true') continue;
+        const id = e['.id'];
+        if (id) await this.write('/ip/firewall/address-list/remove', [`=.id=${id}`]);
+      }
+    }
+    // 5) unbind the hotspot user-profile (keep it for user assignment) — but ONLY if it
+    //    still points at OUR list, so we never blank a binding we don't own.
+    const profs = await this.write('/ip/hotspot/user/profile/print', [`?name=${name}`]);
+    for (const p of profs) {
+      if (p['name'] !== name) continue;
+      if ((p['address-list'] ?? '') !== `noc-grp-${name}`) continue;
+      const id = p['.id'];
+      if (id) await this.write('/ip/hotspot/user/profile/set', [`=.id=${id}`, '=address-list=']);
+    }
+  }
+
   async listSimpleQueues(): Promise<SimpleQueueDTO[]> {
     const res = await this.write('/queue/simple/print');
     return res.map((r) => {
@@ -748,6 +901,8 @@ export class RouterOsV6Client implements MikrotikClient {
     if (input.rateLimit) p.push(`=rate-limit=${input.rateLimit}`);
     if (input.sharedUsers) p.push(`=shared-users=${input.sharedUsers}`);
     if (input.sessionTimeout) p.push(`=session-timeout=${input.sessionTimeout}`);
+    // != null (not truthy) so an empty string CLEARS the binding (un-links a profile).
+    if (input.addressList != null) p.push(`=address-list=${input.addressList}`);
     return p;
   }
 }

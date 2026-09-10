@@ -29,6 +29,8 @@ export const PERMISSIONS = [
   'ruijie:manage', // add/remove Ruijie Cloud accounts (credentials)
   'firewall:view', // see access-control (block toggles + block address-lists)
   'firewall:manage', // toggle block rules + edit block lists (writes router config)
+  'access:view', // see access profiles (per-profile app policy + membership)
+  'access:manage', // create/edit access profiles, policy + membership (writes router config)
   'bandwidth:view', // see simple queues / DHCP leases / top talkers
   'bandwidth:manage', // create/edit queues + set DHCP lease rate-limit
   'device:diagnose', // run read-only diagnostics on the router (ping/traceroute/log/net-info)
@@ -54,6 +56,8 @@ const OPERATOR_PERMISSIONS: Permission[] = [
   'ruijie:view', // see Ruijie/Reyee WiFi monitoring (read-only)
   'firewall:view', // access-control panel
   'firewall:manage', // toggle blocks + block devices (IT technician job)
+  'access:view', // access profiles panel
+  'access:manage', // create/edit access profiles (IT technician job)
   'bandwidth:view', // bandwidth/QoS panel
   'bandwidth:manage', // set queues + DHCP lease rate-limit
   'device:diagnose', // ping/traceroute/log from the router (IT technician job)
