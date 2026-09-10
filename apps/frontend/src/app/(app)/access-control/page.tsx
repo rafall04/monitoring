@@ -445,19 +445,43 @@ function ProfileCard({
   const confirm = useConfirm();
   const setPolicy = useSetAccessPolicy(routerId);
   const del = useDeleteAccessProfile(routerId);
-  const [tab, setTab] = useState<null | 'apps' | 'members'>(null);
-  const [sel, setSel] = useState<string[]>(profile.services);
+  const [tab, setTab] = useState<null | 'policy' | 'members'>(null);
+  const [mode, setMode] = useState<'blocklist' | 'allowlist'>(profile.mode);
+  const [sel, setSel] = useState<string[]>(profile.services); // blocklist: blocked apps
+  const [allow, setAllow] = useState<string[]>(profile.allow); // allowlist: allowed dests
+  const [allowInput, setAllowInput] = useState('');
+  const [enforce, setEnforce] = useState(profile.mode === 'allowlist' ? profile.active : false);
 
-  const openApps = () => {
+  const openPolicy = () => {
+    setMode(profile.mode);
     setSel(profile.services);
-    setTab((t) => (t === 'apps' ? null : 'apps'));
+    setAllow(profile.allow);
+    setEnforce(profile.mode === 'allowlist' ? profile.active : false);
+    setAllowInput('');
+    setTab((t) => (t === 'policy' ? null : 'policy'));
   };
   const toggleSvc = (key: string) =>
     setSel((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]));
+  const addAllow = () => {
+    const v = allowInput.trim();
+    if (v && !allow.includes(v)) setAllow((cur) => [...cur, v]);
+    setAllowInput('');
+  };
 
-  const saveApps = () => {
+  const savePolicy = async () => {
+    if (mode === 'allowlist' && enforce) {
+      const ok = await confirm({
+        title: `Aktifkan allowlist "${profile.name}"?`,
+        body: 'Semua internet untuk anggota profil ini akan DIBLOKIR kecuali lokal, DNS, dan tujuan yang diizinkan. Pastikan daftar izin sudah benar.',
+        confirmLabel: 'Aktifkan',
+        danger: true,
+      });
+      if (!ok) return;
+    }
     setPolicy.mutate(
-      { name: profile.name, services: sel },
+      mode === 'allowlist'
+        ? { name: profile.name, mode, allow, enforce }
+        : { name: profile.name, mode, services: sel },
       {
         onSuccess: (r) => {
           toast.ok(`Kebijakan "${profile.name}" disimpan`);
@@ -472,7 +496,7 @@ function ProfileCard({
   const remove = async () => {
     const ok = await confirm({
       title: `Hapus profil "${profile.name}"?`,
-      body: 'Semua blokir + anggota tetap + binding profil ini dihapus dari router (config di-backup dulu). Profil hotspot-nya sendiri tetap ada.',
+      body: 'Semua blokir/izin + anggota tetap + binding profil ini dihapus dari router (config di-backup dulu). Profil hotspot-nya sendiri tetap ada.',
       confirmLabel: 'Hapus',
       danger: true,
     });
@@ -483,26 +507,31 @@ function ProfileCard({
     });
   };
 
+  const summary =
+    profile.mode === 'allowlist'
+      ? `allowlist · ${profile.allow.length} tujuan diizinkan · ${profile.active ? 'AKTIF' : 'draft (belum aktif)'}`
+      : `${profile.services.length} app diblokir`;
+
   return (
     <div className="rounded-lg border border-surface-border bg-surface/50 p-3">
       <div className="flex items-center gap-3">
-        <IconTile tone="red">
+        <IconTile tone={profile.mode === 'allowlist' ? 'amber' : 'red'}>
           <Ic d={SHIELD} />
         </IconTile>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium text-slate-200">{profile.name}</div>
           <div className="truncate text-2xs text-slate-500">
-            {profile.services.length} app diblokir · {profile.memberCount} anggota tetap
+            {summary} · {profile.memberCount} anggota tetap
           </div>
         </div>
-        <Badge tone="slate">{profile.mode}</Badge>
+        <Badge tone={profile.mode === 'allowlist' ? 'amber' : 'slate'}>{profile.mode}</Badge>
         {canManage && (
           <>
             <button
-              onClick={openApps}
+              onClick={openPolicy}
               className="rounded-md border border-surface-border px-2 py-1 text-2xs text-slate-300 hover:bg-surface"
             >
-              App
+              Kebijakan
             </button>
             <button
               onClick={() => setTab((t) => (t === 'members' ? null : 'members'))}
@@ -520,21 +549,81 @@ function ProfileCard({
         )}
       </div>
 
-      {tab === 'apps' && (
+      {tab === 'policy' && (
         <div className="mt-3 border-t border-surface-border pt-3">
-          <div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-slate-500">
-            Centang app yang DIBLOKIR untuk profil ini
+          <div className="mb-2 flex gap-2">
+            <button
+              onClick={() => setMode('blocklist')}
+              className={`rounded-md border px-2 py-1 text-2xs ${mode === 'blocklist' ? 'border-red-500 text-red-300' : 'border-surface-border text-slate-400'}`}
+            >
+              Blokir app tertentu
+            </button>
+            <button
+              onClick={() => setMode('allowlist')}
+              className={`rounded-md border px-2 py-1 text-2xs ${mode === 'allowlist' ? 'border-amber-500 text-amber-300' : 'border-surface-border text-slate-400'}`}
+            >
+              Izinkan tertentu saja
+            </button>
           </div>
-          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-            {BLOCK_SERVICES.map((svc) => (
-              <label key={svc.key} className="flex items-center gap-2 text-xs text-slate-300">
-                <input type="checkbox" checked={sel.includes(svc.key)} onChange={() => toggleSvc(svc.key)} />
-                {svc.label}
+
+          {mode === 'blocklist' ? (
+            <>
+              <div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-slate-500">
+                Centang app yang DIBLOKIR
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                {BLOCK_SERVICES.map((svc) => (
+                  <label key={svc.key} className="flex items-center gap-2 text-xs text-slate-300">
+                    <input type="checkbox" checked={sel.includes(svc.key)} onChange={() => toggleSvc(svc.key)} />
+                    {svc.label}
+                  </label>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mb-2 text-2xs text-amber-400">
+                Default-deny: semua internet anggota DIBLOKIR kecuali lokal + DNS (otomatis) dan tujuan
+                di bawah. Isi dulu daftar izin, baru aktifkan penerapan.
+              </p>
+              <div className="mb-2 flex flex-wrap gap-2">
+                <TextInput
+                  value={allowInput}
+                  onChange={(e) => setAllowInput(e.target.value)}
+                  placeholder="teams.microsoft.com / 203.0.113.0/24 / 10.1.2.3"
+                  className="w-full sm:w-64"
+                />
+                <Button onClick={addAllow} disabled={!allowInput.trim()}>
+                  Tambah izin
+                </Button>
+              </div>
+              {allow.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {allow.map((a) => (
+                    <span
+                      key={a}
+                      className="inline-flex items-center gap-1 rounded-md border border-surface-border px-2 py-0.5 text-2xs text-slate-300"
+                    >
+                      {a}
+                      <button
+                        onClick={() => setAllow((cur) => cur.filter((x) => x !== a))}
+                        className="text-red-400 hover:text-red-300"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <label className="flex items-center gap-2 text-xs text-slate-300">
+                <input type="checkbox" checked={enforce} onChange={(e) => setEnforce(e.target.checked)} />
+                Aktifkan penerapan (deny-all) sekarang
               </label>
-            ))}
-          </div>
+            </>
+          )}
+
           <div className="mt-3 flex gap-2">
-            <Button onClick={saveApps} disabled={setPolicy.isPending}>
+            <Button onClick={savePolicy} disabled={setPolicy.isPending}>
               Simpan
             </Button>
             <button

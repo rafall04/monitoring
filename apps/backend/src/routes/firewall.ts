@@ -37,6 +37,13 @@ function assertMemberValue(kind: 'subnet' | 'ip' | 'mac', value: string): void {
   const ok = kind === 'mac' ? MAC_RE.test(value) : kind === 'ip' ? IPV4_RE.test(value) : CIDR_RE.test(value);
   if (!ok) throw badRequest(`Format ${kind} tidak valid: "${value}"`);
 }
+// Allowlist destination = a domain (RouterOS auto-resolves), an IP, or a CIDR.
+const DOMAIN_RE = /^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/;
+function assertAllowValue(v: string): void {
+  if (!(CIDR_RE.test(v) || IPV4_RE.test(v) || DOMAIN_RE.test(v))) {
+    throw badRequest(`Tujuan yang diizinkan tidak valid: "${v}"`);
+  }
+}
 
 async function routerWithAccess(req: FastifyRequest, routerId: string): Promise<RouterMikrotik> {
   const r = await prisma.routerMikrotik.findUnique({ where: { id: routerId } });
@@ -257,7 +264,6 @@ export async function firewallRoutes(app: FastifyInstance) {
   app.post('/:id/profiles', accessManage, async (req) => {
     const { id } = idParamSchema.parse(req.params);
     const body = accessProfileCreateSchema.parse(req.body);
-    if (body.mode === 'allowlist') throw badRequest('Mode allowlist belum tersedia (Fase 2).');
     if (RESERVED_PROFILE_NAMES.includes(body.name.toLowerCase())) {
       throw badRequest(`Nama "${body.name}" dilindungi — pakai nama lain.`);
     }
@@ -298,14 +304,38 @@ export async function firewallRoutes(app: FastifyInstance) {
   app.post('/:id/profiles/:name/policy', accessManage, async (req) => {
     const { id, name } = z.object({ id: z.string(), name: accessName }).parse(req.params);
     const body = accessPolicySchema.parse(req.body);
-    if (body.mode === 'allowlist') throw badRequest('Mode allowlist belum tersedia (Fase 2).');
+    const r = await routerWithAccess(req, id);
+
+    if (body.mode === 'allowlist') {
+      // Default-deny: only local + DNS + the listed destinations reach out. The deny-all
+      // is created DISABLED unless enforce=true (staged) to avoid accidental lockout.
+      for (const v of body.allow) assertAllowValue(v);
+      const result = await withClient(r, async (c) => {
+        const bak = await backup(c);
+        await c.ensureBlockChain();
+        // switching to allowlist: tear down any blocklist intents for this group first
+        const current = (await c.listBlockIntents()).filter((i) => i.group === name);
+        for (const i of current) await c.removeIntent(`${name}|${i.service}`);
+        await c.setAllowlist(name, body.allow, body.enforce ?? false);
+        return bak;
+      });
+      await writeAudit(req, {
+        action: 'access-profile-policy',
+        entity: 'router',
+        entityId: id,
+        after: { name, mode: 'allowlist', allow: body.allow, enforce: body.enforce ?? false, backup: result },
+      });
+      return { ok: true, backup: result };
+    }
+
+    // blocklist: reconcile the group's service intents to EXACTLY the requested set.
     const desired = body.services;
     const unknown = desired.filter((s) => !BLOCK_SERVICES.some((b) => b.key === s));
     if (unknown.length) throw badRequest(`Layanan tidak dikenal: ${unknown.join(', ')}`);
-    const r = await routerWithAccess(req, id);
     const result = await withClient(r, async (c) => {
       const bak = await backup(c);
       await c.ensureBlockChain();
+      await c.removeAllowlist(name); // switching away from allowlist (no-op if none)
       const current = (await c.listBlockIntents())
         .filter((i) => i.group === name)
         .map((i) => i.service);
@@ -325,7 +355,7 @@ export async function firewallRoutes(app: FastifyInstance) {
       action: 'access-profile-policy',
       entity: 'router',
       entityId: id,
-      after: { name, services: desired, backup: result },
+      after: { name, mode: 'blocklist', services: desired, backup: result },
     });
     return { ok: true, backup: result };
   });

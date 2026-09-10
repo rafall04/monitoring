@@ -584,11 +584,20 @@ export class RouterOsV6Client implements MikrotikClient {
       const allowRule = chain.find((r) => (r['comment'] ?? '').trim() === `NOC-ALLOW:${name}`);
       const svc = intents.filter((i) => i.group === name);
       const members = await this.listGroupMembers(name);
+      let allow: string[] = [];
+      if (allowRule) {
+        const al = await this.write('/ip/firewall/address-list/print', [`?list=noc-allow-${name}`]);
+        allow = al
+          .filter((e) => (e['comment'] ?? '').trim() === 'NOC-ALLOW-DEST')
+          .map((e) => e['address'] ?? '')
+          .filter(Boolean);
+      }
       out.push({
         name,
         group: p['address-list'] ?? `noc-grp-${name}`,
         mode: allowRule ? 'allowlist' : 'blocklist',
         services: svc.map((i) => i.service),
+        allow,
         active: allowRule
           ? allowRule['disabled'] !== 'true'
           : svc.length > 0 && svc.every((i) => i.active),
@@ -684,6 +693,88 @@ export class RouterOsV6Client implements MikrotikClient {
       if ((p['address-list'] ?? '') !== `noc-grp-${name}`) continue;
       const id = p['.id'];
       if (id) await this.write('/ip/hotspot/user/profile/set', [`=.id=${id}`, '=address-list=']);
+    }
+  }
+
+  // ---- Allowlist mode (default-deny: only local + DNS + allowed dests reach out) ----
+
+  private allowList(name: string): string {
+    return `noc-allow-${name}`;
+  }
+
+  /** Seed the always-allowed set into noc-allow-<name>: RFC1918 (intra-LAN) + DNS
+   *  (the router's configured servers + common public resolvers). Without this the
+   *  deny-all would sever LAN + name resolution. Idempotent; tagged NOC-ALLOW-LOCAL. */
+  private async ensureAllowLocals(name: string): Promise<void> {
+    const list = this.allowList(name);
+    const rows = await this.write('/ip/firewall/address-list/print', [`?list=${list}`]);
+    const have = new Set(
+      rows.filter((r) => (r['comment'] ?? '').trim() === 'NOC-ALLOW-LOCAL').map((r) => r['address']),
+    );
+    const locals = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4'];
+    const dns = await this.write('/ip/dns/print');
+    const servers = (dns[0]?.['servers'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    for (const addr of [...locals, ...servers]) {
+      if (!have.has(addr)) {
+        await this.write('/ip/firewall/address-list/add', [`=list=${list}`, `=address=${addr}`, '=comment=NOC-ALLOW-LOCAL']);
+      }
+    }
+  }
+
+  async setAllowlist(name: string, allow: string[], enforce: boolean): Promise<void> {
+    await this.ensureBlockChain();
+    const list = this.allowList(name);
+    await this.ensureAllowLocals(name);
+    // Reconcile the user's allowed destinations (NOC-ALLOW-DEST), leaving locals intact.
+    const rows = await this.write('/ip/firewall/address-list/print', [`?list=${list}`]);
+    // Skip dynamic rows: an FQDN dest resolves into dynamic child entries that inherit
+    // this comment; RouterOS rejects removing dynamic items, which would abort the whole
+    // save (and, since the deny-all state is set last, could leave a lockout enforced).
+    const dests = rows.filter((r) => r['dynamic'] !== 'true' && (r['comment'] ?? '').trim() === 'NOC-ALLOW-DEST');
+    const want = new Set(allow);
+    const have = new Set(dests.map((r) => r['address']));
+    for (const r of dests) {
+      const addr = r['address'];
+      const id = r['.id'];
+      if (addr && id && !want.has(addr)) await this.write('/ip/firewall/address-list/remove', [`=.id=${id}`]);
+    }
+    for (const addr of allow) {
+      if (!have.has(addr)) {
+        await this.write('/ip/firewall/address-list/add', [`=list=${list}`, `=address=${addr}`, '=comment=NOC-ALLOW-DEST']);
+      }
+    }
+    // The deny-all drop: everything from this group NOT in noc-allow-<name>. Protocol-
+    // agnostic so it also kills QUIC. Created/kept DISABLED unless enforce=true (staged).
+    const comment = `NOC-ALLOW:${name}`;
+    const chain = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const existing = chain.find((r) => (r['comment'] ?? '').trim() === comment);
+    if (existing && existing['.id']) {
+      await this.write('/ip/firewall/filter/set', [`=.id=${existing['.id']}`, `=disabled=${enforce ? 'no' : 'yes'}`]);
+    } else {
+      await this.write('/ip/firewall/filter/add', [
+        `=chain=${this.BLOCK_CHAIN}`,
+        '=action=drop',
+        `=src-address-list=noc-grp-${name}`,
+        `=dst-address-list=!${list}`,
+        `=disabled=${enforce ? 'no' : 'yes'}`,
+        `=comment=${comment}`,
+      ]);
+    }
+  }
+
+  async removeAllowlist(name: string): Promise<void> {
+    const comment = `NOC-ALLOW:${name}`;
+    const chain = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    for (const r of chain) {
+      if ((r['comment'] ?? '').trim() !== comment) continue;
+      const id = r['.id'];
+      if (id) await this.write('/ip/firewall/filter/remove', [`=.id=${id}`]);
+    }
+    const rows = await this.write('/ip/firewall/address-list/print', [`?list=${this.allowList(name)}`]);
+    for (const e of rows) {
+      if (e['dynamic'] === 'true') continue;
+      const id = e['.id'];
+      if (id) await this.write('/ip/firewall/address-list/remove', [`=.id=${id}`]);
     }
   }
 

@@ -345,8 +345,9 @@ export type AccessProfileCreateInput = z.infer<typeof accessProfileCreateSchema>
 
 export const accessPolicySchema = z.object({
   mode: z.enum(['blocklist', 'allowlist']),
-  services: z.array(nocName).max(64),
-  enforce: z.boolean().optional(), // allowlist only: activate the deny-all drop (default off)
+  services: z.array(nocName).max(64).default([]), // blocklist: blocked service keys
+  allow: z.array(z.string().min(1).max(80)).max(128).default([]), // allowlist: allowed domains/CIDR/IP
+  enforce: z.boolean().optional(), // allowlist only: activate the deny-all drop (default off = staged)
 });
 export type AccessPolicyInput = z.infer<typeof accessPolicySchema>;
 

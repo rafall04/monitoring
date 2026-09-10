@@ -151,6 +151,11 @@ export interface MikrotikClient {
   listGroupMembers(name: string): Promise<AccessMember[]>;
   addGroupMac(name: string, mac: string): Promise<void>;
   removeGroupMac(name: string, mac: string): Promise<void>;
+  /** Allowlist mode: seed local+DNS into noc-allow-<name>, reconcile the allowed
+   *  destinations, and ensure the deny-all drop (created DISABLED unless enforce=true). */
+  setAllowlist(name: string, allow: string[], enforce: boolean): Promise<void>;
+  /** Remove the allowlist deny-all rule + noc-allow-<name> (switch back to blocklist). */
+  removeAllowlist(name: string): Promise<void>;
 
   // Bandwidth / QoS
   listSimpleQueues(): Promise<SimpleQueueDTO[]>;

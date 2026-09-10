@@ -516,8 +516,9 @@ export interface AccessProfile {
   name: string; // hotspot user-profile name = the profile id
   group: string; // noc-grp-<name> — the src-address-list every member lands in
   mode: AccessMode; // 'allowlist' if a NOC-ALLOW:<name> rule exists, else 'blocklist'
-  services: string[]; // service keys applied (blocked in blocklist; allowed in allowlist)
-  active: boolean; // blocklist: every service rule enabled; allowlist: deny-all enabled
+  services: string[]; // blocklist: the blocked service keys
+  allow: string[]; // allowlist: the allowed destinations (domains/CIDRs) beyond local+DNS
+  active: boolean; // blocklist: every service rule enabled; allowlist: deny-all enforced
   memberCount: number; // configured members (static subnet/ip entries + MAC-tag rules)
 }
 

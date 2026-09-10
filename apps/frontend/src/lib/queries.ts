@@ -185,10 +185,18 @@ export function useDeleteAccessProfile(routerId: string) {
 export function useSetAccessPolicy(routerId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { name: string; services: string[] }) =>
+    mutationFn: (v: {
+      name: string;
+      mode: 'blocklist' | 'allowlist';
+      services?: string[];
+      allow?: string[];
+      enforce?: boolean;
+    }) =>
       api.post<WriteResult>(`/firewall/${routerId}/profiles/${encodeURIComponent(v.name)}/policy`, {
-        mode: 'blocklist',
-        services: v.services,
+        mode: v.mode,
+        services: v.services ?? [],
+        allow: v.allow ?? [],
+        enforce: v.enforce,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['firewall', routerId, 'profiles'] }),
   });
