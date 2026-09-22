@@ -18,6 +18,7 @@ import {
   type VoucherRow,
 } from '@noc/shared';
 import { badGateway, notFound } from '../lib/errors';
+import { provisionMember, syncMemberPassword } from '../lib/member';
 import { writeAudit } from '../lib/audit';
 import { assertSiteAccess, authenticate, requirePermission } from '../plugins/rbac';
 
@@ -46,6 +47,25 @@ function randomString(len: number, charset: string): string {
   let s = '';
   for (let i = 0; i < len; i++) s += charset[randomInt(0, charset.length)];
   return s;
+}
+
+// RouterOS has no per-user shared-users — only user-profiles carry it. A user's
+// "devices" value is therefore realised by assigning a device-tier variant
+// profile `<base>-<n>D` (a clone with shared-users=n that keeps the same
+// noc-grp binding, hence the same app policy). devices<=1 → the base profile.
+// The returned string is the profile the user should end up on.
+async function resolveDeviceProfile(
+  c: MikrotikClient,
+  profile: string | undefined,
+  sharedUsers: string | undefined,
+): Promise<string | undefined> {
+  if (!sharedUsers) return profile; // not requested → leave untouched
+  const base = (profile || 'default').replace(/-\d+D$/, '');
+  const n = parseInt(sharedUsers, 10);
+  if (!Number.isFinite(n) || n <= 1) return base;
+  const variant = `${base}-${n}D`;
+  await c.ensureUserProfileVariant(base, variant, String(n));
+  return variant;
 }
 
 export async function hotspotRoutes(app: FastifyInstance) {
@@ -98,8 +118,14 @@ export async function hotspotRoutes(app: FastifyInstance) {
   app.post('/:id/users', manage, async (req) => {
     const { id } = idParamSchema.parse(req.params);
     const r = await routerWithAccess(req, id);
-    const body = hotspotUserCreateSchema.parse(req.body);
-    await withClient(r, (c) => c.addHotspotUser(body));
+    const { sharedUsers, ...body } = hotspotUserCreateSchema.parse(req.body);
+    await withClient(r, async (c) => {
+      body.profile = await resolveDeviceProfile(c, body.profile, sharedUsers);
+      await c.addHotspotUser(body);
+    });
+    // Every hotspot user gets a member account so they can self-manage
+    // (status / password / kick own sessions) at the NOC login.
+    await provisionMember(id, body);
     await writeAudit(req, { action: 'hotspot-user-create', entity: 'router', entityId: id, after: { name: body.name } });
     return { ok: true };
   });
@@ -107,8 +133,26 @@ export async function hotspotRoutes(app: FastifyInstance) {
   app.post('/:id/users/update', manage, async (req) => {
     const { id } = idParamSchema.parse(req.params);
     const r = await routerWithAccess(req, id);
-    const { id: userId, ...patch } = hotspotUserUpdateSchema.parse(req.body);
-    await withClient(r, (c) => c.updateHotspotUser(userId, patch));
+    const { id: userId, sharedUsers, ...patch } = hotspotUserUpdateSchema.parse(req.body);
+    let targetName: string | undefined;
+    await withClient(r, async (c) => {
+      if (sharedUsers !== undefined || patch.password !== undefined) {
+        // One list lookup serves both: sharedUsers needs the current profile as
+        // the variant base; a password change must reach the member login.
+        const users = await c.listHotspotUsers();
+        const cur = users.find((u) => u['.id'] === userId);
+        targetName = cur?.name;
+        if (sharedUsers !== undefined) {
+          patch.profile = await resolveDeviceProfile(c, patch.profile ?? cur?.profile, sharedUsers);
+        }
+      }
+      await c.updateHotspotUser(userId, patch);
+    });
+    // Admin-side password change → re-hash the linked member login so the two
+    // credentials never drift (member password IS the hotspot password).
+    if (patch.password && targetName) {
+      await syncMemberPassword(id, targetName, patch.password);
+    }
     await writeAudit(req, { action: 'hotspot-user-update', entity: 'router', entityId: id, after: { userId } });
     return { ok: true };
   });
@@ -146,14 +190,22 @@ export async function hotspotRoutes(app: FastifyInstance) {
     const results: BulkCreateResult[] = [];
     await withClient(r, async (c) => {
       for (const u of rows) {
+        const { sharedUsers, ...rest } = u;
         try {
-          await c.addHotspotUser(u);
+          rest.profile = await resolveDeviceProfile(c, rest.profile, sharedUsers);
+          await c.addHotspotUser(rest);
           results.push({ name: u.name, ok: true });
         } catch (err) {
           results.push({ name: u.name, ok: false, error: (err as Error)?.message ?? String(err) });
         }
       }
     });
+    // Router users are in place → provision their member logins too.
+    for (const res of results) {
+      if (!res.ok) continue;
+      const u = rows.find((r) => r.name === res.name);
+      if (u) await provisionMember(id, u);
+    }
     await writeAudit(req, {
       action: 'hotspot-user-bulk-create',
       entity: 'router',
@@ -161,6 +213,32 @@ export async function hotspotRoutes(app: FastifyInstance) {
       after: { count: rows.length, ok: results.filter((x) => x.ok).length },
     });
     return { results };
+  });
+
+  // One-off backfill: create member logins for hotspot users that already
+  // exist on the router (e.g. users created before self-service shipped, or
+  // straight in Winbox). Needs passwords → listHotspotUsers(true).
+  app.post('/:id/users/sync-portal', manage, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const r = await routerWithAccess(req, id);
+    const users = await withClient(r, (c) => c.listHotspotUsers(true));
+    let created = 0;
+    let existed = 0;
+    let failed = 0;
+    for (const u of users) {
+      if (u.name === 'default-trial') continue; // template row, not a person
+      const res = await provisionMember(id, u);
+      if (res === 'created') created++;
+      else if (res === 'exists') existed++;
+      else failed++;
+    }
+    await writeAudit(req, {
+      action: 'hotspot-portal-sync',
+      entity: 'router',
+      entityId: id,
+      after: { created, existed, failed },
+    });
+    return { created, existed, failed };
   });
 
   app.post('/:id/active/disconnect', disconnect, async (req) => {

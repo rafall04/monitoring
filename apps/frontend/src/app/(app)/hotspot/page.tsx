@@ -131,6 +131,7 @@ export default function HotspotPage() {
     limitUptime: '',
     limitData: '',
     limitUnit: 'MB' as DataUnit,
+    sharedUsers: '',
   };
   const [newUser, setNewUser] = useState(emptyUser);
   const [editUser, setEditUser] = useState<
@@ -142,6 +143,7 @@ export default function HotspotPage() {
         limitUptime: string;
         limitData: string;
         limitUnit: DataUnit;
+        sharedUsers: string;
       }
     | null
   >(null);
@@ -153,6 +155,7 @@ export default function HotspotPage() {
       profile?: string;
       limitUptime?: string;
       limitBytesTotal?: string;
+      sharedUsers?: string;
     }) => api.post(`/hotspot/${rid}/users`, body),
     onSuccess: () => {
       setNewUser(emptyUser);
@@ -167,6 +170,7 @@ export default function HotspotPage() {
       comment?: string;
       limitUptime?: string;
       limitBytesTotal?: string;
+      sharedUsers?: string;
     }) => api.post(`/hotspot/${rid}/users/update`, body),
     onSuccess: () => {
       setEditUser(null);
@@ -197,31 +201,62 @@ export default function HotspotPage() {
   const [bulkPassAsUser, setBulkPassAsUser] = useState(true);
   const [bulkResults, setBulkResults] = useState<BulkCreateResult[] | null>(null);
   const bulkCreate = useMutation({
-    mutationFn: (users: { name: string; password?: string; profile?: string; comment?: string }[]) =>
-      api.post<{ results: BulkCreateResult[] }>(`/hotspot/${rid}/users/bulk`, { users }),
+    mutationFn: (
+      users: {
+        name: string;
+        password?: string;
+        profile?: string;
+        comment?: string;
+        sharedUsers?: string;
+      }[],
+    ) => api.post<{ results: BulkCreateResult[] }>(`/hotspot/${rid}/users/bulk`, { users }),
     onSuccess: (d) => {
       setBulkResults(d.results);
       invalidateUsers();
     },
     onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
   });
-  // One user per line: username[,password[,profile[,comment]]] — comma, semicolon
-  // or tab separated so rows paste cleanly from a spreadsheet.
+  // One user per line: username[,password[,profile[,comment[,devices]]]] —
+  // comma, semicolon or tab separated so rows paste cleanly from a spreadsheet.
   const bulkRows = () =>
     bulkText
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean)
       .map((l) => {
-        const [name, password, profile, comment] = l.split(/[,;\t]/).map((s) => s.trim());
+        const [name, password, profile, comment, devices] = l
+          .split(/[,;\t]/)
+          .map((s) => s.trim());
         return {
           name: name ?? '',
           password: password || (bulkPassAsUser ? name : undefined),
           profile: profile || bulkProfile || undefined,
           comment: comment || undefined,
+          sharedUsers: devices || undefined,
         };
       })
       .filter((u) => u.name);
+  // Backfill member logins for users that already exist on the router.
+  const syncPortal = useMutation({
+    mutationFn: () =>
+      api.post<{ created: number; existed: number; failed: number }>(
+        `/hotspot/${rid}/users/sync-portal`,
+        {},
+      ),
+    onSuccess: (d) =>
+      toast.ok(
+        `Akun member: ${d.created} dibuat, ${d.existed} sudah ada${d.failed ? `, ${d.failed} gagal` : ''}`,
+      ),
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+  });
+  const askSyncPortal = async () => {
+    const ok = await confirm({
+      title: 'Sync akun member?',
+      body: 'Setiap user hotspot di router ini akan dibuatkan akun login NOC (role member) jika belum ada — password = password hotspot.',
+      confirmLabel: 'Sync',
+    });
+    if (ok) syncPortal.mutate();
+  };
   const deleteUser = useMutation({
     mutationFn: (id: string) => api.post(`/hotspot/${rid}/users/delete`, { id }),
     onSuccess: () => { toast.ok('User dihapus'); invalidateUsers(); },
@@ -289,6 +324,12 @@ export default function HotspotPage() {
     );
 
   const profileNames = profiles.data?.map((p) => p.name) ?? [];
+  // shared-users lives on the user-PROFILE (RouterOS has none on the user), so a
+  // user's device limit is read from the profile they're on — incl. the
+  // <base>-<n>D device-tier variants the backend clones on demand.
+  const profileShared = new Map(
+    (profiles.data ?? []).map((p) => [p.name, p['shared-users'] ?? '1']),
+  );
   const profileSelect = (value: string, onChange: (v: string) => void) => (
     <Select value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">— default —</option>
@@ -401,6 +442,16 @@ export default function HotspotPage() {
                 newUser.limitUnit,
                 (v) => setNewUser({ ...newUser, limitUnit: v }),
               )}
+              <Field label="Devices">
+                <TextInput
+                  type="number"
+                  min={1}
+                  placeholder="1"
+                  value={newUser.sharedUsers}
+                  onChange={(e) => setNewUser({ ...newUser, sharedUsers: e.target.value })}
+                  className="w-20"
+                />
+              </Field>
               <Button
                 onClick={() =>
                   createUser.mutate({
@@ -409,6 +460,7 @@ export default function HotspotPage() {
                     profile: newUser.profile || undefined,
                     limitUptime: newUser.limitUptime || undefined,
                     limitBytesTotal: toBytes(newUser.limitData, newUser.limitUnit),
+                    sharedUsers: newUser.sharedUsers || undefined,
                   })
                 }
                 disabled={!newUser.name || createUser.isPending}
@@ -419,16 +471,28 @@ export default function HotspotPage() {
           )}
           {canManage && (
             <div className="mb-4">
-              <Button variant="ghost" onClick={() => setBulkOpen((v) => !v)}>
-                {bulkOpen ? '− Bulk add' : '+ Bulk add'}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" onClick={() => setBulkOpen((v) => !v)}>
+                  {bulkOpen ? '− Bulk add' : '+ Bulk add'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => void askSyncPortal()}
+                  disabled={syncPortal.isPending}
+                  title="Buatkan akun login NOC (member) untuk user hotspot yang belum punya"
+                >
+                  {syncPortal.isPending ? 'Sync…' : '⇄ Sync akun member'}
+                </Button>
+              </div>
               {bulkOpen && (
                 <div className="mt-2 rounded-lg border border-surface-border p-3">
                   <p className="mb-2 text-xs text-slate-500">
                     Satu user per baris:{' '}
-                    <code className="text-slate-300">username,password,profile,komentar</code>{' '}
+                    <code className="text-slate-300">
+                      username,password,profile,komentar,devices
+                    </code>{' '}
                     (koma / titik-koma / tab — bisa paste dari spreadsheet). Password kosong → sama
-                    dengan username. Profile kosong → pakai default di bawah.
+                    dengan username. Profile kosong → pakai default di bawah. Devices kosong → 1.
                   </p>
                   <textarea
                     value={bulkText}
@@ -503,6 +567,7 @@ export default function HotspotPage() {
                     <th className={TABLE.thDense}>Uptime</th>
                     <th className={TABLE.thDense}>Traffic (in/out)</th>
                     <th className={TABLE.thDense}>Limits (used / limit)</th>
+                    <th className={TABLE.thDense}>Dev</th>
                     {canManage && <th className={`${TABLE.thDense} text-right`}>Actions</th>}
                   </tr>
                 </thead>
@@ -539,6 +604,9 @@ export default function HotspotPage() {
                             </div>
                           )}
                         </td>
+                        <td data-label="Dev" className={TABLE.tdDense}>
+                          {profileShared.get(u.profile || 'default') ?? '1'}
+                        </td>
                         {canManage && (
                           <td className={`${TABLE.tdDense} space-x-3 text-right`}>
                             <button
@@ -554,6 +622,7 @@ export default function HotspotPage() {
                                   limitUptime: u['limit-uptime'] ?? '',
                                   limitData: lb.amount,
                                   limitUnit: lb.unit,
+                                  sharedUsers: profileShared.get(u.profile || 'default') ?? '1',
                                 });
                               }}
                             >
@@ -577,7 +646,7 @@ export default function HotspotPage() {
                       </tr>
                       {editUser && editUser.id === u['.id'] && (
                         <tr className="border-t border-surface-border bg-surface">
-                          <td colSpan={6} className="p-3">
+                          <td colSpan={7} className="p-3">
                             <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-2 lg:grid-cols-4">
                               <Field label="Profile">
                                 {profileSelect(editUser.profile, (v) =>
@@ -609,6 +678,19 @@ export default function HotspotPage() {
                                 editUser.limitUnit,
                                 (v) => setEditUser((p) => (p ? { ...p, limitUnit: v } : p)),
                               )}
+                              <Field label="Devices">
+                                <TextInput
+                                  type="number"
+                                  min={1}
+                                  placeholder="1"
+                                  title="Maks perangkat login bersamaan (shared-users)"
+                                  value={editUser.sharedUsers}
+                                  onChange={(e) =>
+                                    setEditUser((p) => (p ? { ...p, sharedUsers: e.target.value } : p))
+                                  }
+                                  className="w-20"
+                                />
+                              </Field>
                               <Button
                                 onClick={() => {
                                   if (!editUser) return;
@@ -622,6 +704,7 @@ export default function HotspotPage() {
                                     limitBytesTotal: editUser.limitData
                                       ? toBytes(editUser.limitData, editUser.limitUnit)
                                       : '',
+                                    sharedUsers: editUser.sharedUsers || undefined,
                                   });
                                 }}
                                 disabled={updateUser.isPending}
@@ -640,7 +723,7 @@ export default function HotspotPage() {
                   {users.data?.length === 0 && (
                     <tr>
                       <td
-                        colSpan={canManage ? 6 : 5}
+                        colSpan={canManage ? 7 : 6}
                         className="px-3 py-4 text-center text-slate-500"
                       >
                         No hotspot users on this router.

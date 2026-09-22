@@ -96,6 +96,12 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-2">
+          {user.role === 'member' ? (
+            // Members are hotspot end-users — the only screen that exists for
+            // them is their own account page.
+            item('/akun', 'Akun Saya', 'hotspot')
+          ) : (
+            <>
           {item('/', 'Overview', 'overview')}
           {sectionLabel('Sites')}
           {sites.data?.length ? (
@@ -121,6 +127,8 @@ export function Shell({ children }: { children: ReactNode }) {
               {can('settings:manage') && item('/admin/settings', 'Settings', 'settings')}
               {can('ruijie:manage') && item('/admin/ruijie', 'Ruijie Cloud', 'cloud')}
               {can('audit:view') && item('/admin/audit', 'Aktivitas', 'activity')}
+            </>
+          )}
             </>
           )}
         </nav>

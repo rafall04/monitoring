@@ -20,8 +20,10 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
-      router.replace('/');
+      const u = await login(email, password);
+      // Members (hotspot end-users) land on their self-service page; staff on
+      // the NOC overview.
+      router.replace(u.role === 'member' ? '/akun' : '/');
     } catch (err) {
       setError((err as Error).message);
     } finally {

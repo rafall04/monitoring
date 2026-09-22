@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect, type ReactNode } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import type { Site, SiteSummary } from '@noc/shared';
 import { api } from '@/lib/api';
@@ -134,7 +135,12 @@ function SiteCard({
 }
 
 export default function OverviewPage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  const router = useRouter();
+  // Members have no NOC data — their home is the self-service hotspot page.
+  useEffect(() => {
+    if (user?.role === 'member') router.replace('/akun');
+  }, [user, router]);
   const sites = useSites();
   const list = sites.data ?? [];
 

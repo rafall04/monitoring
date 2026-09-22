@@ -78,6 +78,10 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   viewer: VIEWER_PERMISSIONS,
   operator: OPERATOR_PERMISSIONS,
   super_admin: PERMISSIONS, // everything
+  // member = hotspot end-user: zero NOC permissions. Their only access is the
+  // /me/hotspot self-service endpoints, which authorize by the account's
+  // hotspotRouterId+hotspotUsername link — not by this matrix.
+  member: [],
 };
 
 export function hasPermission(role: Role, permission: Permission): boolean {

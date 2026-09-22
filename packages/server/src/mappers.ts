@@ -121,6 +121,7 @@ export function toAppUserPublic(u: AppUser): AppUserPublic {
     role: u.role as Role,
     scopeSiteIds: (u.scopeSiteIds as string[] | null) ?? [],
     isActive: u.isActive,
+    hotspotUsername: u.hotspotUsername ?? null,
     createdAt: u.createdAt.toISOString(),
   };
 }

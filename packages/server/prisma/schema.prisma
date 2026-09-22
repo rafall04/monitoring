@@ -106,6 +106,7 @@ model RouterMikrotik {
   createdAt DateTime @default(now())
 
   devices Device[]
+  members AppUser[] // member-role users whose hotspot account lives on this router
 
   @@index([siteId])
   @@map("router_mikrotik")
@@ -176,16 +177,22 @@ model StatusEvent {
 model AppUser {
   id           String   @id @default(cuid())
   name         String
-  email        String   @unique
+  email        String   @unique // doubles as the login id — members log in with their hotspot username
   passwordHash String
-  role         String   @default("viewer") // viewer | operator | super_admin
+  role         String   @default("viewer") // viewer | operator | super_admin | member
   scopeSiteIds Json     @default("[]")
+  // member role: the hotspot account (router + username) this user self-manages
+  // via /me/hotspot. Null for staff roles.
+  hotspotRouterId  String?
+  hotspotRouter    RouterMikrotik? @relation(fields: [hotspotRouterId], references: [id], onDelete: SetNull)
+  hotspotUsername  String?
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
 
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
 
+  @@index([hotspotRouterId, hotspotUsername])
   @@map("app_user")
 }
 

@@ -106,7 +106,17 @@ export interface MikrotikClient {
 
   listHotspotServers(): Promise<string[]>;
   listHotspotProfiles(): Promise<HotspotProfile[]>;
-  listHotspotUsers(): Promise<HotspotUser[]>;
+  /**
+   * List hotspot users. `withSecrets` also returns each user's plaintext
+   * password field (RouterOS stores it readable) — only for flows that need it
+   * (member provisioning), never for list endpoints that render in the UI.
+   */
+  listHotspotUsers(withSecrets?: boolean): Promise<HotspotUser[]>;
+  /**
+   * Fetch one hotspot user by exact name, INCLUDING the plaintext password —
+   * member self-service verifies `currentPassword` against it before a change.
+   */
+  getHotspotUserByName(name: string): Promise<HotspotUser | null>;
   addHotspotUser(input: AddHotspotUserInput): Promise<void>;
   updateHotspotUser(id: string, patch: Partial<AddHotspotUserInput>): Promise<void>;
   removeHotspotUser(id: string): Promise<void>;
@@ -118,6 +128,15 @@ export interface MikrotikClient {
   resetHotspotUserCounters(id: string): Promise<void>;
   addHotspotProfile(input: UpsertHotspotProfileInput): Promise<void>;
   updateHotspotProfile(id: string, patch: Partial<UpsertHotspotProfileInput>): Promise<void>;
+  /**
+   * Per-user device limits are a user-PROFILE property in RouterOS (there is no
+   * `shared-users` on the user itself), so a "devices" value is realised by a
+   * device-tier variant profile named `<base>-<n>D` — a clone of `from` with
+   * shared-users=n. The clone copies address-list too, so a variant member lands
+   * in the same noc-grp-* group and keeps the identical app-blocking policy.
+   * Idempotent: creates the variant if missing, fixes shared-users if it drifted.
+   */
+  ensureUserProfileVariant(from: string, to: string, sharedUsers: string): Promise<void>;
 
   listHotspotActive(): Promise<HotspotActive[]>;
   disconnectHotspotActive(id: string): Promise<void>;

@@ -77,6 +77,30 @@ function parsePct(t: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// Writable user-profile props copied when cloning a base profile into a
+// device-tier variant (<base>-<n>D). name/shared-users are set explicitly.
+const PROFILE_CLONE_PROPS = [
+  'idle-timeout',
+  'keepalive-timeout',
+  'status-autorefresh',
+  'rate-limit',
+  'session-timeout',
+  'add-mac-cookie',
+  'mac-cookie-timeout',
+  'http-cookie-lifetime',
+  'address-pool',
+  'address-list',
+  'transparent-proxy',
+  'open-status-page',
+  'advertise',
+  'advertise-url',
+  'advertise-interval',
+  'incoming-filter',
+  'outgoing-filter',
+  'incoming-packet-mark',
+  'outgoing-packet-mark',
+];
+
 export class RouterOsV6Client implements MikrotikClient {
   private conn: RouterOSAPI | null = null;
   private connected = false;
@@ -223,21 +247,36 @@ export class RouterOsV6Client implements MikrotikClient {
     }));
   }
 
-  async listHotspotUsers(): Promise<HotspotUser[]> {
+  async listHotspotUsers(withSecrets = false): Promise<HotspotUser[]> {
     const res = await this.write('/ip/hotspot/user/print');
-    return res.map((r) => ({
+    return res.map((r) => this.mapHotspotUser(r, withSecrets));
+  }
+
+  async getHotspotUserByName(name: string): Promise<HotspotUser | null> {
+    const res = await this.write('/ip/hotspot/user/print', [`?name=${name}`]);
+    const r = res[0];
+    return r ? this.mapHotspotUser(r, true) : null;
+  }
+
+  private mapHotspotUser(
+    r: Record<string, string>,
+    withSecrets: boolean,
+  ): HotspotUser {
+    return {
       '.id': r['.id'],
       name: r['name'] ?? '',
       profile: r['profile'],
       server: r['server'],
       'limit-uptime': r['limit-uptime'],
       'limit-bytes-total': r['limit-bytes-total'],
+      'mac-address': r['mac-address'],
       uptime: r['uptime'],
       'bytes-in': r['bytes-in'],
       'bytes-out': r['bytes-out'],
       comment: r['comment'],
       disabled: r['disabled'],
-    }));
+      ...(withSecrets ? { password: r['password'] } : {}),
+    };
   }
 
   async addHotspotUser(input: AddHotspotUserInput): Promise<void> {
@@ -271,6 +310,38 @@ export class RouterOsV6Client implements MikrotikClient {
       `=.id=${id}`,
       ...this.profileParams(patch),
     ]);
+  }
+
+  // RouterOS has no per-user shared-users — only user-profiles carry it. A
+  // per-user "devices" value is therefore realised by a device-tier variant
+  // profile (`<base>-<n>D`): a clone of the base profile with shared-users=n.
+  // The clone keeps the base's address-list, so the variant's members land in
+  // the same noc-grp-* group and keep the identical app-blocking policy.
+  async ensureUserProfileVariant(
+    from: string,
+    to: string,
+    sharedUsers: string,
+  ): Promise<void> {
+    const existing = await this.write('/ip/hotspot/user/profile/print', [`?name=${to}`]);
+    const cur = existing[0];
+    if (cur) {
+      if (cur['shared-users'] !== sharedUsers) {
+        await this.write('/ip/hotspot/user/profile/set', [
+          `=.id=${cur['.id']}`,
+          `=shared-users=${sharedUsers}`,
+        ]);
+      }
+      return;
+    }
+    const base = await this.write('/ip/hotspot/user/profile/print', [`?name=${from}`]);
+    const src = base[0];
+    if (!src) throw new Error(`Profile "${from}" tidak ditemukan di router`);
+    const p = [`=name=${to}`, `=shared-users=${sharedUsers}`];
+    for (const k of PROFILE_CLONE_PROPS) {
+      const v = src[k];
+      if (v != null && v !== '') p.push(`=${k}=${v}`);
+    }
+    await this.write('/ip/hotspot/user/profile/add', p);
   }
 
   async listHotspotActive(): Promise<HotspotActive[]> {
@@ -577,7 +648,14 @@ export class RouterOsV6Client implements MikrotikClient {
 
   async listAccessProfiles(): Promise<AccessProfile[]> {
     const profs = await this.write('/ip/hotspot/user/profile/print');
-    const access = profs.filter((r) => (r['address-list'] ?? '').startsWith('noc-grp-'));
+    // Skip device-tier variants (<name>-<n>D): they share the base's noc-grp
+    // binding, so listing them would double-count the same policy as separate
+    // "access profiles" with an empty service set.
+    const access = profs.filter(
+      (r) =>
+        (r['address-list'] ?? '').startsWith('noc-grp-') &&
+        !/-\d+D$/.test(r['name'] ?? ''),
+    );
     if (access.length === 0) return [];
     const intents = await this.listBlockIntents();
     const chain = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);

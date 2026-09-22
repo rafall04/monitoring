@@ -25,6 +25,8 @@ const ROLE_HINT: Record<Role, string> = {
   operator:
     'Bisa edit/tambah device (IP/atribut), kelola hotspot, ack/silence alert. Tak bisa hapus, kredensial, atau settings.',
   super_admin: 'Akses penuh — kredensial router & Ruijie, user, settings, audit, hapus.',
+  member:
+    'End-user hotspot — hanya halaman "Akun Saya" (status, ganti password, kick sesi sendiri). Dibuat otomatis saat user hotspot dibuat/sync.',
 };
 
 export default function AdminUsersPage() {

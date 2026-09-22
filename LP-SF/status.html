@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<title id="title">Status</title>
+$(if refresh-timeout)
+<meta http-equiv="refresh" content="$(refresh-timeout-secs)">
+$(endif)
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" /><style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #1f2937;
+    background: linear-gradient(135deg, #0099bb 0%, #6610f2 100%);
+  }
+  .card {
+    width: 100%;
+    max-width: 400px;
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
+    padding: 26px 24px 22px;
+    text-align: center;
+  }
+  h3 { font-size: 15px; font-weight: 600; color: #6b7280; }
+  .user { font-size: 22px; font-weight: 700; color: #0099bb; margin: 4px 0 16px; word-break: break-all; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 14px; }
+  td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; }
+  td.k { width: 40%; color: #6b7280; font-weight: 600; }
+  tr:hover td { background: #f9fafb; }
+  .btn {
+    width: 100%;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: .5px;
+    color: #fff;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    background: linear-gradient(135deg, #0099bb, #6610f2);
+  }
+  .btn:hover { opacity: .92; }
+  .warn { color: #f86c6b; }
+  iframe { float: none; height: 22px; width: 100%; border: 0; }
+  .foot { margin-top: 16px; font-size: 11px; color: #b6bcc4; }
+  .foot b { color: #8a909a; }
+</style>
+<script language="JavaScript">
+$(if advert-pending == 'yes')
+    var popup = '';
+    function focusAdvert() { if (window.focus) popup.focus(); }
+    function openAdvert() {
+        popup = open('$(link-advert)', 'hotspot_advert', '');
+        setTimeout("focusAdvert()", 1000);
+    }
+$(endif)
+    function openLogout() {
+        if (window.name != 'hotspot_status') return true;
+        open('$(link-logout)', 'hotspot_logout', 'toolbar=0,location=0,directories=0,status=0,menubars=0,resizable=1,width=280,height=250');
+        window.close();
+        return false;
+    }
+</script>
+</head>
+
+<body $(if advert-pending == 'yes') onLoad="openAdvert()" $(endif)>
+  <div class="card">
+    $(if login-by == 'trial')
+      <h3>Selamat Datang</h3>
+      <div class="user" id="user">$(mac)</div>
+    $(elif login-by != 'mac')
+      <h3>Selamat Datang</h3>
+      <div class="user" id="user">$(username)</div>
+    $(elif login-by = 'mac')
+      <h3>Selamat Datang</h3>
+      <div class="user" id="user">$(mac)</div>
+    $(endif)
+
+    <form action="$(link-logout)" name="logout" onSubmit="return openLogout()">
+      <table>
+        <tr><td class="k">IP</td><td>$(ip)</td></tr>
+        <tr><td class="k">MAC</td><td>$(mac)</td></tr>
+        <tr><td class="k">Trafik</td><td>$(bytes-in-nice) | $(bytes-out-nice)</td></tr>
+        <tr><td class="k">Aktif</td><td>$(uptime)</td></tr>
+        $(if remain-bytes-total)
+        <tr><td class="k">Sisa Kuota</td><td>$(remain-bytes-total-nice)</td></tr>
+        $(endif)
+        $(if session-time-left)
+        <tr><td class="k">Sisa Waktu</td><td>$(session-time-left)</td></tr>
+        $(endif)
+        $(if blocked == 'yes')
+        <tr><td class="k">Status</td><td class="warn"><a href="$(link-advert)" target="hotspot_advert">advertisement</a> required</td></tr>
+        $(elif refresh-timeout)
+        <tr><td class="k">Refresh</td><td>$(refresh-timeout)</td></tr>
+        $(endif)
+      </table>
+
+      $(if login-by-mac != 'yes')
+      <button type="submit" class="btn">LOGOUT | KELUAR</button>
+      $(endif)
+    </form>
+
+    <div class="foot">Aplikasi tidak bisa diakses? Itu batas akses akun Anda &mdash; bukan error.<br>Kendala koneksi / minta penambahan akses: <b>IT Support &mdash; Aldi</b><br>&copy; Copyright 2026 | <b>RAF</b> - All rights reserved</div>
+  </div>
+
+<script type="text/javascript">
+  try { document.getElementById('title').innerHTML = window.location.hostname + ' &gt; status'; } catch (e) {}
+</script>
+</body>
+</html>

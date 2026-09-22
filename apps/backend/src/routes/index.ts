@@ -8,6 +8,7 @@ import { deviceRoutes } from './devices';
 import { diagnosticsRoutes } from './diagnostics';
 import { firewallRoutes } from './firewall';
 import { hotspotRoutes } from './hotspot';
+import { meHotspotRoutes } from './me-hotspot';
 import { reportRoutes } from './reports';
 import { routerRoutes } from './routers';
 import { ruijieRoutes } from './ruijie';
@@ -26,6 +27,7 @@ export async function apiRoutes(app: FastifyInstance) {
   await app.register(deviceRoutes, { prefix: '/devices' });
   await app.register(topologyRoutes);
   await app.register(hotspotRoutes, { prefix: '/hotspot' });
+  await app.register(meHotspotRoutes, { prefix: '/me/hotspot' });
   await app.register(firewallRoutes, { prefix: '/firewall' });
   await app.register(bandwidthRoutes, { prefix: '/bandwidth' });
   await app.register(diagnosticsRoutes, { prefix: '/diagnostics' });

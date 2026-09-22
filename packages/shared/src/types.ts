@@ -3,7 +3,9 @@
 // Isomorphic: must NOT import any node-only modules.
 // =============================================================================
 
-export const ROLES = ['viewer', 'operator', 'super_admin'] as const;
+// 'member' = hotspot end-user: logs in with their hotspot username and only
+// reaches the self-service /me/hotspot endpoints — no NOC permissions at all.
+export const ROLES = ['viewer', 'operator', 'super_admin', 'member'] as const;
 export type Role = (typeof ROLES)[number];
 
 /** Real status as reported by Netwatch. */
@@ -257,6 +259,8 @@ export interface AppUserPublic {
   role: Role;
   scopeSiteIds: string[];
   isActive: boolean;
+  /** member role: the hotspot username this account self-manages (null for staff). */
+  hotspotUsername: string | null;
   createdAt: string;
 }
 
@@ -309,6 +313,7 @@ export interface HotspotUser {
   server?: string;
   'limit-uptime'?: string;
   'limit-bytes-total'?: string;
+  'mac-address'?: string;
   uptime?: string;
   'bytes-in'?: string;
   'bytes-out'?: string;
@@ -330,6 +335,25 @@ export interface HotspotActive {
   'session-time-left'?: string;
   'login-by'?: string;
   server?: string;
+}
+
+// ---- Member self-service (/me/hotspot) ---------------------------------------
+// What a logged-in member sees about their own hotspot account. Everything is
+// read live from their linked router — nothing is mirrored into the NOC DB.
+
+export interface MemberHotspotStatus {
+  username: string;
+  profile: string; // effective profile on the router (may be a -ND device variant)
+  devices: number; // simultaneous-login limit (shared-users on the user-profile)
+  disabled: boolean;
+  uptime: string | null;
+  bytesIn: string | null;
+  bytesOut: string | null;
+  limitUptime: string | null;
+  limitBytesTotal: string | null;
+  /** Apps intentionally blocked for this user's access profile (blocklist). */
+  blockedServices: { key: string; label: string }[];
+  sessions: HotspotActive[]; // only this user's own active sessions
 }
 
 // ---- Firewall / access control (block toggles + block address-lists) --------

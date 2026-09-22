@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<title id="title">Logout</title>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" /><style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #1f2937;
+    background: linear-gradient(135deg, #0099bb 0%, #6610f2 100%);
+  }
+  .card {
+    width: 100%;
+    max-width: 400px;
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
+    padding: 26px 24px 22px;
+    text-align: center;
+  }
+  h3 { font-size: 15px; font-weight: 600; color: #6b7280; }
+  .big { font-size: 20px; font-weight: 700; color: #0099bb; margin: 4px 0 16px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 14px; }
+  td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; }
+  td.k { width: 40%; color: #6b7280; font-weight: 600; }
+  tr:hover td { background: #f9fafb; }
+  .btn {
+    width: 100%;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: .5px;
+    color: #fff;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    background: linear-gradient(135deg, #0099bb, #6610f2);
+  }
+  .btn:hover { opacity: .92; }
+  .foot { margin-top: 16px; font-size: 11px; color: #b6bcc4; }
+  .foot b { color: #8a909a; }
+</style>
+<script language="JavaScript">
+    function openLogin() {
+        if (window.name != 'hotspot_logout') return true;
+        open('$(link-login)', '_blank', '');
+        window.close();
+        return false;
+    }
+    function readablizeBytes(bytes) {
+        var s = ['bytes', 'kb', 'MB', 'GB', 'TB', 'PB'];
+        var e = Math.floor(Math.log(bytes) / Math.log(1024));
+        return (bytes / Math.pow(1024, Math.floor(e))).toFixed(2) + " " + s[e];
+    }
+</script>
+</head>
+
+<body>
+  <div class="card">
+    <h3>Terima Kasih</h3>
+    <div class="big">ANDA TELAH LOGOUT</div>
+
+    <table>
+      <tr><td class="k">User</td><td>$(username)</td></tr>
+      <tr><td class="k">IP Address</td><td>$(ip)</td></tr>
+      <tr><td class="k">MAC</td><td>$(mac)</td></tr>
+      <tr><td class="k">UL | DL</td><td>$(bytes-in-nice) | $(bytes-out-nice)</td></tr>
+      <tr><td class="k">Aktif</td><td>$(uptime)</td></tr>
+      $(if remain-bytes-total)
+      <tr><td class="k">Sisa Kuota</td><td><script language="JavaScript">document.write(readablizeBytes($(remain-bytes-total)));</script></td></tr>
+      $(endif)
+      $(if session-time-left)
+      <tr><td class="k">Sisa Waktu</td><td>$(session-time-left)</td></tr>
+      $(endif)
+    </table>
+
+    <form action="$(link-login)" name="login" onSubmit="return openLogin()">
+      <button type="submit" class="btn">LOGIN KEMBALI</button>
+    </form>
+
+    <div class="foot">Kendala login? Hubungi <b>IT Support &mdash; Aldi</b><br>&copy; Copyright 2026 | <b>RAF</b> - All rights reserved</div>
+  </div>
+
+<script type="text/javascript">
+  try { document.getElementById('title').innerHTML = window.location.hostname + ' &gt; logout'; } catch (e) {}
+</script>
+</body>
+</html>

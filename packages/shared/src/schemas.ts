@@ -313,6 +313,9 @@ export const hotspotUserCreateSchema = z.object({
   server: z.string().max(120).optional(),
   limitUptime: z.string().max(64).optional(), // e.g. "1h", "30m"
   limitBytesTotal: z.string().max(64).optional(),
+  // Device limit (simultaneous logins). RouterOS only has shared-users on the
+  // user-profile, so the backend realises this via a `<profile>-<n>D` variant.
+  sharedUsers: z.string().max(16).optional(), // e.g. "2"
   comment: z.string().max(255).optional(),
 });
 export type HotspotUserCreateInput = z.infer<typeof hotspotUserCreateSchema>;
@@ -381,6 +384,19 @@ export const hotspotUserBulkSchema = z.object({
   users: z.array(hotspotUserCreateSchema).min(1).max(500),
 });
 export type HotspotUserBulkInput = z.infer<typeof hotspotUserBulkSchema>;
+
+// ---- Member self-service (/me/hotspot) ---------------------------------------
+// Loose password bounds on purpose: RouterOS hotspot creds can be short/simple
+// and the member owns the credential. Still rate-limit the endpoint like login.
+export const hotspotSelfPasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(255),
+  newPassword: z.string().min(1).max(255),
+});
+export type HotspotSelfPasswordInput = z.infer<typeof hotspotSelfPasswordSchema>;
+
+// Kick own sessions: `id` disconnects one session, omitted kicks all of them.
+export const hotspotKickSchema = z.object({ id: z.string().min(1).optional() });
+export type HotspotKickInput = z.infer<typeof hotspotKickSchema>;
 
 // ---- Settings / Branding -----------------------------------------------------
 
