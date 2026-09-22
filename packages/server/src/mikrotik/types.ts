@@ -110,6 +110,12 @@ export interface MikrotikClient {
   addHotspotUser(input: AddHotspotUserInput): Promise<void>;
   updateHotspotUser(id: string, patch: Partial<AddHotspotUserInput>): Promise<void>;
   removeHotspotUser(id: string): Promise<void>;
+  /**
+   * Zero the user's accumulated uptime/bytes counters. Required to let a user
+   * back in after they hit limit-uptime / limit-bytes-total (limits compare
+   * against these counters; the limit itself is untouched).
+   */
+  resetHotspotUserCounters(id: string): Promise<void>;
   addHotspotProfile(input: UpsertHotspotProfileInput): Promise<void>;
   updateHotspotProfile(id: string, patch: Partial<UpsertHotspotProfileInput>): Promise<void>;
 

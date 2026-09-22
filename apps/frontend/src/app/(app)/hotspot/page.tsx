@@ -2,7 +2,13 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Fragment, useState } from 'react';
-import type { HotspotActive, HotspotProfile, HotspotUser, VoucherRow } from '@noc/shared';
+import type {
+  BulkCreateResult,
+  HotspotActive,
+  HotspotProfile,
+  HotspotUser,
+  VoucherRow,
+} from '@noc/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useRouters } from '@/lib/queries';
@@ -64,6 +70,23 @@ function formatBytes(v: string | number | null | undefined): string {
   return `${val >= 10 || i === 0 ? Math.round(val) : val.toFixed(1)} ${UNITS[i]}`;
 }
 
+type DataUnit = 'MB' | 'GB';
+
+/** Convert a human amount + unit into a RouterOS byte count (string). */
+const toBytes = (amount: string, unit: DataUnit): string | undefined => {
+  const n = Number(amount);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return String(Math.round(n * (unit === 'GB' ? 1073741824 : 1048576)));
+};
+
+/** Split a RouterOS byte count back into amount + unit for form prefill. */
+const fromBytes = (v: string | undefined): { amount: string; unit: DataUnit } => {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return { amount: '', unit: 'MB' };
+  if (n % 1073741824 === 0) return { amount: String(n / 1073741824), unit: 'GB' };
+  return { amount: String(Math.round((n / 1048576) * 100) / 100), unit: 'MB' };
+};
+
 export default function HotspotPage() {
   const { can } = useAuth();
   const routers = useRouters();
@@ -101,27 +124,104 @@ export default function HotspotPage() {
   const invalidateProfiles = () => qc.invalidateQueries({ queryKey: ['hotspot', rid, 'profiles'] });
 
   // ---- user state + mutations ----
-  const [newUser, setNewUser] = useState({ name: '', password: '', profile: '' });
+  const emptyUser = {
+    name: '',
+    password: '',
+    profile: '',
+    limitUptime: '',
+    limitData: '',
+    limitUnit: 'MB' as DataUnit,
+  };
+  const [newUser, setNewUser] = useState(emptyUser);
   const [editUser, setEditUser] = useState<
-    { id: string; profile: string; password: string; comment: string } | null
+    | {
+        id: string;
+        profile: string;
+        password: string;
+        comment: string;
+        limitUptime: string;
+        limitData: string;
+        limitUnit: DataUnit;
+      }
+    | null
   >(null);
 
   const createUser = useMutation({
-    mutationFn: (body: { name: string; password?: string; profile?: string }) =>
-      api.post(`/hotspot/${rid}/users`, body),
+    mutationFn: (body: {
+      name: string;
+      password?: string;
+      profile?: string;
+      limitUptime?: string;
+      limitBytesTotal?: string;
+    }) => api.post(`/hotspot/${rid}/users`, body),
     onSuccess: () => {
-      setNewUser({ name: '', password: '', profile: '' });
+      setNewUser(emptyUser);
       invalidateUsers();
     },
   });
   const updateUser = useMutation({
-    mutationFn: (body: { id: string; profile?: string; password?: string; comment?: string }) =>
-      api.post(`/hotspot/${rid}/users/update`, body),
+    mutationFn: (body: {
+      id: string;
+      profile?: string;
+      password?: string;
+      comment?: string;
+      limitUptime?: string;
+      limitBytesTotal?: string;
+    }) => api.post(`/hotspot/${rid}/users/update`, body),
     onSuccess: () => {
       setEditUser(null);
       invalidateUsers();
     },
   });
+  const resetCounters = useMutation({
+    mutationFn: (id: string) => api.post(`/hotspot/${rid}/users/reset-counters`, { id }),
+    onSuccess: () => {
+      toast.ok('Counter di-reset');
+      invalidateUsers();
+    },
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+  });
+  const askResetCounters = async (id: string, name: string) => {
+    const ok = await confirm({
+      title: 'Reset counter user?',
+      body: `Uptime & pemakaian data ${name} dinolkan. Limit tetap berlaku.`,
+      confirmLabel: 'Reset',
+    });
+    if (ok) resetCounters.mutate(id);
+  };
+
+  // ---- bulk add (RSVP import) ----
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkProfile, setBulkProfile] = useState('');
+  const [bulkPassAsUser, setBulkPassAsUser] = useState(true);
+  const [bulkResults, setBulkResults] = useState<BulkCreateResult[] | null>(null);
+  const bulkCreate = useMutation({
+    mutationFn: (users: { name: string; password?: string; profile?: string; comment?: string }[]) =>
+      api.post<{ results: BulkCreateResult[] }>(`/hotspot/${rid}/users/bulk`, { users }),
+    onSuccess: (d) => {
+      setBulkResults(d.results);
+      invalidateUsers();
+    },
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+  });
+  // One user per line: username[,password[,profile[,comment]]] — comma, semicolon
+  // or tab separated so rows paste cleanly from a spreadsheet.
+  const bulkRows = () =>
+    bulkText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        const [name, password, profile, comment] = l.split(/[,;\t]/).map((s) => s.trim());
+        return {
+          name: name ?? '',
+          password: password || (bulkPassAsUser ? name : undefined),
+          profile: profile || bulkProfile || undefined,
+          comment: comment || undefined,
+        };
+      })
+      .filter((u) => u.name);
   const deleteUser = useMutation({
     mutationFn: (id: string) => api.post(`/hotspot/${rid}/users/delete`, { id }),
     onSuccess: () => { toast.ok('User dihapus'); invalidateUsers(); },
@@ -164,10 +264,17 @@ export default function HotspotPage() {
     usernameLength: 6,
     passwordLength: 6,
     sameAsUsername: false,
+    limitUptime: '',
+    limitData: '',
+    limitUnit: 'MB' as DataUnit,
   });
   const [voucherRows, setVoucherRows] = useState<VoucherRow[]>([]);
   const genVouchers = useMutation({
-    mutationFn: () => api.post<{ vouchers: VoucherRow[] }>(`/hotspot/${rid}/vouchers`, voucher),
+    mutationFn: () =>
+      api.post<{ vouchers: VoucherRow[] }>(`/hotspot/${rid}/vouchers`, {
+        ...voucher,
+        limitBytesTotal: toBytes(voucher.limitData, voucher.limitUnit),
+      }),
     onSuccess: (d) => setVoucherRows(d.vouchers),
   });
 
@@ -191,6 +298,48 @@ export default function HotspotPage() {
         </option>
       ))}
     </Select>
+  );
+
+  // Per-user RouterOS limits: limit-uptime (accumulated login time, e.g. "1h",
+  // "1d") and limit-bytes-total (in+out). Empty = unlimited.
+  const limitFields = (
+    uptime: string,
+    setUptime: (v: string) => void,
+    data: string,
+    setData: (v: string) => void,
+    unit: DataUnit,
+    setUnit: (v: DataUnit) => void,
+  ) => (
+    <>
+      <Field label="Limit uptime">
+        <TextInput
+          placeholder="1h / 1d"
+          value={uptime}
+          onChange={(e) => setUptime(e.target.value)}
+          className="w-24"
+        />
+      </Field>
+      <Field label="Limit data">
+        <div className="flex gap-1">
+          <TextInput
+            type="number"
+            min={0}
+            placeholder="∞"
+            value={data}
+            onChange={(e) => setData(e.target.value)}
+            className="w-20"
+          />
+          <Select
+            value={unit}
+            onChange={(e) => setUnit(e.target.value as DataUnit)}
+            className="w-20"
+          >
+            <option value="MB">MB</option>
+            <option value="GB">GB</option>
+          </Select>
+        </div>
+      </Field>
+    </>
   );
 
   return (
@@ -244,18 +393,98 @@ export default function HotspotPage() {
               <Field label="Profile">
                 {profileSelect(newUser.profile, (v) => setNewUser({ ...newUser, profile: v }))}
               </Field>
+              {limitFields(
+                newUser.limitUptime,
+                (v) => setNewUser({ ...newUser, limitUptime: v }),
+                newUser.limitData,
+                (v) => setNewUser({ ...newUser, limitData: v }),
+                newUser.limitUnit,
+                (v) => setNewUser({ ...newUser, limitUnit: v }),
+              )}
               <Button
                 onClick={() =>
                   createUser.mutate({
                     name: newUser.name,
                     password: newUser.password || undefined,
                     profile: newUser.profile || undefined,
+                    limitUptime: newUser.limitUptime || undefined,
+                    limitBytesTotal: toBytes(newUser.limitData, newUser.limitUnit),
                   })
                 }
                 disabled={!newUser.name || createUser.isPending}
               >
                 Add user
               </Button>
+            </div>
+          )}
+          {canManage && (
+            <div className="mb-4">
+              <Button variant="ghost" onClick={() => setBulkOpen((v) => !v)}>
+                {bulkOpen ? '− Bulk add' : '+ Bulk add'}
+              </Button>
+              {bulkOpen && (
+                <div className="mt-2 rounded-lg border border-surface-border p-3">
+                  <p className="mb-2 text-xs text-slate-500">
+                    Satu user per baris:{' '}
+                    <code className="text-slate-300">username,password,profile,komentar</code>{' '}
+                    (koma / titik-koma / tab — bisa paste dari spreadsheet). Password kosong → sama
+                    dengan username. Profile kosong → pakai default di bawah.
+                  </p>
+                  <textarea
+                    value={bulkText}
+                    onChange={(e) => setBulkText(e.target.value)}
+                    rows={6}
+                    spellCheck={false}
+                    placeholder={'sf01,passku,PROF-WA,Purchasing\nkitty,,PROF-WA-WECHAT,RAW WH'}
+                    className="w-full rounded-md border border-surface-border bg-surface px-2 py-1.5 font-mono text-xs text-slate-200"
+                  />
+                  <div className="mt-2 flex flex-wrap items-end gap-3">
+                    <Field label="Default profile">
+                      {profileSelect(bulkProfile, setBulkProfile)}
+                    </Field>
+                    <label className="flex items-center gap-1.5 pb-1.5 text-sm text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={bulkPassAsUser}
+                        onChange={(e) => setBulkPassAsUser(e.target.checked)}
+                      />
+                      pass = user
+                    </label>
+                    <Button
+                      onClick={() => bulkCreate.mutate(bulkRows())}
+                      disabled={bulkCreate.isPending || bulkRows().length === 0}
+                    >
+                      {bulkCreate.isPending ? 'Membuat…' : `Buat ${bulkRows().length} user`}
+                    </Button>
+                  </div>
+                  {bulkResults && (
+                    <div className="mt-3 max-h-48 overflow-y-auto">
+                      <table className="r-table w-full text-xs">
+                        <thead className={TABLE.head}>
+                          <tr>
+                            <th className={TABLE.thDense}>User</th>
+                            <th className={TABLE.thDense}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bulkResults.map((r, i) => (
+                            <tr key={i} className="border-t border-surface-border">
+                              <td className={TABLE.tdDense}>{r.name}</td>
+                              <td className={TABLE.tdDense}>
+                                {r.ok ? (
+                                  <span className="text-emerald-400">OK</span>
+                                ) : (
+                                  <span className="text-red-400">{r.error ?? 'gagal'}</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {users.isError ? (
@@ -273,6 +502,7 @@ export default function HotspotPage() {
                     <th className={TABLE.thDense}>Profile</th>
                     <th className={TABLE.thDense}>Uptime</th>
                     <th className={TABLE.thDense}>Traffic (in/out)</th>
+                    <th className={TABLE.thDense}>Limits (used / limit)</th>
                     {canManage && <th className={`${TABLE.thDense} text-right`}>Actions</th>}
                   </tr>
                 </thead>
@@ -286,21 +516,55 @@ export default function HotspotPage() {
                         <td data-label="Traffic" className={TABLE.tdDense}>
                           {formatBytes(u['bytes-in'])} / {formatBytes(u['bytes-out'])}
                         </td>
+                        <td data-label="Limits" className={`${TABLE.tdDense} text-xs`}>
+                          {!u['limit-uptime'] && !u['limit-bytes-total'] ? (
+                            <span className="text-slate-500">—</span>
+                          ) : (
+                            <div className="space-y-0.5">
+                              {u['limit-uptime'] && (
+                                <div title="uptime terpakai / limit uptime">
+                                  ⏱ {u.uptime ?? '0s'} / {u['limit-uptime']}
+                                </div>
+                              )}
+                              {u['limit-bytes-total'] && (
+                                <div title="data terpakai / limit data">
+                                  ⇅{' '}
+                                  {formatBytes(
+                                    (Number(u['bytes-in']) || 0) +
+                                      (Number(u['bytes-out']) || 0),
+                                  )}{' '}
+                                  / {formatBytes(u['limit-bytes-total'])}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </td>
                         {canManage && (
                           <td className={`${TABLE.tdDense} space-x-3 text-right`}>
                             <button
                               className="noc-tap inline-flex items-center text-accent hover:opacity-80"
-                              onClick={() =>
-                                u['.id'] &&
+                              onClick={() => {
+                                if (!u['.id']) return;
+                                const lb = fromBytes(u['limit-bytes-total']);
                                 setEditUser({
                                   id: u['.id'],
                                   profile: u.profile ?? '',
                                   password: '',
                                   comment: u.comment ?? '',
-                                })
-                              }
+                                  limitUptime: u['limit-uptime'] ?? '',
+                                  limitData: lb.amount,
+                                  limitUnit: lb.unit,
+                                });
+                              }}
                             >
                               edit
+                            </button>
+                            <button
+                              className="noc-tap inline-flex items-center text-amber-500 hover:opacity-80"
+                              title="Reset uptime & data counters"
+                              onClick={() => u['.id'] && askResetCounters(u['.id'], u.name)}
+                            >
+                              reset
                             </button>
                             <button
                               className="noc-tap inline-flex items-center text-red-400 hover:text-red-300"
@@ -313,7 +577,7 @@ export default function HotspotPage() {
                       </tr>
                       {editUser && editUser.id === u['.id'] && (
                         <tr className="border-t border-surface-border bg-surface">
-                          <td colSpan={5} className="p-3">
+                          <td colSpan={6} className="p-3">
                             <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-2 lg:grid-cols-4">
                               <Field label="Profile">
                                 {profileSelect(editUser.profile, (v) =>
@@ -337,6 +601,14 @@ export default function HotspotPage() {
                                   }
                                 />
                               </Field>
+                              {limitFields(
+                                editUser.limitUptime,
+                                (v) => setEditUser((p) => (p ? { ...p, limitUptime: v } : p)),
+                                editUser.limitData,
+                                (v) => setEditUser((p) => (p ? { ...p, limitData: v } : p)),
+                                editUser.limitUnit,
+                                (v) => setEditUser((p) => (p ? { ...p, limitUnit: v } : p)),
+                              )}
                               <Button
                                 onClick={() => {
                                   if (!editUser) return;
@@ -345,6 +617,11 @@ export default function HotspotPage() {
                                     profile: editUser.profile || undefined,
                                     password: editUser.password || undefined,
                                     comment: editUser.comment || undefined,
+                                    // '' clears the limit on the router (0s/0 = unlimited)
+                                    limitUptime: editUser.limitUptime,
+                                    limitBytesTotal: editUser.limitData
+                                      ? toBytes(editUser.limitData, editUser.limitUnit)
+                                      : '',
                                   });
                                 }}
                                 disabled={updateUser.isPending}
@@ -362,7 +639,10 @@ export default function HotspotPage() {
                   ))}
                   {users.data?.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-3 py-4 text-center text-slate-500">
+                      <td
+                        colSpan={canManage ? 6 : 5}
+                        className="px-3 py-4 text-center text-slate-500"
+                      >
                         No hotspot users on this router.
                       </td>
                     </tr>
@@ -703,6 +983,14 @@ export default function HotspotPage() {
                   />
                   pass = user
                 </label>
+                {limitFields(
+                  voucher.limitUptime,
+                  (v) => setVoucher({ ...voucher, limitUptime: v }),
+                  voucher.limitData,
+                  (v) => setVoucher({ ...voucher, limitData: v }),
+                  voucher.limitUnit,
+                  (v) => setVoucher({ ...voucher, limitUnit: v }),
+                )}
                 <Button onClick={() => genVouchers.mutate()} disabled={genVouchers.isPending}>
                   {genVouchers.isPending ? 'Generating…' : 'Generate'}
                 </Button>

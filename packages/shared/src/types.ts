@@ -407,6 +407,12 @@ export const BLOCK_SERVICES: BlockServiceDef[] = [
   { key: 'snapchat', label: 'Snapchat', category: 'Sosial media', domains: ['snapchat.com', 'sc-cdn.net', 'snap-dev.net'], sniGlobs: ['*snapchat*', '*sc-cdn*', '*snap-dev*'] },
   { key: 'line', label: 'LINE', category: 'Sosial media', domains: ['line.me', 'line-apps.com', 'line-scdn.net'], sniGlobs: ['*.line.me', '*line-apps*', '*line-scdn*'] },
   { key: 'discord', label: 'Discord', category: 'Sosial media', domains: ['discord.com', 'discord.gg', 'discordapp.com', 'discordapp.net'], sniGlobs: ['*discord*'] },
+  // --- Kerja / kolaborasi ---
+  // Teams/Zoom ride shared cloud ASNs (Azure/Cloudflare) — IP ranges would
+  // over-block, so these rely on domains + SNI only (media is best-effort).
+  { key: 'teams', label: 'Microsoft Teams', category: 'Kerja / kolaborasi', domains: ['teams.microsoft.com', 'teams.live.com', 'teams.ms', 'microsoftteams.com'], sniGlobs: ['*teams.microsoft*', '*microsoftteams*', '*teams.live*'] },
+  { key: 'zoom', label: 'Zoom', category: 'Kerja / kolaborasi', domains: ['zoom.us', 'zoom.com', 'zoomgov.com'], sniGlobs: ['*zoom*'] },
+  { key: 'meet', label: 'Google Meet', category: 'Kerja / kolaborasi', domains: ['meet.google.com'], sniGlobs: ['*meet.google*', '*googlemeet*'] },
   // --- Video / streaming ---
   { key: 'youtube', label: 'YouTube', category: 'Video / streaming', domains: ['youtube.com', 'youtu.be', 'youtubei.googleapis.com', 'ytimg.com', 'googlevideo.com'], sniGlobs: ['*.youtube.com', '*googlevideo*', '*ytimg*', '*.youtu.be', '*youtubei*'] },
   { key: 'netflix', label: 'Netflix', category: 'Video / streaming', domains: ['netflix.com', 'nflxvideo.net', 'nflximg.net', 'nflxext.com'], sniGlobs: ['*netflix*', '*nflxvideo*', '*nflximg*', '*nflxext*'] },
@@ -535,6 +541,13 @@ export interface VoucherRow {
   username: string;
   password: string;
   profile?: string;
+}
+
+/** Per-row outcome of a bulk hotspot-user create — one bad row must not abort the batch. */
+export interface BulkCreateResult {
+  name: string;
+  ok: boolean;
+  error?: string;
 }
 
 // ---- Ruijie / Reyee Cloud (read models) --------------------------------------

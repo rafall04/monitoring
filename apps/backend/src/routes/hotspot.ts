@@ -9,10 +9,12 @@ import {
 import {
   hotspotDisconnectSchema,
   hotspotProfileUpsertSchema,
+  hotspotUserBulkSchema,
   hotspotUserCreateSchema,
   hotspotUserUpdateSchema,
   idParamSchema,
   voucherGenSchema,
+  type BulkCreateResult,
   type VoucherRow,
 } from '@noc/shared';
 import { badGateway, notFound } from '../lib/errors';
@@ -118,6 +120,47 @@ export async function hotspotRoutes(app: FastifyInstance) {
     await withClient(r, (c) => c.removeHotspotUser(userId));
     await writeAudit(req, { action: 'hotspot-user-delete', entity: 'router', entityId: id, after: { userId } });
     return { ok: true };
+  });
+
+  // Zero accumulated uptime/bytes so a user who hit a limit can log in again.
+  app.post('/:id/users/reset-counters', manage, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const r = await routerWithAccess(req, id);
+    const { id: userId } = hotspotDisconnectSchema.parse(req.body);
+    await withClient(r, (c) => c.resetHotspotUserCounters(userId));
+    await writeAudit(req, {
+      action: 'hotspot-user-reset-counters',
+      entity: 'router',
+      entityId: id,
+      after: { userId },
+    });
+    return { ok: true };
+  });
+
+  // Batch create (e.g. RSVP import). Per-row errors are collected instead of
+  // aborting the batch — one bad line must not roll back the others.
+  app.post('/:id/users/bulk', manage, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const r = await routerWithAccess(req, id);
+    const { users: rows } = hotspotUserBulkSchema.parse(req.body);
+    const results: BulkCreateResult[] = [];
+    await withClient(r, async (c) => {
+      for (const u of rows) {
+        try {
+          await c.addHotspotUser(u);
+          results.push({ name: u.name, ok: true });
+        } catch (err) {
+          results.push({ name: u.name, ok: false, error: (err as Error)?.message ?? String(err) });
+        }
+      }
+    });
+    await writeAudit(req, {
+      action: 'hotspot-user-bulk-create',
+      entity: 'router',
+      entityId: id,
+      after: { count: rows.length, ok: results.filter((x) => x.ok).length },
+    });
+    return { results };
   });
 
   app.post('/:id/active/disconnect', disconnect, async (req) => {

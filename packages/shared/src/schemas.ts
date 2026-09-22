@@ -375,6 +375,13 @@ export type VoucherGenInput = z.infer<typeof voucherGenSchema>;
 export const hotspotDisconnectSchema = z.object({ id: z.string().min(1) });
 export type HotspotDisconnectInput = z.infer<typeof hotspotDisconnectSchema>;
 
+// Bulk user add (e.g. RSVP import): each row is a normal user-create payload;
+// per-row errors come back in the result instead of aborting the batch.
+export const hotspotUserBulkSchema = z.object({
+  users: z.array(hotspotUserCreateSchema).min(1).max(500),
+});
+export type HotspotUserBulkInput = z.infer<typeof hotspotUserBulkSchema>;
+
 // ---- Settings / Branding -----------------------------------------------------
 
 // "R G B" channel triplet, each 0..255, e.g. "59 130 246"

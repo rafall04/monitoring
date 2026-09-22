@@ -255,6 +255,10 @@ export class RouterOsV6Client implements MikrotikClient {
     await this.write('/ip/hotspot/user/remove', [`=.id=${id}`]);
   }
 
+  async resetHotspotUserCounters(id: string): Promise<void> {
+    await this.write('/ip/hotspot/user/reset-counters', [`=numbers=${id}`]);
+  }
+
   async addHotspotProfile(input: UpsertHotspotProfileInput): Promise<void> {
     await this.write('/ip/hotspot/user/profile/add', this.profileParams(input));
   }
@@ -980,8 +984,11 @@ export class RouterOsV6Client implements MikrotikClient {
     if (input.password != null) p.push(`=password=${input.password}`);
     if (input.profile) p.push(`=profile=${input.profile}`);
     if (input.server) p.push(`=server=${input.server}`);
-    if (input.limitUptime) p.push(`=limit-uptime=${input.limitUptime}`);
-    if (input.limitBytesTotal) p.push(`=limit-bytes-total=${input.limitBytesTotal}`);
+    // != null so an empty string CLEARS the limit (0s / 0 = unlimited in
+    // RouterOS); undefined leaves the current value untouched on updates.
+    if (input.limitUptime != null) p.push(`=limit-uptime=${input.limitUptime === '' ? '0s' : input.limitUptime}`);
+    if (input.limitBytesTotal != null)
+      p.push(`=limit-bytes-total=${input.limitBytesTotal === '' ? '0' : input.limitBytesTotal}`);
     if (input.comment != null) p.push(`=comment=${input.comment}`);
     return p;
   }
