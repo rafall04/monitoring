@@ -72,7 +72,9 @@ export async function saveUpload(
 
   const dir = resolve(env.UPLOAD_DIR);
   await mkdir(dir, { recursive: true });
-  const filename = `${kind}-${Date.now()}-${randomBytes(4).toString('hex')}${ext}`;
+  // 128-bit random name (unguessable, unenumerable) + allowlisted extension;
+  // the original client filename is never trusted.
+  const filename = `${randomBytes(16).toString('hex')}${ext}`;
   await writeFile(join(dir, filename), data);
   return { url: `/uploads/${filename}`, filename };
 }

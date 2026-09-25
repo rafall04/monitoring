@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import {
   env,
   generateToken,
+  hashPassword,
   prisma,
   sha256,
   toAppUserPublic,
@@ -16,7 +17,9 @@ import { authenticate } from '../plugins/auth';
 
 // Fixed bcrypt hash for a dummy compare when the account is unknown/inactive —
 // keeps login response time identical so it can't serve as an email oracle.
-const DUMMY_PASSWORD_HASH = '$2a$10$wdYSigCc/NOx3.6YPvY2w..lpnTMcbMXwSeKzazldqLxJh5dZEZ16';
+// Cost matches BCRYPT_COST (12) so a "real" account isn't distinguishable by
+// a slower compare.
+const DUMMY_PASSWORD_HASH = '$2a$12$lFCTna.BfC9LB0/uaE40DOZTkv/0hHfXEz2/FMMw2RVSyNOskbrmi';
 
 async function issueTokens(app: FastifyInstance, user: AppUser) {
   const accessToken = app.jwt.sign({
@@ -179,7 +182,7 @@ export async function authRoutes(app: FastifyInstance) {
       if (!u) throw unauthorized();
       const ok = await bcrypt.compare(body.currentPassword, u.passwordHash);
       if (!ok) throw badRequest('Password sekarang tidak cocok');
-      const passwordHash = await bcrypt.hash(body.newPassword, 10);
+      const passwordHash = await hashPassword(body.newPassword);
       await prisma.appUser.update({ where: { id: u.id }, data: { passwordHash } });
       // Revoke every session — except the one the client just proved it holds
       // by posting its current refresh token, which keeps this session alive.

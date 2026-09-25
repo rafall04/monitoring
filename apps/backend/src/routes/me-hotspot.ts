@@ -1,8 +1,8 @@
-import bcrypt from 'bcryptjs';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   clientForRouter,
   getMemberStatus,
+  hashPassword,
   kickMemberSessions,
   prisma,
   setMemberPassword,
@@ -87,7 +87,7 @@ export async function meHotspotRoutes(app: FastifyInstance) {
       }
       await prisma.appUser.update({
         where: { id: me.id },
-        data: { passwordHash: await bcrypt.hash(body.newPassword, 10) },
+        data: { passwordHash: await hashPassword(body.newPassword) },
       });
       await prisma.refreshToken.updateMany({
         where: { userId: me.id, revokedAt: null },

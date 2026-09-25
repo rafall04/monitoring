@@ -3,15 +3,23 @@ import {
   computeSiteSummaries,
   computeSiteSummary,
   decryptSecret,
+  deleteInBatches,
   encryptSecret,
   prisma,
+  publishSiteSummary,
   sendTelegram,
   toAreaDto,
   toDeviceDto,
   toSiteDto,
 } from '@noc/server';
-import type { ImageBounds, SiteWifiMap } from '@noc/shared';
-import { REDIS_KEYS, createSiteSchema, idParamSchema, updateSiteSchema } from '@noc/shared';
+import type { ImageBounds, SiteWifiMap, WsServerEvent } from '@noc/shared';
+import {
+  REDIS_CHANNELS,
+  REDIS_KEYS,
+  createSiteSchema,
+  idParamSchema,
+  updateSiteSchema,
+} from '@noc/shared';
 import { badGateway, badRequest, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import { saveUpload } from '../lib/uploads';
@@ -170,7 +178,51 @@ export async function siteRoutes(app: FastifyInstance) {
     assertSiteAccess(req.appUser, id);
     const before = await prisma.site.findUnique({ where: { id } });
     if (!before) throw notFound('Site not found');
+
+    // The site cascade (routers → devices → status_events, plus tickets,
+    // areas/lines, wa_recipients) is one of the biggest single-statement
+    // deletes in the app. Purge the heavy leaf tables in ~500-row batches so
+    // the final site.delete only sweeps the small remainder — a busy site's
+    // status_event backlog alone can hold a table lock for seconds.
+    const deviceIds = (
+      await prisma.device.findMany({ where: { siteId: id }, select: { id: true } })
+    ).map((d) => d.id);
+    const routerIds = (
+      await prisma.routerMikrotik.findMany({ where: { siteId: id }, select: { id: true } })
+    ).map((r) => r.id);
+    await deleteInBatches(
+      (take) =>
+        prisma.statusEvent.findMany({
+          where: { device: { siteId: id } },
+          select: { id: true },
+          take,
+        }),
+      (ids) => prisma.statusEvent.deleteMany({ where: { id: { in: ids } } }),
+    );
+    await deleteInBatches(
+      (take) => prisma.ticket.findMany({ where: { siteId: id }, select: { id: true }, take }),
+      (ids) => prisma.ticket.deleteMany({ where: { id: { in: ids } } }),
+    );
+    await deleteInBatches(
+      (take) => prisma.device.findMany({ where: { siteId: id }, select: { id: true }, take }),
+      (ids) => prisma.device.deleteMany({ where: { id: { in: ids } } }),
+    );
     await prisma.site.delete({ where: { id } });
+
+    // Membership changed — same fan-out as a device/router delete: one
+    // device.deleted per row to joined clients, then the engine's recomputed
+    // site.summary (zeros now — the site is empty/gone). The pipeline also
+    // drops the orphaned heartbeat-cache keys in the same round trip.
+    const pipe = app.redisPub.pipeline();
+    for (const deviceId of deviceIds) {
+      const ev: WsServerEvent = { type: 'device.deleted', siteId: id, deviceId };
+      pipe.publish(REDIS_CHANNELS.siteEvents(id), JSON.stringify(ev));
+      pipe.del(REDIS_KEYS.deviceStatus(deviceId));
+    }
+    for (const routerId of routerIds) pipe.del(REDIS_KEYS.routerStatus(routerId));
+    await pipe.exec();
+    await publishSiteSummary({ prisma, redisPub: app.redisPub }, id);
+
     // toSiteDto strips telegramBotEncrypted — never write secrets to the audit log.
     await writeAudit(req, { action: 'delete', entity: 'site', entityId: id, before: toSiteDto(before) });
     reply.code(204);

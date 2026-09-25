@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  deleteInBatches,
   discoverRuijieProjects,
   encryptSecret,
   pollRuijieAccount,
@@ -15,13 +16,43 @@ import {
   idParamSchema,
   ruijieMonitoredGroupsSchema,
   ruijieSiteMapSchema,
+  siteScopeFor,
   type RuijiePortEventRow,
   type RuijiePortHealth,
   type RuijiePortHealthRow,
 } from '@noc/shared';
-import { badGateway, conflict, notFound } from '../lib/errors';
+import { badGateway, conflict, forbidden, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
-import { authenticate, requirePermission } from '../plugins/rbac';
+import { authenticate, assertSiteAccess, requirePermission } from '../plugins/rbac';
+import type { AppUserCtx } from '../plugins/auth';
+
+/**
+ * Resolve the NOC site a Ruijie router belongs to via its account's
+ * project→site map (keyed by groupName). null = unmapped group — fleet-level
+ * data that only super_admin may see.
+ */
+function ruijieSiteOf(
+  router: { groupName: string },
+  account: { groupSiteMap: unknown },
+): string | null {
+  const map = (account.groupSiteMap as Record<string, string> | null) ?? {};
+  return map[router.groupName] ?? null;
+}
+
+/**
+ * Single-router site check: the router's group must map to a site the user can
+ * access. Unmapped groups are super_admin-only — otherwise every scoped user
+ * could read fleet-wide data through them.
+ */
+function assertRuijieAccess(user: AppUserCtx, siteId: string | null): void {
+  if (siteId === null) {
+    if (user.role !== 'super_admin') {
+      throw forbidden('Router Ruijie ini belum dipetakan ke site');
+    }
+    return;
+  }
+  assertSiteAccess(user, siteId);
+}
 
 // Ruijie/Reyee Cloud: read-only fleet view (status + connected-client counts)
 // kept fresh by the worker poller, plus super_admin account management.
@@ -37,7 +68,7 @@ export async function ruijieRoutes(app: FastifyInstance) {
 
   // ---- routers (read; data is mirrored in our DB by the worker) -------------
 
-  app.get('/routers', viewGuard, async () => {
+  app.get('/routers', viewGuard, async (req) => {
     const [rows, account] = await Promise.all([
       prisma.ruijieRouter.findMany({ orderBy: [{ groupName: 'asc' }, { name: 'asc' }] }),
       prisma.ruijieAccount.findFirst(), // single-account by design
@@ -45,7 +76,12 @@ export async function ruijieRoutes(app: FastifyInstance) {
     // Resolve each router's NOC site from the account's project->site map so the
     // Site page can show its WiFi (keyed by groupName, matching the UI grouping).
     const map = (account?.groupSiteMap as Record<string, string> | null) ?? {};
-    return rows.map((r) => toRuijieRouterPublic(r, map[r.groupName] ?? null));
+    const mapped = rows.map((r) => toRuijieRouterPublic(r, map[r.groupName] ?? null));
+    // Site scoping: non-super_admin only see routers mapped to a site in their
+    // scope; unmapped groups stay super_admin-only (fleet-level data).
+    const scope = siteScopeFor(req.appUser);
+    if (scope === null) return mapped;
+    return mapped.filter((r) => r.siteId !== null && scope.includes(r.siteId));
   });
 
   // On-demand drill-down: live client list for one router. Clients are returned
@@ -57,6 +93,7 @@ export async function ruijieRoutes(app: FastifyInstance) {
       include: { account: true },
     });
     if (!router) throw notFound('Ruijie router not found');
+    assertRuijieAccess(req.appUser, ruijieSiteOf(router, router.account));
     const client = ruijieClientForAccount(router.account);
     try {
       const all = await client.getClients(router.cloudGroupId);
@@ -76,10 +113,11 @@ export async function ruijieRoutes(app: FastifyInstance) {
   // first. Served entirely from our DB (mirrored by the port poller) — 0 Ruijie
   // calls, so it is safe to open + auto-refresh. This is the "check every
   // morning" board.
-  app.get('/ports/health', viewGuard, async (): Promise<RuijiePortHealth> => {
+  app.get('/ports/health', viewGuard, async (req): Promise<RuijiePortHealth> => {
     const account = await prisma.ruijieAccount.findFirst();
     const siteMap = (account?.groupSiteMap as Record<string, string> | null) ?? {};
-    const [ports, flapRows] = await Promise.all([
+    const scope = siteScopeFor(req.appUser); // null = super_admin → all sites
+    const [allPorts, flapRows] = await Promise.all([
       prisma.ruijiePort.findMany({
         include: { router: { select: { id: true, name: true, groupName: true } } },
       }),
@@ -90,6 +128,15 @@ export async function ruijieRoutes(app: FastifyInstance) {
       }),
     ]);
     const flaps = new Map(flapRows.map((r) => [`${r.routerId}:${r.portName}`, r._count._all]));
+    // Site scoping: scoped users only see ports on routers mapped to their
+    // sites; unmapped groups are fleet-level (super_admin only).
+    const ports =
+      scope === null
+        ? allPorts
+        : allPorts.filter((p) => {
+            const siteId = siteMap[p.router.groupName];
+            return siteId !== undefined && scope.includes(siteId);
+          });
 
     const rows: RuijiePortHealthRow[] = [];
     let lastPolledAt: string | null = null;
@@ -128,7 +175,11 @@ export async function ruijieRoutes(app: FastifyInstance) {
       summary: {
         monitoredPorts: ports.length,
         degraded: ports.filter((p) => p.degraded).length,
-        flapping: [...flaps.values()].filter((n) => n >= RUIJIE_FLAP_THRESHOLD).length,
+        // Scoped flap count: only (router,port) pairs the caller may see —
+        // the flap map itself is fleet-wide.
+        flapping: ports.filter(
+          (p) => (flaps.get(`${p.routerId}:${p.portName}`) ?? 0) >= RUIJIE_FLAP_THRESHOLD,
+        ).length,
         lastPolledAt: lastPolledAt ?? (account?.lastPolledAt?.toISOString() ?? null),
       },
       rows,
@@ -139,8 +190,12 @@ export async function ruijieRoutes(app: FastifyInstance) {
   // history — "LAN1 dropped to 100M 3x this month". From our DB; 0 Ruijie calls.
   app.get('/routers/:id/port-history', viewGuard, async (req): Promise<RuijiePortEventRow[]> => {
     const { id } = idParamSchema.parse(req.params);
-    const router = await prisma.ruijieRouter.findUnique({ where: { id } });
+    const router = await prisma.ruijieRouter.findUnique({
+      where: { id },
+      include: { account: true },
+    });
     if (!router) throw notFound('Ruijie router not found');
+    assertRuijieAccess(req.appUser, ruijieSiteOf(router, router.account));
     const events = await prisma.ruijiePortEvent.findMany({
       where: { routerId: id },
       orderBy: { at: 'desc' },
@@ -165,6 +220,7 @@ export async function ruijieRoutes(app: FastifyInstance) {
       include: { account: true },
     });
     if (!router) throw notFound('Ruijie router not found');
+    assertRuijieAccess(req.appUser, ruijieSiteOf(router, router.account));
     const client = ruijieClientForAccount(router.account);
     try {
       return await client.getPorts(router.cloudSerial);
@@ -287,7 +343,34 @@ export async function ruijieRoutes(app: FastifyInstance) {
     const { id } = idParamSchema.parse(req.params);
     const before = await prisma.ruijieAccount.findUnique({ where: { id } });
     if (!before) throw notFound('Ruijie account not found');
-    await prisma.ruijieAccount.delete({ where: { id } }); // cascades to ruijie_router
+    // RuijiePortEvent has NO FK to ruijie_router (routerId is a plain string),
+    // so the account→router→port cascade would orphan the append-only event
+    // timeline forever. Purge events + the router/port rows in batches —
+    // keeps both the cleanup and the remaining cascade's lock window short.
+    const routerIds = (
+      await prisma.ruijieRouter.findMany({ where: { accountId: id }, select: { id: true } })
+    ).map((r) => r.id);
+    if (routerIds.length > 0) {
+      await deleteInBatches(
+        (take) =>
+          prisma.ruijiePortEvent.findMany({
+            where: { routerId: { in: routerIds } },
+            select: { id: true },
+            take,
+          }),
+        (ids) => prisma.ruijiePortEvent.deleteMany({ where: { id: { in: ids } } }),
+      );
+      await deleteInBatches(
+        (take) =>
+          prisma.ruijieRouter.findMany({
+            where: { id: { in: routerIds } },
+            select: { id: true },
+            take,
+          }),
+        (ids) => prisma.ruijieRouter.deleteMany({ where: { id: { in: ids } } }),
+      );
+    }
+    await prisma.ruijieAccount.delete({ where: { id } });
     await writeAudit(req, {
       action: 'delete',
       entity: 'ruijie_account',

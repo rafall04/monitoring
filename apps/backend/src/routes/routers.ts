@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import {
   clientForRouter,
-  computeSiteSummary,
   decryptSecret,
+  deleteInBatches,
   encryptSecret,
   env,
   generateNetwatchCli,
@@ -11,7 +11,9 @@ import {
   netwatchApiInput,
   prisma,
   publishSiteEvent,
+  publishSiteSummary,
   scriptFor,
+  STATUS_CACHE_TTL_SEC,
   toDeviceDto,
   toRouterPublic,
   updateRouterStatus,
@@ -21,8 +23,11 @@ import {
 import {
   createRouterSchema,
   idParamSchema,
+  REDIS_CHANNELS,
+  REDIS_KEYS,
   updateRouterSchema,
   type RouterResource,
+  type WsServerEvent,
 } from '@noc/shared';
 import { badGateway, badRequest, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
@@ -130,7 +135,43 @@ export async function routerRoutes(app: FastifyInstance) {
     const before = await prisma.routerMikrotik.findUnique({ where: { id } });
     if (!before) throw notFound('Router not found');
     assertSiteAccess(req.appUser, before.siteId);
+
+    // The FK cascade would wipe the router's devices + their status events in
+    // ONE statement — on a big router that locks the tables for seconds and
+    // the UI never hears about the vanished devices. Purge the leaf tables in
+    // ~500-row batches first so the final delete is trivial, then publish.
+    const deviceIds = (
+      await prisma.device.findMany({ where: { routerId: id }, select: { id: true } })
+    ).map((d) => d.id);
+    await deleteInBatches(
+      (take) =>
+        prisma.statusEvent.findMany({
+          where: { device: { routerId: id } },
+          select: { id: true },
+          take,
+        }),
+      (ids) => prisma.statusEvent.deleteMany({ where: { id: { in: ids } } }),
+    );
+    await deleteInBatches(
+      (take) => prisma.device.findMany({ where: { routerId: id }, select: { id: true }, take }),
+      (ids) => prisma.device.deleteMany({ where: { id: { in: ids } } }),
+    );
     await prisma.routerMikrotik.delete({ where: { id } });
+
+    // Membership changed — fan out the same events a per-device delete would:
+    // one device.deleted per row (so joined clients drop the markers), then a
+    // recomputed site.summary via the engine's publish path. One pipelined
+    // round trip also drops the orphaned heartbeat-cache keys.
+    const pipe = app.redisPub.pipeline();
+    for (const deviceId of deviceIds) {
+      const ev: WsServerEvent = { type: 'device.deleted', siteId: before.siteId, deviceId };
+      pipe.publish(REDIS_CHANNELS.siteEvents(before.siteId), JSON.stringify(ev));
+      pipe.del(REDIS_KEYS.deviceStatus(deviceId));
+    }
+    pipe.del(REDIS_KEYS.routerStatus(id));
+    await pipe.exec();
+    await publishSiteSummary({ prisma, redisPub: app.redisPub }, before.siteId);
+
     await writeAudit(req, { action: 'delete', entity: 'router', entityId: id, before: toRouterPublic(before) });
     reply.code(204);
     return null;
@@ -377,7 +418,8 @@ export async function routerRoutes(app: FastifyInstance) {
     }
 
     // Realtime fan-out: same event shapes the frontend applyWsEvent expects —
-    // a device.created per row, then one recomputed site summary.
+    // a device.created per row, then one recomputed site summary through the
+    // engine's publish path.
     for (const d of createdRows) {
       await publishSiteEvent(app.redisPub, r.siteId, {
         type: 'device.created',
@@ -386,11 +428,22 @@ export async function routerRoutes(app: FastifyInstance) {
       });
     }
     if (createdRows.length > 0) {
-      await publishSiteEvent(app.redisPub, r.siteId, {
-        type: 'site.summary',
-        siteId: r.siteId,
-        summary: await computeSiteSummary(prisma, r.siteId),
-      });
+      // Seed the heartbeat cache the status engine maintains (same key/payload
+      // shape + TTL) so imported rows aren't cache-less until the first poll.
+      const pipe = app.redisPub.pipeline();
+      for (const d of createdRows) {
+        pipe.set(
+          REDIS_KEYS.deviceStatus(d.id),
+          JSON.stringify({
+            status: d.status,
+            at: (d.statusSince ?? new Date()).toISOString(),
+          }),
+          'EX',
+          STATUS_CACHE_TTL_SEC,
+        );
+      }
+      await pipe.exec();
+      await publishSiteSummary({ prisma, redisPub: app.redisPub }, r.siteId);
     }
     await writeAudit(req, { action: 'netwatch-import', entity: 'router', entityId: id, after: { imported, skipped } });
     return { imported, skipped, devices: created };

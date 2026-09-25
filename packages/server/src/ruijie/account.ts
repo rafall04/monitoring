@@ -1,5 +1,5 @@
 import { decryptSecret } from '../crypto';
-import { prisma } from '../db';
+import { deleteInBatches, prisma } from '../db';
 import { RuijieCloudClient } from './cloud';
 import type { RuijieClient } from './types';
 import type { RuijieProjectDTO } from '@noc/shared';
@@ -94,9 +94,31 @@ export async function pollRuijieAccount(
     // Drop routers whose group is no longer monitored (allowlist shrank, or was
     // never set). With an empty allowlist `in: []` matches nothing, so NOT-in
     // matches everything → all of this account's routers are removed.
-    await prisma.ruijieRouter.deleteMany({
+    const stale = await prisma.ruijieRouter.findMany({
       where: { accountId: account.id, NOT: { cloudGroupId: { in: [...allow] } } },
+      select: { id: true },
     });
+    if (stale.length > 0) {
+      const staleIds = stale.map((r) => r.id);
+      // Each router row cascades its ports; chunk the router delete so the
+      // per-statement lock window stays short on a large prune.
+      for (let i = 0; i < staleIds.length; i += 500) {
+        await prisma.ruijieRouter.deleteMany({
+          where: { id: { in: staleIds.slice(i, i + 500) } },
+        });
+      }
+      // RuijiePortEvent has no FK to ruijie_router (routerId is a plain
+      // string) — purge the orphaned timeline explicitly, in batches.
+      await deleteInBatches(
+        (take) =>
+          prisma.ruijiePortEvent.findMany({
+            where: { routerId: { in: staleIds } },
+            select: { id: true },
+            take,
+          }),
+        (ids) => prisma.ruijiePortEvent.deleteMany({ where: { id: { in: ids } } }),
+      );
+    }
     await prisma.ruijieAccount.update({
       where: { id: account.id },
       data: { lastPolledAt: new Date(), lastError: null },

@@ -1,6 +1,6 @@
 # UI Redesign — Audit & Spec
 
-Analysis basis: production `172.17.41.3:2222` (`/root/monitoring`), commit `a09c2f4` —
+Analysis basis: production `<prod-host>:<ssh-port>` (`<deploy-dir>`), commit `a09c2f4` —
 **identical to local `main`**, so the local tree is exactly what production renders.
 Baseline: `typecheck` passes across all 5 workspaces.
 

@@ -2,13 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import {
   clientForRouter,
-  computeSiteSummary,
+  deleteInBatches,
   decryptSecret,
   env,
   getNetwatchConfig,
   netwatchApiInput,
   prisma,
   publishSiteEvent,
+  publishSiteSummary,
   toDeviceDto,
 } from '@noc/server';
 import {
@@ -16,6 +17,7 @@ import {
   createDeviceSchema,
   idParamSchema,
   patchDevicePositionSchema,
+  REDIS_KEYS,
   reorderSchema,
   updateDeviceSchema,
 } from '@noc/shared';
@@ -159,11 +161,7 @@ export async function deviceRoutes(app: FastifyInstance) {
         siteId: dto.siteId,
         device: dto,
       });
-      await publishSiteEvent(app.redisPub, dto.siteId, {
-        type: 'site.summary',
-        siteId: dto.siteId,
-        summary: await computeSiteSummary(prisma, dto.siteId),
-      });
+      await publishSiteSummary({ prisma, redisPub: app.redisPub }, dto.siteId);
       await writeAudit(req, { action: 'create', entity: 'device', entityId: d.id, after: dto });
       // netwatchError is a transient hint for the UI; it is not persisted.
       return netwatchError ? { ...dto, netwatchError } : dto;
@@ -305,11 +303,7 @@ export async function deviceRoutes(app: FastifyInstance) {
       // wins) and site counts — push a fresh summary so dashboards stay honest
       // without waiting for the next device.status event.
       if (patch.manualOverride !== undefined || patch.isCritical !== undefined) {
-        await publishSiteEvent(app.redisPub, dto.siteId, {
-          type: 'site.summary',
-          siteId: dto.siteId,
-          summary: await computeSiteSummary(prisma, dto.siteId),
-        });
+        await publishSiteSummary({ prisma, redisPub: app.redisPub }, dto.siteId);
       }
       await writeAudit(req, {
         action: 'update',
@@ -386,17 +380,23 @@ export async function deviceRoutes(app: FastifyInstance) {
         }
       }
 
+      // A flapping device can accumulate thousands of status_events — purge
+      // them in batches first so the row delete doesn't hold a long lock.
+      await deleteInBatches(
+        (take) =>
+          prisma.statusEvent.findMany({ where: { deviceId: id }, select: { id: true }, take }),
+        (ids) => prisma.statusEvent.deleteMany({ where: { id: { in: ids } } }),
+      );
       await prisma.device.delete({ where: { id } });
+      // Drop the heartbeat cache entry too — the TTL would eventually self-
+      // clean, but an explicit DEL keeps the cache honest immediately.
+      await app.redisPub.del(REDIS_KEYS.deviceStatus(id));
       await publishSiteEvent(app.redisPub, before.siteId, {
         type: 'device.deleted',
         siteId: before.siteId,
         deviceId: id,
       });
-      await publishSiteEvent(app.redisPub, before.siteId, {
-        type: 'site.summary',
-        siteId: before.siteId,
-        summary: await computeSiteSummary(prisma, before.siteId),
-      });
+      await publishSiteSummary({ prisma, redisPub: app.redisPub }, before.siteId);
       await writeAudit(req, { action: 'delete', entity: 'device', entityId: id, before: toDeviceDto(before) });
       reply.code(204);
       return null;

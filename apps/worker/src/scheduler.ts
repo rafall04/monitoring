@@ -1,9 +1,8 @@
 import {
   applyDeviceStatus,
-  computeSiteSummary,
   env,
   prisma,
-  publishSiteEvent,
+  publishSiteSummary,
   updateRouterStatus,
   type Logger,
   type RouterMikrotik,
@@ -150,8 +149,17 @@ export class PollScheduler {
     const all = await prisma.routerMikrotik.findMany();
     this.routers = all.filter((r) => this.inShard(r.id));
     this.stats.routerCount = this.routers.length;
-    // Prune breaker/reconcile state for routers we no longer poll (deleted, or
-    // re-sharded to another worker) so the map can't grow without bound.
+    this.pruneState();
+  }
+
+  /**
+   * Drop breaker/reconcile state for routers we no longer poll (deleted, or
+   * re-sharded to another worker) so the map can't grow without bound. Router
+   * state carries no timers of its own — deleting the entry IS the cleanup.
+   * Runs on reload (which discovers removals) and defensively on every tick —
+   * it's an O(state) sweep that costs nothing on a steady fleet.
+   */
+  private pruneState(): void {
     const live = new Set(this.routers.map((r) => r.id));
     for (const id of this.state.keys()) {
       if (!live.has(id)) this.state.delete(id);
@@ -177,6 +185,10 @@ export class PollScheduler {
         await this.reload();
         this.lastReload = now;
       }
+      // Defensive sweep each tick: any router dropped from the working set
+      // (deleted mid-interval, or filtered out by a shard re-check) sheds its
+      // breaker/reconcile state immediately instead of waiting for reload.
+      this.pruneState();
       const due = this.routers.filter((r) => this.isDue(r, now));
       this.lastDueCount = due.length;
       if (due.length > 0) await this.runPool(due);
@@ -301,12 +313,7 @@ export class PollScheduler {
     // One site.summary publish per affected site at the end, not per device.
     for (const siteId of changedSites) {
       try {
-        const summary = await computeSiteSummary(this.deps.prisma, siteId);
-        await publishSiteEvent(this.deps.redisPub, siteId, {
-          type: 'site.summary',
-          siteId,
-          summary,
-        });
+        await publishSiteSummary(this.deps, siteId);
       } catch (e) {
         this.logger.warn(
           { siteId, err: (e as Error)?.message ?? String(e) },

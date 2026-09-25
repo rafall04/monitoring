@@ -23,6 +23,13 @@ const zEnum = <T extends string>(vals: readonly T[]) =>
 export const idParamSchema = z.object({ id: z.string().min(1) });
 export const siteIdParamSchema = z.object({ siteId: z.string().min(1) });
 
+// Custom image URLs (device icons, site floorplans, org logo): local uploads
+// or https only — blocks javascript:/data: URIs and plain-http tracking pixels.
+const imageUrl = z
+  .string()
+  .max(512)
+  .regex(/^(\/uploads\/|https:\/\/)/, 'Only /uploads/ or https:// URLs');
+
 // ---- Auth --------------------------------------------------------------------
 
 // Login identifier: an email OR a plain username (no spaces). The DB column is
@@ -83,8 +90,10 @@ export const createSiteSchema = z.object({
 export type CreateSiteInput = z.infer<typeof createSiteSchema>;
 
 export const updateSiteSchema = createSiteSchema.partial().extend({
-  // allow clearing the floorplan
-  floorplanImageUrl: z.string().nullable().optional(),
+  // allow clearing the floorplan (null); same /uploads/-or-https restriction
+  // as iconUrl — it lands in an <img>/ImageOverlay src, so http:// tracking
+  // pixels and javascript:/data: URIs are rejected.
+  floorplanImageUrl: imageUrl.nullable().optional(),
 });
 export type UpdateSiteInput = z.infer<typeof updateSiteSchema>;
 
@@ -159,13 +168,6 @@ const deviceIp = z
 
 // The device name lands in the Netwatch entry's comment field — single line.
 const deviceName = z.string().min(1).max(120).regex(/^[^\r\n]+$/, 'Name must be a single line');
-
-// Custom image URLs: local uploads or https only — blocks javascript:/data:
-// URIs and plain-http tracking pixels.
-const imageUrl = z
-  .string()
-  .max(512)
-  .regex(/^(\/uploads\/|https:\/\/)/, 'Only /uploads/ or https:// URLs');
 
 /**
  * Alert window ("jam kerja") for interface-watch devices — see AlertWindow in
@@ -372,7 +374,10 @@ export type NetwatchWebhookInput = z.infer<typeof netwatchWebhookSchema>;
 
 export const hotspotUserCreateSchema = z.object({
   name: z.string().min(1).max(120),
-  password: z.string().max(255).optional(),
+  // Explicit password, min 6: every created user is provisioned a member login
+  // with this same credential, so a blank/absent password is no longer allowed
+  // (provisioning used to silently fall back to password=username).
+  password: z.string().min(6, 'Min. 6 karakter').max(255),
   profile: z.string().max(120).optional(),
   server: z.string().max(120).optional(),
   limitUptime: z.string().max(64).optional(), // e.g. "1h", "30m"
@@ -442,19 +447,20 @@ export type VoucherGenInput = z.infer<typeof voucherGenSchema>;
 export const hotspotDisconnectSchema = z.object({ id: z.string().min(1) });
 export type HotspotDisconnectInput = z.infer<typeof hotspotDisconnectSchema>;
 
-// Bulk user add (e.g. RSVP import): each row is a normal user-create payload;
-// per-row errors come back in the result instead of aborting the batch.
+// Bulk user add (e.g. RSVP import): each row is a normal user-create payload —
+// explicit password included. Per-row router errors come back in the result
+// instead of aborting the batch (schema-invalid input still rejects upfront).
 export const hotspotUserBulkSchema = z.object({
   users: z.array(hotspotUserCreateSchema).min(1).max(500),
 });
 export type HotspotUserBulkInput = z.infer<typeof hotspotUserBulkSchema>;
 
 // ---- Member self-service (/me/hotspot) ---------------------------------------
-// Loose password bounds on purpose: RouterOS hotspot creds can be short/simple
-// and the member owns the credential. Still rate-limit the endpoint like login.
+// Hotspot creds stay simpler than staff passwords (min 8), but still bounded at
+// min 6 — the member owns the credential. Rate-limit the endpoint like login.
 export const hotspotSelfPasswordSchema = z.object({
   currentPassword: z.string().min(1).max(255),
-  newPassword: z.string().min(4).max(255),
+  newPassword: z.string().min(6, 'Min. 6 karakter').max(255),
 });
 export type HotspotSelfPasswordInput = z.infer<typeof hotspotSelfPasswordSchema>;
 

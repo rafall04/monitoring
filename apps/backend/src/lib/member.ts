@@ -1,16 +1,20 @@
-import bcrypt from 'bcryptjs';
-import { prisma } from '@noc/server';
+import { hashPassword, prisma } from '@noc/server';
 
 /**
  * Provision the member (self-service) account for a hotspot user just created
  * on a router. The member logs into the NOC with the hotspot username (stored
  * in AppUser.email — the login id) and the same password as the hotspot account.
  * Idempotent: an existing login id is left untouched and reported as 'exists'.
+ *
+ * The hotspot password is REQUIRED — never fall back to password=username (a
+ * trivially guessable credential). Passwordless router users (e.g. MAC-bind or
+ * trial entries seen by sync-portal) are reported as 'no-password' and skipped.
  */
 export async function provisionMember(
   routerId: string,
   hs: { name: string; password?: string; comment?: string },
-): Promise<'created' | 'exists' | 'error'> {
+): Promise<'created' | 'exists' | 'no-password' | 'error'> {
+  if (!hs.password) return 'no-password';
   try {
     const exists = await prisma.appUser.findUnique({ where: { email: hs.name } });
     if (exists) return 'exists';
@@ -18,7 +22,7 @@ export async function provisionMember(
       data: {
         name: hs.comment?.trim() || hs.name,
         email: hs.name,
-        passwordHash: await bcrypt.hash(hs.password || hs.name, 10),
+        passwordHash: await hashPassword(hs.password),
         role: 'member',
         scopeSiteIds: [],
         isActive: true,
@@ -41,6 +45,6 @@ export async function syncMemberPassword(
 ): Promise<void> {
   await prisma.appUser.updateMany({
     where: { hotspotRouterId: routerId, hotspotUsername },
-    data: { passwordHash: await bcrypt.hash(newPassword, 10) },
+    data: { passwordHash: await hashPassword(newPassword) },
   });
 }

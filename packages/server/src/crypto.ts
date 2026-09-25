@@ -10,6 +10,7 @@ import {
   createHash,
   randomBytes,
 } from 'node:crypto';
+import bcrypt from 'bcryptjs';
 import { env } from './env';
 
 const KEY = Buffer.from(env.CREDENTIALS_ENC_KEY, 'base64');
@@ -59,4 +60,16 @@ export function generateToken(bytes = 24): string {
 /** SHA-256 hex digest. Used to store refresh tokens hashed + webhook dedup. */
 export function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+/**
+ * bcrypt work factor for NEW password hashes. Hashes embed their own cost, so
+ * existing cost-10 hashes keep verifying — this only raises the bar for hashes
+ * minted from now on.
+ */
+export const BCRYPT_COST = 12;
+
+/** Hash a plaintext password at the current BCRYPT_COST. */
+export function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_COST);
 }

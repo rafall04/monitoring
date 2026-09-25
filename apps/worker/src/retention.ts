@@ -3,14 +3,14 @@
 // global Setting once per hour and prunes rows older than that cutoff. Without
 // this the DB grows forever because every poll writes status events.
 //
-// Deletes are batched so the sweep can't block the rest of the worker on a
-// huge backlog (e.g. the first run after enabling retention on a year-old DB).
+// Deletes run through deleteInBatches (~500 rows per statement + a pause) so
+// the sweep can't pin a table lock on a huge backlog (e.g. the first run
+// after enabling retention on a year-old DB).
 // =============================================================================
 
-import { getSettings, prisma, type Logger } from '@noc/server';
+import { deleteInBatches, getSettings, prisma, type Logger } from '@noc/server';
 
 const HOUR_MS = 60 * 60 * 1000;
-const BATCH_SIZE = 5_000;
 
 export interface RetentionStats {
   lastRunAt: number;
@@ -77,52 +77,46 @@ export class RetentionSweeper {
     }
   }
 
-  /** Delete rows older than (now - days). Batched. */
+  /** Delete rows older than (now - days). Batched via deleteInBatches. */
   private async purgeOlderThan(
     table: 'statusEvent' | 'auditLog' | 'ruijiePortEvent',
     days: number,
   ): Promise<number> {
     if (!Number.isFinite(days) || days <= 0) return 0;
     const cutoff = new Date(Date.now() - days * 24 * HOUR_MS);
-    let totalDeleted = 0;
-    // Loop until we did less than a full batch — protects against running for
-    // an unbounded time on first run with a huge backlog.
-    for (let safety = 0; safety < 200; safety++) {
-      // Timestamp column differs per table: StatusEvent=occurredAt,
-      // AuditLog=createdAt, RuijiePortEvent=at.
-      let ids: { id: string }[];
-      if (table === 'statusEvent') {
-        ids = await prisma.statusEvent.findMany({
-          where: { occurredAt: { lt: cutoff } },
-          select: { id: true },
-          take: BATCH_SIZE,
-        });
-      } else if (table === 'auditLog') {
-        ids = await prisma.auditLog.findMany({
-          where: { createdAt: { lt: cutoff } },
-          select: { id: true },
-          take: BATCH_SIZE,
-        });
-      } else {
-        ids = await prisma.ruijiePortEvent.findMany({
+    // Timestamp column differs per table: StatusEvent=occurredAt,
+    // AuditLog=createdAt, RuijiePortEvent=at.
+    if (table === 'statusEvent') {
+      return deleteInBatches(
+        (take) =>
+          prisma.statusEvent.findMany({
+            where: { occurredAt: { lt: cutoff } },
+            select: { id: true },
+            take,
+          }),
+        (ids) => prisma.statusEvent.deleteMany({ where: { id: { in: ids } } }),
+      );
+    }
+    if (table === 'auditLog') {
+      return deleteInBatches(
+        (take) =>
+          prisma.auditLog.findMany({
+            where: { createdAt: { lt: cutoff } },
+            select: { id: true },
+            take,
+          }),
+        (ids) => prisma.auditLog.deleteMany({ where: { id: { in: ids } } }),
+      );
+    }
+    return deleteInBatches(
+      (take) =>
+        prisma.ruijiePortEvent.findMany({
           where: { at: { lt: cutoff } },
           select: { id: true },
-          take: BATCH_SIZE,
-        });
-      }
-
-      if (ids.length === 0) break;
-      const idList = ids.map((r) => r.id);
-      const res =
-        table === 'statusEvent'
-          ? await prisma.statusEvent.deleteMany({ where: { id: { in: idList } } })
-          : table === 'auditLog'
-            ? await prisma.auditLog.deleteMany({ where: { id: { in: idList } } })
-            : await prisma.ruijiePortEvent.deleteMany({ where: { id: { in: idList } } });
-      totalDeleted += res.count;
-      if (ids.length < BATCH_SIZE) break;
-    }
-    return totalDeleted;
+          take,
+        }),
+      (ids) => prisma.ruijiePortEvent.deleteMany({ where: { id: { in: ids } } }),
+    );
   }
 
   /**
@@ -132,20 +126,14 @@ export class RetentionSweeper {
    */
   private async purgeExpiredRefreshTokens(): Promise<number> {
     const now = new Date();
-    let totalDeleted = 0;
-    for (let safety = 0; safety < 200; safety++) {
-      const ids = await prisma.refreshToken.findMany({
-        where: { expiresAt: { lt: now } },
-        select: { id: true },
-        take: BATCH_SIZE,
-      });
-      if (ids.length === 0) break;
-      const res = await prisma.refreshToken.deleteMany({
-        where: { id: { in: ids.map((r) => r.id) } },
-      });
-      totalDeleted += res.count;
-      if (ids.length < BATCH_SIZE) break;
-    }
-    return totalDeleted;
+    return deleteInBatches(
+      (take) =>
+        prisma.refreshToken.findMany({
+          where: { expiresAt: { lt: now } },
+          select: { id: true },
+          take,
+        }),
+      (ids) => prisma.refreshToken.deleteMany({ where: { id: { in: ids } } }),
+    );
   }
 }

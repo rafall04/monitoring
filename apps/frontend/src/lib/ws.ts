@@ -57,7 +57,9 @@ export function useSiteSocket(
     const connect = () => {
       const token = getAccessToken();
       if (!token) return;
-      socket = new WebSocket(`${wsUrl()}?token=${encodeURIComponent(token)}`);
+      // The token is sent as a Sec-WebSocket-Protocol offer (the server picks
+      // 'bearer') — never as ?token=, which lands in request/proxy logs.
+      socket = new WebSocket(wsUrl(), ['bearer', token]);
 
       socket.onopen = () => {
         attempts = 0;

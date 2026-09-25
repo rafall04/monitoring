@@ -1,6 +1,5 @@
-import bcrypt from 'bcryptjs';
 import type { FastifyInstance } from 'fastify';
-import { prisma, toAppUserPublic } from '@noc/server';
+import { hashPassword, prisma, toAppUserPublic } from '@noc/server';
 import {
   createAppUserSchema,
   idParamSchema,
@@ -28,7 +27,7 @@ export async function userRoutes(app: FastifyInstance) {
       data: {
         name: body.name,
         email: body.email,
-        passwordHash: await bcrypt.hash(body.password, 10),
+        passwordHash: await hashPassword(body.password),
         role: body.role,
         scopeSiteIds: body.scopeSiteIds,
         isActive: body.isActive,
@@ -79,7 +78,7 @@ export async function userRoutes(app: FastifyInstance) {
                 phoneVerifiedAt: phone ? new Date() : null,
               }
             : {}),
-          ...(password ? { passwordHash: await bcrypt.hash(password, 10) } : {}),
+          ...(password ? { passwordHash: await hashPassword(password) } : {}),
         },
       });
     } catch (e) {

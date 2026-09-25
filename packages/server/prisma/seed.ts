@@ -5,9 +5,8 @@
 // no re-activation, no role/password reset); demo data is created only once.
 // =============================================================================
 
-import bcrypt from 'bcryptjs';
 import { prisma } from '../src/db';
-import { encryptSecret, generateToken } from '../src/crypto';
+import { encryptSecret, generateToken, hashPassword } from '../src/crypto';
 
 // Create a user only if missing. `update: {}` means a re-seed NEVER touches an
 // existing account: no password reset, no re-activation of a disabled account,
@@ -25,7 +24,7 @@ async function ensureUser(
     create: {
       name,
       email,
-      passwordHash: await bcrypt.hash(password, 10),
+      passwordHash: await hashPassword(password),
       role,
       scopeSiteIds,
       isActive: true,

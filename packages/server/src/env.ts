@@ -7,6 +7,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { config as dotenvConfig } from 'dotenv';
+import pino from 'pino';
 import { z } from 'zod';
 
 function loadDotenv(): void {
@@ -87,6 +88,21 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 export type Env = typeof env;
+
+// Soft floor for JWT secret entropy: the schema above still enforces the old
+// 8-char minimum because production .env files predate the 32-char
+// recommendation — warn loudly at startup instead of refusing to boot.
+// (createLogger can't be used here — logger.ts imports this module — so a
+// dedicated pino instance emits the warning.)
+const weakJwtSecrets = (['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const).filter(
+  (k) => env[k].length < 32,
+);
+if (weakJwtSecrets.length > 0) {
+  pino({ name: 'env', level: env.LOG_LEVEL }).warn(
+    { secrets: weakJwtSecrets },
+    'JWT secrets should be at least 32 characters — rotate with `openssl rand -hex 32`',
+  );
+}
 
 export const isProd = env.NODE_ENV === 'production';
 export const isDev = env.NODE_ENV === 'development';

@@ -23,12 +23,23 @@ interface WsSession {
 }
 
 /**
- * WebSocket hub. Clients connect to /ws?token=<accessJWT>, then send
- * { type: 'subscribe', siteId } to join a per-site room. The worker/backend
- * publish events to Redis; we fan them out to the sockets in the matching room.
+ * WebSocket hub. Clients connect to /ws offering the access JWT as a
+ * Sec-WebSocket-Protocol subprotocol (['bearer', <token>] — the browser API
+ * can't set Authorization, and a ?token= query param would land in request
+ * logs and proxies), then send { type: 'subscribe', siteId } to join a
+ * per-site room. The worker/backend publish events to Redis; we fan them out
+ * to the sockets in the matching room.
  */
 export async function registerWebsocketHub(app: FastifyInstance): Promise<void> {
-  await app.register(websocket);
+  await app.register(websocket, {
+    options: {
+      // RFC 6455 subprotocol negotiation: ws requires us to reply with ONE of
+      // the client's offered protocols. Always pick 'bearer' — never echo the
+      // second offer (the token itself) back in the response header.
+      handleProtocols: (protocols: Set<string>) =>
+        protocols.has('bearer') ? 'bearer' : false,
+    },
+  });
 
   const rooms = new Map<string, Set<WebSocket>>();
   const sessions = new Map<WebSocket, WsSession>();
@@ -146,7 +157,13 @@ export async function registerWebsocketHub(app: FastifyInstance): Promise<void> 
   revalidateTimer.unref?.();
 
   app.get('/ws', { websocket: true }, async (ws: WebSocket, req) => {
-    const token = (req.query as { token?: string })?.token;
+    // The JWT rides inside the Sec-WebSocket-Protocol offer as the entry after
+    // the 'bearer' marker: "bearer, <token>". Anything else is unauthorized.
+    const offered = (req.headers['sec-websocket-protocol'] ?? '')
+      .split(',')
+      .map((p) => p.trim());
+    const bearerIdx = offered.indexOf('bearer');
+    const token = bearerIdx >= 0 ? offered[bearerIdx + 1] : undefined;
 
     let userId: string;
     try {

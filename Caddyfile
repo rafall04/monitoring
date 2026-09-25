@@ -2,7 +2,7 @@
 # compose profile. The site address comes from CADDY_SITE_ADDRESS, which
 # deploy.sh sets:
 #   :80            -> plain HTTP on port 80 (any host)         [--proxy]
-#   sf.raf.my.id   -> domain with automatic HTTPS via ACME     [--proxy --tls]
+#   noc.example.com -> domain with automatic HTTPS via ACME    [--proxy --tls]
 #
 # Caddy routes the API / WebSocket / uploads to the backend and everything else
 # to the Next.js frontend, all under one origin.

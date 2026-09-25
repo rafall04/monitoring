@@ -36,9 +36,15 @@ it **before** logging in, so whitelist the hosts in the walled garden:
 
 ```routeros
 /ip hotspot walled-garden add dst-host=wa.me comment="WhatsApp bot link"
+/ip hotspot walled-garden add dst-host=whatsapp.com comment="WhatsApp apex"
 /ip hotspot walled-garden add dst-host=*.whatsapp.com comment="WhatsApp app/web"
+/ip hotspot walled-garden add dst-host=whatsapp.net comment="WhatsApp apex"
 /ip hotspot walled-garden add dst-host=*.whatsapp.net comment="WhatsApp media"
 ```
+
+Note: `dst-host` wildcards only match subdomains — `*.whatsapp.com` does **not**
+cover the apex `whatsapp.com`, so both forms are listed. `wa.me` links redirect
+through `api.whatsapp.com` / `web.whatsapp.com`.
 
 Without this, the `wa.me` links on `login.html`/`error.html`/`status.html`
 dead-end behind the captive portal.

@@ -89,6 +89,13 @@ export class RuijiePortPoller {
         where: { accountId: account.id, online: true },
         select: { id: true, name: true, groupName: true, cloudSerial: true },
       });
+      // Prune check timestamps for routers we no longer poll (deleted or gone
+      // offline) so lastChecked can't grow without bound. A router returning
+      // online is then simply polled promptly — harmless.
+      const liveIds = new Set(routers.map((r) => r.id));
+      for (const rid of this.lastChecked.keys()) {
+        if (!liveIds.has(rid)) this.lastChecked.delete(rid);
+      }
       if (routers.length === 0) return;
 
       // Routers with a currently-degraded port get the FAST interval.

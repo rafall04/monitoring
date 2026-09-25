@@ -37,9 +37,33 @@ async function withClient<T>(
   try {
     return await fn(client);
   } catch (err) {
+    // Errors that already carry an HTTP status (e.g. one we threw inside fn
+    // after a rollback) pass through untouched instead of being re-branded
+    // as a MikroTik error.
+    if (err && typeof err === 'object' && 'statusCode' in err) throw err;
     throw badGateway(`MikroTik error: ${(err as Error)?.message ?? err}`);
   } finally {
     await client.close();
+  }
+}
+
+/**
+ * Best-effort undo for batch creates: remove router-side hotspot users a
+ * failed batch already added. `addHotspotUser` returns no id, so each row is
+ * looked up by name first. Never throws — a dead router aborts the remaining
+ * lookups instead of hammering it with timeouts.
+ */
+async function removeHotspotUsersByName(
+  c: MikrotikClient,
+  names: string[],
+): Promise<void> {
+  for (const name of names) {
+    try {
+      const u = await c.getHotspotUserByName(name);
+      if (u?.['.id']) await c.removeHotspotUser(u['.id']);
+    } catch {
+      break;
+    }
   }
 }
 
@@ -122,10 +146,15 @@ export async function hotspotRoutes(app: FastifyInstance) {
     await withClient(r, async (c) => {
       body.profile = await resolveDeviceProfile(c, body.profile, sharedUsers);
       await c.addHotspotUser(body);
+      // Every hotspot user gets a member account so they can self-manage
+      // (status / password / kick own sessions) at the NOC login. The pair is
+      // atomic: if the member login can't be created, the router row goes too.
+      const prov = await provisionMember(id, body);
+      if (prov !== 'created' && prov !== 'exists') {
+        await removeHotspotUsersByName(c, [body.name]);
+        throw badGateway('Akun member gagal dibuat — user hotspot dibatalkan');
+      }
     });
-    // Every hotspot user gets a member account so they can self-manage
-    // (status / password / kick own sessions) at the NOC login.
-    await provisionMember(id, body);
     await writeAudit(req, { action: 'hotspot-user-create', entity: 'router', entityId: id, after: { name: body.name } });
     return { ok: true };
   });
@@ -182,29 +211,68 @@ export async function hotspotRoutes(app: FastifyInstance) {
   });
 
   // Batch create (e.g. RSVP import). Per-row errors are collected instead of
-  // aborting the batch — one bad line must not roll back the others.
+  // aborting the batch — one bad line must not roll back the others. But if
+  // the batch itself dies mid-way, every router row + member account this call
+  // already created is rolled back so nothing is left half-provisioned.
   app.post('/:id/users/bulk', manage, async (req) => {
     const { id } = idParamSchema.parse(req.params);
     const r = await routerWithAccess(req, id);
     const { users: rows } = hotspotUserBulkSchema.parse(req.body);
     const results: BulkCreateResult[] = [];
-    await withClient(r, async (c) => {
-      for (const u of rows) {
-        const { sharedUsers, ...rest } = u;
+    // Router rows this call created — and the subset that also got a fresh
+    // member account — tracked for rollback if the batch aborts mid-way.
+    const createdUsers: string[] = [];
+    const createdMembers: string[] = [];
+    try {
+      await withClient(r, async (c) => {
+        for (const u of rows) {
+          const { sharedUsers, ...rest } = u;
+          try {
+            rest.profile = await resolveDeviceProfile(c, rest.profile, sharedUsers);
+            await c.addHotspotUser(rest);
+          } catch (err) {
+            results.push({ name: u.name, ok: false, error: (err as Error)?.message ?? String(err) });
+            continue;
+          }
+          // Member login is provisioned in the same pass: a failure removes the
+          // router row again so the pair is never left half-created.
+          const prov = await provisionMember(id, u);
+          if (prov === 'created' || prov === 'exists') {
+            createdUsers.push(u.name);
+            if (prov === 'created') createdMembers.push(u.name);
+            results.push({ name: u.name, ok: true });
+          } else {
+            await removeHotspotUsersByName(c, [u.name]);
+            results.push({
+              name: u.name,
+              ok: false,
+              error: 'Akun member gagal dibuat — user dibatalkan',
+            });
+          }
+        }
+      });
+    } catch (err) {
+      // Batch aborted (e.g. connection dropped outside a row op): undo this
+      // call's footprint — member accounts created here first ('exists'
+      // accounts are never touched), then the router-side users.
+      if (createdMembers.length > 0) {
+        await prisma.appUser
+          .deleteMany({
+            where: { hotspotRouterId: id, hotspotUsername: { in: createdMembers } },
+          })
+          .catch(() => undefined);
+      }
+      if (createdUsers.length > 0) {
         try {
-          rest.profile = await resolveDeviceProfile(c, rest.profile, sharedUsers);
-          await c.addHotspotUser(rest);
-          results.push({ name: u.name, ok: true });
-        } catch (err) {
-          results.push({ name: u.name, ok: false, error: (err as Error)?.message ?? String(err) });
+          await withClient(r, (c) => removeHotspotUsersByName(c, createdUsers));
+        } catch (e) {
+          req.log.warn(
+            { err: e, names: createdUsers },
+            'rollback user hotspot gagal — cek router manual',
+          );
         }
       }
-    });
-    // Router users are in place → provision their member logins too.
-    for (const res of results) {
-      if (!res.ok) continue;
-      const u = rows.find((r) => r.name === res.name);
-      if (u) await provisionMember(id, u);
+      throw err;
     }
     await writeAudit(req, {
       action: 'hotspot-user-bulk-create',
@@ -224,21 +292,25 @@ export async function hotspotRoutes(app: FastifyInstance) {
     const users = await withClient(r, (c) => c.listHotspotUsers(true));
     let created = 0;
     let existed = 0;
+    let skipped = 0;
     let failed = 0;
     for (const u of users) {
       if (u.name === 'default-trial') continue; // template row, not a person
       const res = await provisionMember(id, u);
       if (res === 'created') created++;
       else if (res === 'exists') existed++;
+      // Passwordless router user: there is no credential to copy — never
+      // fall back to password=username, so the row is skipped.
+      else if (res === 'no-password') skipped++;
       else failed++;
     }
     await writeAudit(req, {
       action: 'hotspot-portal-sync',
       entity: 'router',
       entityId: id,
-      after: { created, existed, failed },
+      after: { created, existed, skipped, failed },
     });
-    return { created, existed, failed };
+    return { created, existed, skipped, failed };
   });
 
   app.post('/:id/active/disconnect', disconnect, async (req) => {
@@ -251,18 +323,26 @@ export async function hotspotRoutes(app: FastifyInstance) {
   });
 
   // Batch voucher generator. Returns rows; CSV export is done client-side.
+  // The batch is atomic: if an add fails mid-way, every voucher this call
+  // already wrote to the router is removed again before the error surfaces —
+  // a half-generated batch would be unusable anyway (the caller never sees
+  // the usernames/passwords of the rows that were rolled back).
   app.post('/:id/vouchers', manage, async (req) => {
     const { id } = idParamSchema.parse(req.params);
     const r = await routerWithAccess(req, id);
     const body = voucherGenSchema.parse(req.body);
     const vouchers: VoucherRow[] = [];
-    await withClient(r, async (c) => {
+    const created: string[] = [];
+    // Own client (not withClient) so a mid-batch failure can roll back on the
+    // same connection that created the rows.
+    const client = clientForRouter(r);
+    try {
       for (let i = 0; i < body.count; i++) {
         const username = body.prefix + randomString(body.usernameLength, body.charset);
         const password = body.sameAsUsername
           ? username
           : randomString(body.passwordLength, body.charset);
-        await c.addHotspotUser({
+        await client.addHotspotUser({
           name: username,
           password,
           profile: body.profile,
@@ -271,9 +351,16 @@ export async function hotspotRoutes(app: FastifyInstance) {
           limitBytesTotal: body.limitBytesTotal,
           comment: body.comment ?? 'voucher',
         });
+        created.push(username);
         vouchers.push({ username, password, profile: body.profile });
       }
-    });
+    } catch (err) {
+      await removeHotspotUsersByName(client, created);
+      if (err && typeof err === 'object' && 'statusCode' in err) throw err;
+      throw badGateway(`MikroTik error: ${(err as Error)?.message ?? err}`);
+    } finally {
+      await client.close();
+    }
     await writeAudit(req, {
       action: 'voucher-generate',
       entity: 'router',

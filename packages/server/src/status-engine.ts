@@ -25,6 +25,16 @@ export interface StatusEngineDeps {
   logger: Logger;
 }
 
+/**
+ * TTL for the `noc:device:*:status` / `noc:router:*:status` heartbeat caches.
+ * Those keys are refreshed on every poll/webhook but read by no hot path —
+ * without an expiry they would outlive a deleted device/router forever (the
+ * delete path can't enumerate them). 1h far outlasts any poll interval or
+ * circuit-breaker backoff (max 5 min), so a live device never loses its entry
+ * while a deleted one self-cleans.
+ */
+export const STATUS_CACHE_TTL_SEC = 3600;
+
 export interface ApplyByHostInput {
   routerId: string;
   host: string;
@@ -103,7 +113,7 @@ export async function applyDeviceStatusesByHost(
   if (heartbeats.length > 0) {
     // One round trip instead of one per device.
     const pipe = deps.redisPub.pipeline();
-    for (const [k, v] of heartbeats) pipe.set(k, v);
+    for (const [k, v] of heartbeats) pipe.set(k, v, 'EX', STATUS_CACHE_TTL_SEC);
     await pipe.exec();
   }
 
@@ -122,12 +132,7 @@ export async function applyDeviceStatusesByHost(
   // Recompute + publish site.summary ONCE per affected site at the end —
   // publishing it per device would fan out N redundant recomputes per poll.
   for (const siteId of changedSites) {
-    const summary = await computeSiteSummary(deps.prisma, siteId);
-    await publishSiteEvent(deps.redisPub, siteId, {
-      type: 'site.summary',
-      siteId,
-      summary,
-    });
+    await publishSiteSummary(deps, siteId);
   }
 
   return { matched: byIp.size, changed: changedCount };
@@ -161,7 +166,12 @@ export async function applyDeviceStatus(
   if (device.status === newStatus) {
     // No transition: just refresh the heartbeat cache so reconciliation can tell
     // the difference between "still down" and "stale".
-    await deps.redisPub.set(REDIS_KEYS.deviceStatus(device.id), cachePayload);
+    await deps.redisPub.set(
+      REDIS_KEYS.deviceStatus(device.id),
+      cachePayload,
+      'EX',
+      STATUS_CACHE_TTL_SEC,
+    );
     return false;
   }
 
@@ -201,12 +211,22 @@ export async function applyDeviceStatus(
   });
 
   if (!applied) {
-    await deps.redisPub.set(REDIS_KEYS.deviceStatus(device.id), cachePayload);
+    await deps.redisPub.set(
+      REDIS_KEYS.deviceStatus(device.id),
+      cachePayload,
+      'EX',
+      STATUS_CACHE_TTL_SEC,
+    );
     return false;
   }
   const oldStatus = applied.status;
 
-  await deps.redisPub.set(REDIS_KEYS.deviceStatus(device.id), cachePayload);
+  await deps.redisPub.set(
+    REDIS_KEYS.deviceStatus(device.id),
+    cachePayload,
+    'EX',
+    STATUS_CACHE_TTL_SEC,
+  );
 
   await publishSiteEvent(deps.redisPub, device.siteId, {
     type: 'device.status',
@@ -219,12 +239,7 @@ export async function applyDeviceStatus(
 
   if (!opts.skipSiteSummary) {
     // Push an updated site summary so dashboards stay in sync without polling.
-    const summary = await computeSiteSummary(deps.prisma, device.siteId);
-    await publishSiteEvent(deps.redisPub, device.siteId, {
-      type: 'site.summary',
-      siteId: device.siteId,
-      summary,
-    });
+    await publishSiteSummary(deps, device.siteId);
   }
 
   // Fire-and-forget alerts for critical devices (server modes): Telegram +
@@ -268,6 +283,8 @@ export async function updateRouterStatus(
   await deps.redisPub.set(
     REDIS_KEYS.routerStatus(router.id),
     JSON.stringify({ status, at: new Date().toISOString() }),
+    'EX',
+    STATUS_CACHE_TTL_SEC,
   );
   if (prev?.status === status) return;
   await publishSiteEvent(deps.redisPub, router.siteId, {
@@ -277,6 +294,25 @@ export async function updateRouterStatus(
     status,
     lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : null,
     resource,
+  });
+}
+
+/**
+ * Recompute a site's summary and publish it to the site's realtime channel —
+ * the same fan-out the engine performs after a status transition. Any path
+ * that changes device membership or effective status WITHOUT going through
+ * applyDeviceStatus (device/router/site delete, netwatch import) must call
+ * this so dashboards never hold stale up/down counts.
+ */
+export async function publishSiteSummary(
+  deps: Pick<StatusEngineDeps, 'prisma' | 'redisPub'>,
+  siteId: string,
+): Promise<void> {
+  const summary = await computeSiteSummary(deps.prisma, siteId);
+  await publishSiteEvent(deps.redisPub, siteId, {
+    type: 'site.summary',
+    siteId,
+    summary,
   });
 }
 

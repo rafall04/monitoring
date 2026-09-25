@@ -133,11 +133,11 @@ expose a single tunnel hostname.
 | Inputs | Result |
 | --- | --- |
 | IP only | `http://IP:3600` (web + API under `/api`, same origin) |
-| frontend domain | `https://sf.raf.my.id` (web + API under `/api`) — apps also on IP:port |
-| `--cloudflare` | one tunnel hostname `sf.raf.my.id -> localhost:3600`; login + API ride it |
+| frontend domain | `https://noc.example.com` (web + API under `/api`) — apps also on IP:port |
+| `--cloudflare` | one tunnel hostname `noc.example.com -> localhost:3600`; login + API ride it |
 
-Same via flags (automation), e.g. `sudo ./deploy.sh --ip 172.17.11.12
---frontend-domain sf.raf.my.id --backend-domain api.sf.raf.my.id --tls`. Use
+Same via flags (automation), e.g. `sudo ./deploy.sh --ip 192.0.2.10
+--frontend-domain noc.example.com --backend-domain api.noc.example.com --tls`. Use
 `--yes` to skip prompts and reuse the saved config. TLS needs the domains public
 + ports 80/443 reachable for the ACME challenge.
 
@@ -174,6 +174,38 @@ docker compose down         # stop everything
 > internally; the flags only change how they are exposed. The frontend proxies
 > `/api`, `/ws` and `/uploads` to `backend:4000` over the compose network
 > (`BACKEND_ORIGIN`), so the browser stays same-origin regardless of host/port.
+
+---
+
+## Backup & restore
+
+The `backup` service (`prodrigestivill/postgres-backup-local:16-alpine`) dumps
+Postgres on a cron schedule — **daily** by default (`BACKUP_SCHEDULE` in `.env`
+overrides) — into the `pg_backups` volume, plus once on every container start
+(`BACKUP_ON_START=TRUE`). Dumps are gzipped plain SQL at
+`/backups/{last,daily}/<DB>-*.sql.gz` with `-latest.sql.gz` symlinks; retention
+is **7 daily dumps** (weekly/monthly rotation disabled via
+`BACKUP_KEEP_WEEKS=0` / `BACKUP_KEEP_MONTHS=0`).
+
+```bash
+# List available dumps
+docker compose exec backup ls -l /backups/daily
+
+# Copy the newest dump off the host
+docker compose exec backup cat "/backups/daily/${POSTGRES_DB:-noc}-latest.sql.gz" > dump.sql.gz
+```
+
+Restore the latest dump (destroys current data — stop writers first):
+
+```bash
+docker compose stop backend worker wabot
+docker compose exec postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"'
+docker compose exec -T backup sh -c 'gunzip -c /backups/daily/*-latest.sql.gz' | \
+  docker compose exec -T postgres sh -c \
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+docker compose start backend worker wabot
+```
 
 ---
 
@@ -377,3 +409,10 @@ Enforced **server-side** (middleware), not just hidden in the UI. Source of trut
 - Voucher card PDF/printing; Telegram/email notifications; outgoing webhooks.
 - Stale-status reconciliation (mark devices unknown when their router is long offline).
 - Tests (unit/integration) and CI.
+
+---
+
+## License
+
+**Proprietary — all rights reserved.** No license is granted to use, copy,
+modify, or distribute this codebase outside the deploying organization.
