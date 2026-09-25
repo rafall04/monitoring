@@ -48,6 +48,10 @@ const nextConfig = {
     return [
       { source: '/api/:path*', destination: `${backendOrigin}/api/:path*` },
       { source: '/uploads/:path*', destination: `${backendOrigin}/uploads/:path*` },
+      // Next proxies Upgrade requests for declared external rewrites, so the
+      // browser's wss://<domain>/ws reaches the backend through the same origin —
+      // no separate WS route needed at the edge tunnel.
+      { source: '/ws', destination: `${backendOrigin}/ws` },
     ];
   },
   async headers() {
