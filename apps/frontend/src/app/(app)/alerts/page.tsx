@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { AuditLogRow, Incident, StatusEventRow } from '@noc/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { liteInterval } from '@/lib/lite';
 import {
   Badge,
   Card,
@@ -62,7 +63,7 @@ function OpenIncidents({ canAck }: { canAck: boolean }) {
     queryKey: ['incidents', criticalOnly],
     queryFn: () =>
       api.get<Incident[]>(`/alerts/incidents${criticalOnly ? '?critical=1' : ''}`),
-    refetchInterval: 10_000,
+    refetchInterval: liteInterval(10_000),
   });
 
   const ack = useMutation({
@@ -229,7 +230,7 @@ function SilenceMenu({
           {[15, 60, 240, 1440].map((m) => (
             <button
               key={m}
-              className="noc-tap flex w-full items-center px-3 py-1 text-left text-xs hover:bg-slate-800"
+              className="noc-tap flex w-full items-center px-3 py-1 text-left text-xs hover:bg-slate-100 dark:hover:bg-slate-800"
               onClick={() => {
                 onPick(m);
                 setOpen(false);
@@ -240,7 +241,7 @@ function SilenceMenu({
           ))}
           {silenced && (
             <button
-              className="noc-tap flex w-full items-center border-t border-surface-border px-3 py-1 text-left text-xs text-red-400 hover:bg-slate-800"
+              className="noc-tap flex w-full items-center border-t border-surface-border px-3 py-1 text-left text-xs text-red-400 hover:bg-slate-100 dark:hover:bg-slate-800"
               onClick={() => {
                 onPick(0);
                 setOpen(false);
@@ -273,7 +274,7 @@ function EventTimeline() {
       api.get<{ events: StatusEventRow[]; nextCursor: string | null }>(
         `/alerts/events?${qs.toString()}`,
       ),
-    refetchInterval: 15_000,
+    refetchInterval: liteInterval(15_000),
   });
 
   return (

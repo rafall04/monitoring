@@ -2,7 +2,12 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { Company, RouterPublic, RouterResource, Site } from '@noc/shared';
+import type {
+  Company,
+  RouterPublic,
+  RouterResource,
+  Site,
+} from '@noc/shared';
 import { api } from '@/lib/api';
 import { qk, useRouters, useSites } from '@/lib/queries';
 import { useConfirm, usePrompt, useToast } from '@/lib/toast';
@@ -494,6 +499,11 @@ function SiteRow({ site, onDelete, onUploaded }: { site: Site; onDelete: () => v
           server = NOC yang kirim (token aman di server) · router = script Netwatch yang kirim (perlu Install/Sync di router) · hanya device is_critical.
         </p>
       </div>
+
+      <p className="mt-3 border-t border-surface-border pt-2 text-2xs text-slate-500">
+        Alert &amp; kontak WhatsApp site ini diatur di halaman{' '}
+        <a className="text-accent hover:underline" href="/admin/whatsapp">WhatsApp Bot</a>.
+      </p>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { AppUserPublic } from '@noc/shared';
 import { api } from '@/lib/api';
@@ -124,7 +124,64 @@ export default function ProfilePage() {
           </span>
         </div>
       </Card>
+
+      {/* ---- WhatsApp link ---- */}
+      <Card className="space-y-3 p-4">
+        <h2 className="font-semibold text-slate-200">WhatsApp</h2>
+        <WaLinkSection />
+      </Card>
       </PageBody>
     </Page>
+  );
+}
+
+/** Link a staff number so the bot recognizes SITES/DOWN/ACK/PING/etc. */
+function WaLinkSection() {
+  const toast = useToast();
+  const wa = useQuery({
+    queryKey: ['me', 'wa'],
+    queryFn: () => api.get<{ phone: string | null; phoneVerified: boolean }>('/me/wa'),
+  });
+  const [code, setCode] = useState<{ code: string; ttlSec: number } | null>(null);
+  const genCode = useMutation({
+    mutationFn: () => api.post<{ code: string; ttlSec: number }>('/me/wa/link-code', {}),
+    onSuccess: setCode,
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+  });
+  const d = wa.data;
+  if (d?.phoneVerified && d.phone) {
+    return (
+      <p className="text-sm text-slate-300">
+        ✅ Nomor <span className="font-mono">{d.phone}</span> tertaut — perintah bot aktif
+        (SITES, DOWN, ACK, PING, TIKET, LAPORAN, PROSES/SELESAI).
+      </p>
+    );
+  }
+  return (
+    <>
+      <p className="text-xs text-slate-500">
+        Tautkan nomor WA Anda untuk memakai perintah bot NOC (cek status site, ack insiden,
+        kerjakan tiket). Ambil kode lalu kirim <code className="font-mono">LINK &lt;kode&gt;</code>{' '}
+        ke nomor bot.
+      </p>
+      <div className="flex items-center gap-3">
+        <Button variant="secondary" onClick={() => genCode.mutate()} disabled={genCode.isPending}>
+          {genCode.isPending ? 'Membuat…' : 'Buat kode link'}
+        </Button>
+        {code && (
+          <span className="text-sm">
+            Kode: <span className="font-mono text-lg font-bold text-accent">{code.code}</span>
+            <span className="ml-2 text-xs text-slate-500">
+              berlaku {Math.round(code.ttlSec / 60)} menit
+            </span>
+          </span>
+        )}
+      </div>
+      {d?.phone && !d.phoneVerified && (
+        <p className="text-xs text-amber-400">
+          Nomor {d.phone} tercatat tapi belum terverifikasi — kirim LINK dari nomor itu.
+        </p>
+      )}
+    </>
   );
 }

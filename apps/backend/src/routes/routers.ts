@@ -58,6 +58,25 @@ export async function routerRoutes(app: FastifyInstance) {
     return toRouterPublic(r);
   });
 
+  /**
+   * Live `/interface/print` — powers the interface-watch pick-list in the
+   * device editor. Names only ever reach the client; no secrets involved.
+   */
+  app.get('/:id/interfaces', view, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const r = await prisma.routerMikrotik.findUnique({ where: { id } });
+    if (!r) throw notFound('Router not found');
+    assertSiteAccess(req.appUser, r.siteId);
+    const client = clientForRouter(r);
+    try {
+      return await client.listInterfaces();
+    } catch (err) {
+      throw badGateway(`MikroTik error: ${(err as Error)?.message ?? err}`);
+    } finally {
+      await client.close();
+    }
+  });
+
   app.post('/', manage, async (req) => {
     const body = createRouterSchema.parse(req.body);
     assertSiteAccess(req.appUser, body.siteId);

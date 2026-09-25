@@ -4,6 +4,7 @@ import { prisma, toAppUserPublic } from '@noc/server';
 import {
   createAppUserSchema,
   idParamSchema,
+  normalizePhone,
   updateAppUserSchema,
 } from '@noc/shared';
 import { badRequest, conflict, notFound } from '../lib/errors';
@@ -31,6 +32,10 @@ export async function userRoutes(app: FastifyInstance) {
         role: body.role,
         scopeSiteIds: body.scopeSiteIds,
         isActive: body.isActive,
+        // Admin-set phone is trusted → verified immediately.
+        phone: body.phone ? normalizePhone(body.phone) : null,
+        phoneVerifiedAt: body.phone ? new Date() : null,
+        department: body.department?.trim() || null,
       },
     });
     await writeAudit(req, { action: 'create', entity: 'app_user', entityId: u.id, after: toAppUserPublic(u) });
@@ -60,13 +65,20 @@ export async function userRoutes(app: FastifyInstance) {
       if (exists) throw conflict('Email already in use');
     }
 
-    const { password, ...rest } = body;
+    const { password, phone, ...rest } = body;
     let u;
     try {
       u = await prisma.appUser.update({
         where: { id },
         data: {
           ...rest,
+          // phone undefined = leave; null/'' = unlink; value = set + verified.
+          ...(phone !== undefined
+            ? {
+                phone: phone ? normalizePhone(phone) : null,
+                phoneVerifiedAt: phone ? new Date() : null,
+              }
+            : {}),
           ...(password ? { passwordHash: await bcrypt.hash(password, 10) } : {}),
         },
       });

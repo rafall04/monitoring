@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
+  ALERT_DAY_LABELS,
   DEVICE_TYPES,
   effectiveStatus,
   type Area,
@@ -10,6 +11,7 @@ import {
   type DeviceType,
   type ManualOverride,
   type PatchDevicePositionInput,
+  type RouterInterface,
   type RouterPublic,
   type Site,
   type UpdateDeviceInput,
@@ -18,6 +20,13 @@ import { api } from '@/lib/api';
 import { DEVICE_ICONS, deviceSvg } from '@/lib/icons';
 import { useToast } from '@/lib/toast';
 import { Button, Field, Select, StatusPill, Textarea, TextInput } from './ui';
+
+const minToTime = (m: number) =>
+  `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+const timeToMin = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
 
 interface MarkerPanelProps {
   site: Site;
@@ -58,8 +67,36 @@ export default function MarkerPanel(props: MarkerPanelProps) {
   const [areaId, setAreaId] = useState<string>(device?.areaId ?? '');
   const [lineId, setLineId] = useState<string>(device?.lineId ?? '');
 
+  // Interface watch ("uplink"): status follows a RouterOS interface's running
+  // flag; alerts are gated by a work-hours window (per-device override or the
+  // global Settings default).
+  const [watchInterface, setWatchInterface] = useState(device?.watchInterface ?? '');
+  const [winOverride, setWinOverride] = useState(Boolean(device?.watchAlertWindow));
+  const [winStart, setWinStart] = useState(
+    minToTime(device?.watchAlertWindow?.startMin ?? 360),
+  );
+  const [winEnd, setWinEnd] = useState(minToTime(device?.watchAlertWindow?.endMin ?? 1080));
+  const [winDays, setWinDays] = useState<number[]>(
+    device?.watchAlertWindow?.days ?? [1, 2, 3, 4, 5, 6, 7],
+  );
+  const [uplinkOpen, setUplinkOpen] = useState(Boolean(device?.watchInterface));
+  const [ifaces, setIfaces] = useState<RouterInterface[] | null>(null);
+  const [ifacesErr, setIfacesErr] = useState('');
+
   const editable = mode === 'add' ? props.canCreate : props.canEditAttributes;
   const selectedArea = areas.find((a) => a.id === areaId);
+
+  // Pull the live interface list only when the section is actually open — the
+  // pick-list needs a router round-trip, don't pay it for every panel open.
+  useEffect(() => {
+    if (!uplinkOpen || !routerId) return;
+    setIfaces(null);
+    setIfacesErr('');
+    api
+      .get<RouterInterface[]>(`/routers/${routerId}/interfaces`)
+      .then(setIfaces)
+      .catch((e) => setIfacesErr((e as Error)?.message ?? 'Gagal membaca interface'));
+  }, [uplinkOpen, routerId]);
 
   const uploadIcon = async (file: File) => {
     setIconBusy(true);
@@ -99,6 +136,11 @@ export default function MarkerPanel(props: MarkerPanelProps) {
         lineId: lineId || null,
         isCritical,
         note: note || null,
+        watchInterface: watchInterface || null,
+        watchAlertWindow:
+          watchInterface && winOverride
+            ? { startMin: timeToMin(winStart), endMin: timeToMin(winEnd), days: winDays }
+            : null,
         ...addPos,
       } as CreateDeviceInput;
       props.onCreate(body);
@@ -114,6 +156,11 @@ export default function MarkerPanel(props: MarkerPanelProps) {
         isCritical,
         note: note || null,
         manualOverride: override === '' ? null : override,
+        watchInterface: watchInterface || null,
+        watchAlertWindow:
+          watchInterface && winOverride
+            ? { startMin: timeToMin(winStart), endMin: timeToMin(winEnd), days: winDays }
+            : null,
         ...(syncNetwatch && ipAddress ? { syncNetwatch: true } : {}),
       };
       props.onSave(device.id, patch);
@@ -168,6 +215,115 @@ export default function MarkerPanel(props: MarkerPanelProps) {
             disabled={!editable}
           />
         </Field>
+
+        <details
+          className="rounded border border-surface-border bg-surface/40 p-2 text-xs text-slate-400"
+          open={uplinkOpen}
+          onToggle={(e) => setUplinkOpen((e.target as HTMLDetailsElement).open)}
+        >
+          <summary className="cursor-pointer select-none text-slate-300">
+            Pantau interface uplink
+          </summary>
+          <p className="mt-2">
+            Status device mengikuti flag <code>running</code> interface di router (mis.{' '}
+            <code>ether2</code> = jalur ke 001) — bukan Netwatch. Alert hanya dikirim dalam
+            jam kerja; status peta tetap diperbarui 24 jam.
+          </p>
+          {ifaces === null && !ifacesErr ? (
+            <p className="mt-2 text-slate-500">Membaca daftar interface dari router…</p>
+          ) : ifacesErr ? (
+            <>
+              <TextInput
+                value={watchInterface}
+                onChange={(e) => setWatchInterface(e.target.value)}
+                placeholder="nama interface, mis. ether2"
+                disabled={!editable}
+              />
+              <p className="mt-1 text-amber-400/80">
+                Router tidak bisa dihubungi — isi nama interface manual. ({ifacesErr})
+              </p>
+            </>
+          ) : (
+            <Select
+              value={watchInterface}
+              onChange={(e) => {
+                setWatchInterface(e.target.value);
+                if (e.target.value && type === 'other') setType('uplink');
+              }}
+              disabled={!editable}
+            >
+              <option value="">— tidak dipantau —</option>
+              {ifaces!.map((i) => (
+                <option key={i.name} value={i.name}>
+                  {i.name} ({i.type}){i.disabled ? ' — disabled' : i.running ? ' — running' : ' — off'}
+                </option>
+              ))}
+              {watchInterface && !ifaces!.some((i) => i.name === watchInterface) && (
+                <option value={watchInterface}>{watchInterface} (tidak ada di router)</option>
+              )}
+            </Select>
+          )}
+
+          {watchInterface && (
+            <div className="mt-2 space-y-2">
+              <label className="flex items-center gap-2 text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={winOverride}
+                  onChange={(e) => setWinOverride(e.target.checked)}
+                  disabled={!editable}
+                />
+                Jam alert khusus device ini
+              </label>
+              {winOverride ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <TextInput
+                      type="time"
+                      value={winStart}
+                      onChange={(e) => setWinStart(e.target.value)}
+                      disabled={!editable}
+                    />
+                    <span>s.d.</span>
+                    <TextInput
+                      type="time"
+                      value={winEnd}
+                      onChange={(e) => setWinEnd(e.target.value)}
+                      disabled={!editable}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {ALERT_DAY_LABELS.map((label, i) => {
+                      const day = i + 1;
+                      const on = winDays.includes(day);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          disabled={!editable}
+                          onClick={() =>
+                            setWinDays(
+                              on ? winDays.filter((d) => d !== day) : [...winDays, day].sort(),
+                            )
+                          }
+                          className={`rounded border px-2 py-0.5 disabled:opacity-50 ${
+                            on
+                              ? 'border-accent bg-accent/10 text-accent'
+                              : 'border-surface-border text-slate-400'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <p className="text-slate-500">Mengikuti jam kerja global di Settings.</p>
+              )}
+            </div>
+          )}
+        </details>
 
         <Field label="Type">
           <Select

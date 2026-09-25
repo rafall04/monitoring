@@ -44,6 +44,9 @@ from the web. Access is controlled by 3 roles with per-site scoping.
                   ┌──────────┐
                   │ Postgres │  (Prisma)
                   └──────────┘
+
+   Producers ──LPUSH──► noc:wa:outbox (Redis list) ──BLPOP──► wabot ──► WhatsApp
+   (status-engine, tickets, broadcast)                        (Baileys, 1 instance)
 ```
 
 **Why split processes?** Next.js (serverless/edge) is unsuitable for long-lived
@@ -71,8 +74,11 @@ apps/
   backend/     Fastify REST API + WebSocket hub, JWT auth, RBAC + site scoping,
                Netwatch webhook receiver, audit log, uploads.
   worker/      Netwatch poller + reconciliation, circuit breaker, resource refresh.
+  wabot/       WhatsApp bot (Baileys) — alerts, self-service, complaint intake.
+               Single instance only; consumes the Redis outbox, never sharded.
   frontend/    Next.js (App Router) + Tailwind + TanStack Query + Leaflet.
-docs/          Netwatch integration guide & ready-to-use scripts.
+docs/          Netwatch integration guide, ready-to-use scripts, and the
+               WhatsApp bot mega-plan (docs/whatsapp-bot-plan.md).
 docker-compose.yml, Caddyfile, .env.example
 ```
 
@@ -209,6 +215,8 @@ See `.env.example` for the full list. Highlights:
 | `APP_BIND` | optional bind IP for the published app ports (e.g. `127.0.0.1:` behind a proxy) — `deploy.sh --app-bind` |
 | `POLL_INTERVAL_DEFAULT_SEC` | default worker poll interval |
 | `WORKER_SHARD_COUNT` / `WORKER_SHARD_INDEX` | horizontal worker scaling |
+| `WA_ENABLED` / `WA_DRIVER` | WhatsApp bot on/off; `baileys` (real) or `mock` (log-only dev) |
+| `WABOT_HEALTH_PORT` | wabot `/health` port inside the container (default 4200) |
 | `NEXT_PUBLIC_API_BASE_URL` / `NEXT_PUBLIC_WS_URL` | inlined into the frontend at **build** time |
 
 ---
@@ -242,6 +250,81 @@ See **[docs/netwatch-examples.md](docs/netwatch-examples.md)**. In short:
 
 Toggle **Edit** on the map to drag markers (saved with optimistic UI + a position
 PATCH) and, with create permission, click empty space to add a device.
+
+## Interface-watch ("uplink") devices
+
+A device can monitor a **RouterOS interface's `running` flag** instead of a
+Netwatch ping — e.g. the port/tunnel that is the outbound path to another site
+("jalur ke 001"). Open the device editor → **Pantau interface uplink** → pick
+the interface from the live `/interface/print` list (or type the name manually
+when the router is unreachable).
+
+- The worker derives status every router poll: `running` → up, off/disabled →
+  down, interface missing → `unknown` (config drift, never a blind outage).
+- **Work-hours alerts:** notifications fire only inside an alert window —
+  global default in **Settings → Monitoring & Alerts** (start/end + weekdays,
+  overnight windows like 18:00→06:00 supported), or a per-device override in
+  the same editor section. The map status still tracks 24/7.
+- **Catch-up:** an uplink still down when the window opens gets one alert then
+  (deduped per window instance) — no silent overnight outages.
+- Everything else is the normal device path: `isCritical` gate, maintenance /
+  silence, Telegram + WhatsApp routing, cooldown, status history
+  (`source: "interface"`).
+
+---
+
+## WhatsApp bot (multi-purpose)
+
+A dedicated `wabot` service (Baileys) turns the NOC into a two-way ops channel:
+**network alerts, hotspot self-service, complaint tickets, staff commands, and
+broadcasts** — all over WhatsApp. Design doc: `docs/whatsapp-bot-plan.md`.
+
+**Console:** everything WhatsApp lives on one page — **Admin → WhatsApp**
+(gated `whatsapp:manage`, super_admin): connection/session, bot settings,
+per-site recipients, test & broadcast.
+
+**Pairing (once):** Admin → WhatsApp → *Koneksi & Sesi* → scan the QR with
+WhatsApp → *Perangkat Tertaut*. Session keys are stored **encrypted** in
+`wa_auth_key`, so container rebuilds never re-pair. To switch numbers:
+**Sesi baru / ganti nomor** unlinks the device, wipes the keys and issues a
+fresh QR; **Reconnect** only restarts the socket (keeps the session).
+`WA_DRIVER=mock` exercises the whole pipeline (outbox → send log) with no
+real number.
+
+**Per-site config:** Admin → WhatsApp → *Penerima Alert & Tiket*: set the
+site's mode `server`, then add recipients — each row is a **number**
+(`kind=number`) or a **group** (`kind=group`) with its own `alerts` (device
+down/recovery) and `tickets` (complaint forwards) toggles; `role=manager`
+receives escalations. Groups are **picked from a dropdown**, not typed — once
+connected, the bot publishes its participating-group list (`noc:wa:groups`,
+refreshed on connect/group events or via ⟳ → `POST /whatsapp/groups/refresh`)
+so only groups it can actually send to are selectable.
+
+**Phone linking:** a user (member or staff) opens their account page → *Buat
+kode link* → texts `LINK <kode>` to the bot. Only verified numbers get
+commands; unknown numbers can only file a complaint.
+
+**Commands** (private chat, Bahasa Indonesia):
+
+| Who | Command | Does |
+| --- | --- | --- |
+| anyone | `MENU`, `PING` | help / liveness |
+| anyone | `KOMPLAIN <pesan>` | file a ticket (anonymous → name → **department** → site → message wizard) |
+| anyone | `LINK <kode>` | bind the number to a portal account |
+| member | `STATUS` | own quota, profile, active sessions |
+| member | `LOGOUT` | kick own hotspot sessions |
+| member | `TIKET` | own complaint tickets + status |
+| member | `INFO` | portal link + contact info |
+| staff | `SITES`, `DOWN [site]`, `ACK <device>` | monitoring scope (site-filtered) |
+| staff | `PING <ip>`, `LAPORAN`, `TIKET` | diagnostics + digest + ticket queue |
+| technician | `PROSES <kode>` / `SELESAI <kode>` | work a ticket; reporter gets notified |
+
+Tickets land on the web at **/tickets** (filterable, `tickets:view`/`manage`
+permissions); members file and track their own at **/akun** (`/me/tickets`,
+same shared pipeline — web complaints work without a linked phone). Open tickets older than `waTicketEscalateMin` minutes are
+escalated once to `manager` recipients by the worker. Broadcasts:
+**Admin → WhatsApp → Uji & Broadcast** sends an announcement to a
+site's recipients + verified members.
 
 ---
 

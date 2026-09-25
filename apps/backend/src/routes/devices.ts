@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { Prisma } from '@noc/server';
+import { Prisma } from '@prisma/client';
 import {
   clientForRouter,
   computeSiteSummary,
@@ -118,6 +118,8 @@ export async function deviceRoutes(app: FastifyInstance) {
             mapY: body.mapY ?? null,
             isCritical: body.isCritical,
             note: body.note ?? null,
+            watchInterface: body.watchInterface ?? null,
+            watchAlertWindow: body.watchAlertWindow ?? Prisma.JsonNull,
           },
         });
       } catch (e) {
@@ -142,7 +144,8 @@ export async function deviceRoutes(app: FastifyInstance) {
           netwatchError = (e as Error)?.message ?? String(e);
           req.log.warn({ e }, 'netwatch sync on device create failed');
         }
-      } else if (body.syncNetwatch && !created.ipAddress) {
+      } else if (body.syncNetwatch && !created.ipAddress && !created.watchInterface) {
+        // Uplink-only devices legitimately have no IP — no Netwatch to sync.
         netwatchError = 'Device has no IP address';
       }
 
@@ -172,7 +175,7 @@ export async function deviceRoutes(app: FastifyInstance) {
     { onRequest: [authenticate], preHandler: [requirePermission('device:edit-attributes')] },
     async (req) => {
       const { id } = idParamSchema.parse(req.params);
-      const { syncNetwatch, ...patch } = updateDeviceSchema.parse(req.body);
+      const { syncNetwatch, watchAlertWindow, ...patch } = updateDeviceSchema.parse(req.body);
       const before = await prisma.device.findUnique({ where: { id } });
       if (!before) throw notFound('Device not found');
       assertSiteAccess(req.appUser, before.siteId);
@@ -228,16 +231,19 @@ export async function deviceRoutes(app: FastifyInstance) {
         }
       }
 
+      // Prisma Json columns can't take a literal `null` — they need JsonNull.
+      const data: Prisma.DeviceUpdateInput = {
+        ...fields,
+        ...(areaId !== undefined ? { areaId } : {}),
+        ...(lineId !== undefined ? { lineId } : {}),
+      };
+      if (watchAlertWindow !== undefined) {
+        data.watchAlertWindow = watchAlertWindow === null ? Prisma.JsonNull : watchAlertWindow;
+      }
+
       let d;
       try {
-        d = await prisma.device.update({
-          where: { id },
-          data: {
-            ...fields,
-            ...(areaId !== undefined ? { areaId } : {}),
-            ...(lineId !== undefined ? { lineId } : {}),
-          },
-        });
+        d = await prisma.device.update({ where: { id }, data });
       } catch (e) {
         if (isUniqueViolation(e)) {
           throw conflict(`A device with IP ${patch.ipAddress} already exists on this router`);
@@ -256,7 +262,10 @@ export async function deviceRoutes(app: FastifyInstance) {
         (patch.ipAddress !== undefined && patch.ipAddress !== before.ipAddress) ||
         (patch.name !== undefined && patch.name !== before.name) ||
         (patch.isCritical !== undefined && patch.isCritical !== before.isCritical);
-      const shouldSync = syncNetwatch ?? entryChanged;
+      // An uplink-only device (watchInterface set, no IP) has no Netwatch
+      // entry — skip the sync silently instead of flagging a bogus error.
+      const uplinkOnly = Boolean(d.watchInterface) && !d.ipAddress;
+      const shouldSync = (syncNetwatch ?? entryChanged) && !uplinkOnly;
 
       let netwatchError: string | undefined;
       if (shouldSync) {

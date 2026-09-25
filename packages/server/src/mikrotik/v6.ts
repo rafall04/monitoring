@@ -17,6 +17,7 @@ import type {
   HotspotProfile,
   HotspotUser,
   PingResult,
+  RouterInterface,
   RouterLogEntry,
   RouterResource,
   SimpleQueueDTO,
@@ -243,6 +244,17 @@ export class RouterOsV6Client implements MikrotikClient {
       version: r['version'],
       boardName: r['board-name'],
     };
+  }
+
+  /** `/interface/print` — every interface; `running` drives uplink status. */
+  async listInterfaces(): Promise<RouterInterface[]> {
+    const res = await this.write('/interface/print');
+    return res.map((r) => ({
+      name: r['name'] ?? '',
+      type: r['type'] ?? '',
+      running: r['running'] === 'true',
+      disabled: r['disabled'] === 'true',
+    }));
   }
 
   async listNetwatch(): Promise<NetwatchEntry[]> {

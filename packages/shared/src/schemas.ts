@@ -12,7 +12,9 @@ import {
   ROLES,
   ROUTEROS_VERSIONS,
   TELEGRAM_MODES,
+  WHATSAPP_MODES,
 } from './types';
+import { TICKET_CATEGORIES } from './wa';
 
 /** z.enum helper that preserves literal union types from a `readonly` array. */
 const zEnum = <T extends string>(vals: readonly T[]) =>
@@ -76,6 +78,7 @@ export const createSiteSchema = z.object({
   telegramMode: zEnum(TELEGRAM_MODES).optional(),
   telegramChatId: z.string().max(64).nullable().optional(),
   telegramBotToken: z.string().max(255).optional(), // plaintext in; stored encrypted
+  whatsappMode: zEnum(WHATSAPP_MODES).optional(),
 });
 export type CreateSiteInput = z.infer<typeof createSiteSchema>;
 
@@ -164,6 +167,22 @@ const imageUrl = z
   .max(512)
   .regex(/^(\/uploads\/|https:\/\/)/, 'Only /uploads/ or https:// URLs');
 
+/**
+ * Alert window ("jam kerja") for interface-watch devices — see AlertWindow in
+ * types.ts. Minutes after midnight; ISO weekday numbers 1=Mon..7=Sun; start=end
+ * is rejected as meaningless (use null to disable instead).
+ */
+export const alertWindowSchema = z
+  .object({
+    startMin: z.number().int().min(0).max(1439),
+    endMin: z.number().int().min(0).max(1439),
+    days: z.array(z.number().int().min(1).max(7)).min(1),
+  })
+  .refine((w) => w.startMin !== w.endMin, {
+    message: 'Jam mulai dan selesai tidak boleh sama',
+  });
+export type AlertWindowInput = z.infer<typeof alertWindowSchema>;
+
 export const createDeviceSchema = z.object({
   routerId: z.string().min(1),
   name: deviceName,
@@ -180,6 +199,10 @@ export const createDeviceSchema = z.object({
   mapY: z.number().nullable().optional(),
   isCritical: z.boolean().default(false),
   note: z.string().max(2000).nullable().optional(),
+  // Interface watch ("uplink"): status follows the named interface's running
+  // flag instead of Netwatch. Optional per-device alert-window override.
+  watchInterface: z.string().max(64).nullable().optional(),
+  watchAlertWindow: alertWindowSchema.nullable().optional(),
   // Auto-create the matching /tool/netwatch entry on the router after save.
   // Defaults to TRUE — operators only enter name + IP; Netwatch is wired up
   // automatically using the global Settings (interval/timeout/extra script).
@@ -200,6 +223,9 @@ export const updateDeviceSchema = z.object({
   isCritical: z.boolean().optional(),
   note: z.string().max(2000).nullable().optional(),
   manualOverride: zEnum(MANUAL_OVERRIDES).nullable().optional(),
+  // Interface watch — null clears the watch (device becomes plain Netwatch).
+  watchInterface: z.string().max(64).nullable().optional(),
+  watchAlertWindow: alertWindowSchema.nullable().optional(),
   // when true the backend (re)installs the matching /tool/netwatch entry on the
   // router — e.g. after the IP address changed. Not a stored column.
   syncNetwatch: z.boolean().optional(),
@@ -231,6 +257,10 @@ export const createAppUserSchema = z.object({
   role: zEnum(ROLES).default('viewer'),
   scopeSiteIds: z.array(z.string()).default([]),
   isActive: z.boolean().default(true),
+  // WhatsApp number for bot commands. Admin-set is trusted → counts as verified.
+  phone: z.string().max(20).nullable().optional(),
+  // Org unit shown on complaint tickets. Free text.
+  department: z.string().max(120).nullable().optional(),
 });
 export type CreateAppUserInput = z.infer<typeof createAppUserSchema>;
 
@@ -239,12 +269,23 @@ export const updateAppUserSchema = createAppUserSchema
   .extend({ password: z.string().min(8).max(255).optional() });
 export type UpdateAppUserInput = z.infer<typeof updateAppUserSchema>;
 
-// Self-service profile edit — name only (email changes go through the admin
-// path so they cannot be used to lock the account out).
+// Self-service profile edit — name + department (email changes go through the
+// admin path so they cannot be used to lock the account out).
 export const updateProfileSchema = z.object({
   name: z.string().min(1).max(120),
+  department: z.string().max(120).nullable().optional(),
 });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+
+// Member's own complaint (web twin of the bot's KOMPLAIN command). Site and
+// reporter identity come from the member account — never the request body.
+export const memberTicketSchema = z.object({
+  message: z.string().min(5).max(1000),
+  category: zEnum(TICKET_CATEGORIES).default('gangguan'),
+  // Falls back to the profile's department when omitted.
+  department: z.string().max(120).nullable().optional(),
+});
+export type MemberTicketInput = z.infer<typeof memberTicketSchema>;
 
 // ---- Firewall / access control ----------------------------------------------
 
@@ -445,6 +486,17 @@ export const updateSettingsSchema = z.object({
   // Telegram templates (free text with {device} {ip} {site} {status} {when})
   telegramDownTemplate: z.string().min(1).max(1000).optional(),
   telegramUpTemplate: z.string().min(1).max(1000).optional(),
+  // WhatsApp bot templates + complaint intake
+  waDownTemplate: z.string().min(1).max(2000).optional(),
+  waUpTemplate: z.string().min(1).max(2000).optional(),
+  waBotName: z.string().min(1).max(80).optional(),
+  waComplaintEnabled: z.boolean().optional(),
+  waTicketEscalateMin: z.number().int().min(5).max(24 * 60).optional(),
+  // Global alert window for interface-watch devices (per-device override lives
+  // on Device.watchAlertWindow). Minutes after midnight; ISO weekdays 1-7.
+  uplinkAlertStartMin: z.number().int().min(0).max(1439).optional(),
+  uplinkAlertEndMin: z.number().int().min(0).max(1439).optional(),
+  uplinkAlertDays: z.array(z.number().int().min(1).max(7)).min(1).optional(),
 });
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 

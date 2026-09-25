@@ -3,3 +3,4 @@ export * from './rbac';
 export * from './events';
 export * from './schemas';
 export * from './templates';
+export * from './wa';

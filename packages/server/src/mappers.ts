@@ -23,7 +23,14 @@ import type {
   RuijieAccountPublic,
   RuijieRouterPublic,
   Site as SiteDTO,
+  SiteContactRole,
   TelegramMode,
+  Ticket as TicketDTO,
+  TicketCategory,
+  TicketStatus,
+  WaRecipient as WaRecipientDTO,
+  WaRecipientKind,
+  WhatsAppMode,
 } from '@noc/shared';
 import type {
   AppUser,
@@ -36,6 +43,8 @@ import type {
   RuijieAccount,
   RuijieRouter,
   Site,
+  Ticket,
+  WaRecipient,
 } from '@prisma/client';
 
 export function toCompanyDto(c: Company): CompanyDTO {
@@ -59,7 +68,44 @@ export function toSiteDto(s: Site): SiteDTO {
     telegramMode: s.telegramMode as TelegramMode,
     telegramChatId: s.telegramChatId,
     hasTelegramToken: Boolean(s.telegramBotEncrypted),
+    whatsappMode: s.whatsappMode as WhatsAppMode,
     createdAt: s.createdAt.toISOString(),
+  };
+}
+
+export function toWaRecipientDto(c: WaRecipient): WaRecipientDTO {
+  return {
+    id: c.id,
+    siteId: c.siteId,
+    name: c.name,
+    kind: c.kind as WaRecipientKind,
+    target: c.target,
+    role: c.role as SiteContactRole,
+    alerts: c.alerts,
+    tickets: c.tickets,
+    isActive: c.isActive,
+    createdAt: c.createdAt.toISOString(),
+  };
+}
+
+export function toTicketDto(
+  t: Ticket & { site?: Pick<Site, 'name'> | null; member?: Pick<AppUser, 'name'> | null },
+): TicketDTO {
+  return {
+    id: t.id,
+    siteId: t.siteId,
+    siteName: t.site?.name ?? null,
+    memberId: t.memberId,
+    memberName: t.member?.name ?? null,
+    reporterPhone: t.reporterPhone,
+    reporterName: t.reporterName,
+    reporterDept: t.reporterDept,
+    category: t.category as TicketCategory,
+    message: t.message,
+    status: t.status as TicketStatus,
+    handledBy: t.handledBy,
+    createdAt: t.createdAt.toISOString(),
+    resolvedAt: t.resolvedAt ? t.resolvedAt.toISOString() : null,
   };
 }
 
@@ -108,6 +154,8 @@ export function toDeviceDto(d: Device): DeviceDTO {
     ackAt: d.ackAt ? d.ackAt.toISOString() : null,
     silencedUntil: d.silencedUntil ? d.silencedUntil.toISOString() : null,
     note: d.note,
+    watchInterface: d.watchInterface,
+    watchAlertWindow: (d.watchAlertWindow as DeviceDTO['watchAlertWindow']) ?? null,
     createdAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),
   };
@@ -122,6 +170,9 @@ export function toAppUserPublic(u: AppUser): AppUserPublic {
     scopeSiteIds: (u.scopeSiteIds as string[] | null) ?? [],
     isActive: u.isActive,
     hotspotUsername: u.hotspotUsername ?? null,
+    phone: u.phone ?? null,
+    phoneVerified: u.phoneVerifiedAt != null,
+    department: u.department ?? null,
     createdAt: u.createdAt.toISOString(),
   };
 }

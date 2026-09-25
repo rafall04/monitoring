@@ -3,11 +3,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
-import { useQueries } from '@tanstack/react-query';
-import type { Site, SiteSummary } from '@noc/shared';
-import { api } from '@/lib/api';
+import { STATUS_INK, type Site, type SiteSummary } from '@noc/shared';
 import { useAuth } from '@/lib/auth';
-import { qk, useRuijieRouters, useSites } from '@/lib/queries';
+import { useRuijieRouters, useSites, useSiteSummaries } from '@/lib/queries';
 import {
   Badge,
   ErrorState,
@@ -56,6 +54,13 @@ const BAR: Record<HealthTone, string> = {
   red: '#ef4444',
   slate: '#64748b',
 };
+/** Big % number: bright fills wash out as text on light cards — use ink. */
+const BAR_INK: Record<HealthTone, string> = {
+  emerald: STATUS_INK.up,
+  amber: STATUS_INK.warning,
+  red: STATUS_INK.down,
+  slate: STATUS_INK.unknown,
+};
 
 function SiteCard({
   site,
@@ -96,7 +101,7 @@ function SiteCard({
                 maintenance={s.maintenance}
               />
               <div className="text-right leading-none">
-                <span className="text-2xl font-semibold" style={{ color: BAR[tone] }}>
+                <span className="text-2xl font-semibold" style={{ color: BAR_INK[tone] }}>
                   {pct}
                 </span>
                 <span className="text-sm text-slate-500">%</span>
@@ -144,18 +149,10 @@ export default function OverviewPage() {
   const sites = useSites();
   const list = sites.data ?? [];
 
-  const summaries = useQueries({
-    queries: list.map((s) => ({
-      queryKey: qk.siteSummary(s.id),
-      queryFn: () => api.get<SiteSummary>(`/sites/${s.id}/summary`),
-      refetchInterval: 20000,
-    })),
-  });
+  // One bulk request for ALL site summaries (was N requests — see lite notes).
+  const summaries = useSiteSummaries();
   const summaryById = new Map<string, SiteSummary>();
-  list.forEach((s, i) => {
-    const d = summaries[i]?.data;
-    if (d) summaryById.set(s.id, d);
-  });
+  for (const d of summaries.data ?? []) summaryById.set(d.siteId, d);
 
   const ruijie = useRuijieRouters(can('ruijie:view'));
   const wifi = ruijie.data ?? [];

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useBranding } from '@/lib/branding';
+import { useLiteMode } from '@/lib/lite';
 import { useTheme } from '@/lib/theme';
 import { useSites } from '@/lib/queries';
 import { Spinner } from './ui';
@@ -12,6 +13,7 @@ import { Spinner } from './ui';
 export function Shell({ children }: { children: ReactNode }) {
   const { user, ready, logout, can } = useAuth();
   const { theme, toggle } = useTheme();
+  const [lite, setLite] = useLiteMode();
   const branding = useBranding();
   const router = useRouter();
   const pathname = usePathname();
@@ -39,6 +41,7 @@ export function Shell({ children }: { children: ReactNode }) {
     can('site:manage') ||
     can('appuser:manage') ||
     can('settings:manage') ||
+    can('whatsapp:manage') ||
     can('ruijie:manage') ||
     can('audit:view');
 
@@ -112,6 +115,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {(can('hotspot:view') || can('reports:view') || can('map:view') || can('ruijie:view') || can('firewall:view') || can('bandwidth:view')) &&
             sectionLabel('Operations')}
           {can('map:view') && item('/alerts', 'Alerts', 'alerts')}
+          {can('tickets:view') && item('/tickets', 'Tiket', 'ticket')}
           {can('firewall:view') && item('/access-control', 'Access Control', 'shield')}
           {can('bandwidth:view') && item('/bandwidth', 'Bandwidth', 'gauge')}
           {can('device:diagnose') && item('/diagnostics', 'Diagnostik', 'diag')}
@@ -124,6 +128,7 @@ export function Shell({ children }: { children: ReactNode }) {
               {sectionLabel('Admin')}
               {can('site:manage') && item('/admin/sites', 'Sites & Routers', 'server')}
               {can('appuser:manage') && item('/admin/users', 'Users', 'users')}
+              {can('whatsapp:manage') && item('/admin/whatsapp', 'WhatsApp', 'whatsapp')}
               {can('settings:manage') && item('/admin/settings', 'Settings', 'settings')}
               {can('ruijie:manage') && item('/admin/ruijie', 'Ruijie Cloud', 'cloud')}
               {can('audit:view') && item('/admin/audit', 'Aktivitas', 'activity')}
@@ -146,6 +151,22 @@ export function Shell({ children }: { children: ReactNode }) {
                 {user.email} · {user.role}
               </div>
             </Link>
+            <button
+              onClick={() => setLite(!lite)}
+              aria-label="Mode ringan"
+              title={
+                lite
+                  ? 'Mode ringan AKTIF — polling lebih jarang, peta lebih hemat. Klik untuk normal.'
+                  : 'Mode ringan — untuk perangkat low-end: polling lebih jarang, peta lebih hemat.'
+              }
+              className={`shrink-0 rounded p-1.5 ${
+                lite
+                  ? 'bg-accent/20 text-accent'
+                  : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <BoltIcon />
+            </button>
             <button
               onClick={toggle}
               aria-label="Toggle theme"
@@ -215,6 +236,13 @@ function MoonIcon() {
     </svg>
   );
 }
+function BoltIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" />
+    </svg>
+  );
+}
 
 function I({ children }: { children: ReactNode }) {
   return (
@@ -231,6 +259,8 @@ const NAV_ICONS = {
   alerts: <I><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></I>,
   wifi: <I><path d="M5 12.55a11 11 0 0 1 14 0" /><path d="M1.42 9a16 16 0 0 1 21.16 0" /><path d="M8.53 16.11a6 6 0 0 1 6.95 0" /><line x1="12" y1="20" x2="12.01" y2="20" /></I>,
   hotspot: <I><path d="M3 9V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6z" /></I>,
+  ticket: <I><path d="M3 9V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a3 3 0 0 0 0 6v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a3 3 0 0 0 0-6z" /><path d="M13 5v2M13 11v2M13 17v2" /></I>,
+  whatsapp: <I><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></I>,
   shield: <I><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" /></I>,
   gauge: <I><path d="M12 3a9 9 0 1 0 9 9M12 12l5-3" /></I>,
   diag: <I><path d="M3 12h4l2 5 4-13 2 8h6" /></I>,

@@ -4,6 +4,10 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# `git` is needed by npm ci — a workspace dep (wabot → libsignal) resolves to a
+# git URL, and the root install resolves the whole workspace graph.
+RUN apk add --no-cache git
+
 # ---- dependency layer --------------------------------------------------------
 # Manifests + lockfile first so `npm ci` is only re-run when deps change.
 COPY package.json package-lock.json tsconfig.base.json ./
@@ -13,6 +17,7 @@ COPY apps/frontend/package.json ./apps/frontend/package.json
 # Minimal stubs so npm workspaces resolves every declared workspace.
 COPY apps/backend/package.json ./apps/backend/package.json
 COPY apps/worker/package.json ./apps/worker/package.json
+COPY apps/wabot/package.json ./apps/wabot/package.json
 # Schema up-front so the @prisma/client postinstall can find it.
 COPY packages/server/prisma ./packages/server/prisma
 
@@ -25,9 +30,13 @@ COPY apps/frontend ./apps/frontend
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 ARG NEXT_PUBLIC_WS_URL=ws://localhost:8080/ws
 ARG NEXT_PUBLIC_BACKEND_PORT=4000
+# /api/* rewrite destinations are baked into routes-manifest.json at build
+# time — set via build arg, NOT runtime env (see next.config.mjs).
+ARG BACKEND_ORIGIN=http://backend:4000
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 ENV NEXT_PUBLIC_BACKEND_PORT=$NEXT_PUBLIC_BACKEND_PORT
+ENV BACKEND_ORIGIN=$BACKEND_ORIGIN
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run -w @noc/frontend build

@@ -9,6 +9,8 @@ dist
 *.md
 .env
 .env.*
+**/.env
+**/.env.*
 uploads
 **/uploads
 logs

@@ -12,9 +12,10 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently -n backend,worker,frontend -c blue,magenta,green \"npm:dev:backend\" \"npm:dev:worker\" \"npm:dev:frontend\"",
+    "dev": "concurrently -n backend,worker,wabot,frontend -c blue,magenta,cyan,green \"npm:dev:backend\" \"npm:dev:worker\" \"npm:dev:wabot\" \"npm:dev:frontend\"",
     "dev:backend": "npm run dev -w @noc/backend",
     "dev:worker": "npm run dev -w @noc/worker",
+    "dev:wabot": "npm run dev -w @noc/wabot",
     "dev:frontend": "npm run dev -w @noc/frontend",
     "build": "npm run build -w @noc/frontend",
     "typecheck": "npm run typecheck --workspaces --if-present",

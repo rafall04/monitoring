@@ -8,7 +8,7 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react';
-import { STATUS_COLORS, STATUS_LABELS, type DisplayStatus } from '@noc/shared';
+import { STATUS_COLORS, STATUS_INK, STATUS_LABELS, type DisplayStatus } from '@noc/shared';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
@@ -93,7 +93,7 @@ export function StatusPill({ status }: { status: DisplayStatus }) {
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold"
-      style={{ color: c, background: `${c}1f`, border: `1px solid ${c}3d` }}
+      style={{ color: STATUS_INK[status], background: `${c}1f`, border: `1px solid ${c}3d` }}
     >
       <span
         className="h-2 w-2 rounded-full"

@@ -11,6 +11,15 @@
   --text: 15 23 42; /* slate-900 */
   /* Brand accent — replaced at runtime by BrandingProvider. blue-500 default. */
   --accent: 59 130 246;
+  /* Status "ink" — text-weight shades of STATUS_COLORS for status TEXT and
+     small glyphs on cards. The bright fills stay on STATUS_COLORS (markers,
+     dots, edge strips); bright text washes out on white, so text resolves
+     through these instead — see STATUS_INK/statusInk in @noc/shared. */
+  --st-up: 21 128 61; /* green-700 */
+  --st-down: 185 28 28; /* red-700 */
+  --st-unknown: 75 85 99; /* gray-600 */
+  --st-maintenance: 29 78 216; /* blue-700 */
+  --st-warning: 180 83 9; /* amber-700 */
   color-scheme: light;
 }
 .dark {
@@ -18,6 +27,13 @@
   --surface-raised: 17 26 46;
   --surface-border: 30 41 59;
   --text: 226 232 240; /* slate-200 */
+  /* Ink on dark = the original bright STATUS_COLORS — dark rendering is
+     byte-for-byte what it was before the light theme existed. */
+  --st-up: 34 197 94;
+  --st-down: 239 68 68;
+  --st-unknown: 156 163 175;
+  --st-maintenance: 59 130 246;
+  --st-warning: 234 179 8;
   color-scheme: dark;
 }
 
@@ -96,6 +112,46 @@ html:not(.dark) .text-violet-400 {
   color: #6d28d9; /* violet-700 */
 }
 
+/* Pseudo-variant re-tone — same escape hatch as above, one layer deeper.
+   `hover:text-slate-200` compiles to `.hover\:text-slate-200`, a different
+   class from `.text-slate-200`, so it slipped through the bare-utility rules:
+   in light mode hovering flipped text to the near-white shades meant for
+   dark surfaces ("brighten on hover"). Translated for light, the equivalent
+   hover is a *deepen* — one step darker than the re-toned resting shade. */
+html:not(.dark) .hover\:text-slate-200:hover {
+  color: #0f172a;
+}
+html:not(.dark) .hover\:text-slate-300:hover {
+  color: #1e293b;
+}
+html:not(.dark) .hover\:text-slate-400:hover {
+  color: #334155;
+}
+html:not(.dark) .hover\:text-red-300:hover,
+html:not(.dark) .hover\:text-red-400:hover {
+  color: #991b1b; /* red-800 */
+}
+html:not(.dark) .hover\:text-rose-300:hover,
+html:not(.dark) .hover\:text-rose-400:hover {
+  color: #9f1239; /* rose-800 */
+}
+html:not(.dark) .hover\:text-amber-300:hover,
+html:not(.dark) .hover\:text-amber-400:hover {
+  color: #92400e; /* amber-800 */
+}
+html:not(.dark) .hover\:text-emerald-300:hover,
+html:not(.dark) .hover\:text-emerald-400:hover {
+  color: #065f46; /* emerald-800 */
+}
+html:not(.dark) .hover\:text-sky-300:hover,
+html:not(.dark) .hover\:text-sky-400:hover {
+  color: #075985; /* sky-800 */
+}
+html:not(.dark) .hover\:text-violet-300:hover,
+html:not(.dark) .hover\:text-violet-400:hover {
+  color: #5b21b6; /* violet-800 */
+}
+
 /* Leaflet tiles look better with a dark backdrop while loading */
 .leaflet-container {
   background: #0b1220;
@@ -128,6 +184,9 @@ html:not(.dark) .text-violet-400 {
 ::-webkit-scrollbar-thumb {
   background: #1e293b;
   border-radius: 6px;
+}
+html:not(.dark) ::-webkit-scrollbar-thumb {
+  background: #94a3b8; /* slate-400 — visible on the light track, not black */
 }
 
 /* Responsive data tables: on phones, stack each row into label/value cards.

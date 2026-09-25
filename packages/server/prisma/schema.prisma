@@ -42,11 +42,18 @@ model Site {
   telegramChatId       String?
   telegramBotEncrypted String? // AES-256-GCM bot token, never exposed to clients
 
+  // WhatsApp alerting (apps/wabot, Baileys). "server" = the wabot process sends
+  // alerts to this site's recipients (numbers AND groups — see WaRecipient).
+  // There is no "router" mode — RouterOS cannot run a WhatsApp client.
+  whatsappMode String @default("off") // off | server
+
   createdAt DateTime @default(now())
 
-  routers RouterMikrotik[]
-  areas   Area[]
-  devices Device[]
+  routers     RouterMikrotik[]
+  areas       Area[]
+  devices     Device[]
+  waRecipients WaRecipient[]
+  tickets     Ticket[]
 
   @@index([companyId])
   @@map("site")
@@ -147,6 +154,13 @@ model Device {
   ackAt          DateTime?
   silencedUntil  DateTime?
 
+  // Interface watch (uplink alarm): non-netwatch device whose status is driven
+  // by a RouterOS interface's running flag — e.g. "ether2 = jalur ke 001".
+  // watchInterface = interface name on `router`; watchAlertWindow = optional
+  // per-device AlertWindow JSON overriding the global uplinkAlert* settings.
+  watchInterface   String?
+  watchAlertWindow Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -191,11 +205,19 @@ model AppUser {
   hotspotRouterId  String?
   hotspotRouter    RouterMikrotik? @relation(fields: [hotspotRouterId], references: [id], onDelete: SetNull)
   hotspotUsername  String?
+  // WhatsApp identity: E.164 digits without '+' (e.g. 62812xxx). The bot only
+  // serves account commands to numbers that have passed verification.
+  phone           String?
+  phoneVerifiedAt DateTime?
+  // Org unit shown on complaint tickets (free text). Set by admin or filled
+  // once by the member themselves (bot asks once then saves it here).
+  department  String?
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
 
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
+  tickets       Ticket[]
 
   @@index([hotspotRouterId, hotspotUsername])
   @@map("app_user")
@@ -265,9 +287,110 @@ model Setting {
   telegramDownTemplate String @default("🔴 DOWN — {device} ({ip})\n🏭 {site}")
   telegramUpTemplate   String @default("🟢 RECOVERED — {device} ({ip})\n🏭 {site}")
 
+  // WhatsApp bot (apps/wabot). Templates share the Telegram placeholders.
+  waDownTemplate      String  @default("🔴 *DOWN* — {device} ({ip})\n🏭 {site}\n🕐 {when}")
+  waUpTemplate        String  @default("🟢 *RECOVERED* — {device} ({ip})\n🏭 {site}\n🕐 {when}")
+  waBotName           String  @default("NOC Bot")
+  waComplaintEnabled  Boolean @default(true) // accept complaints from unknown numbers
+  waTicketEscalateMin Int     @default(30)   // open ticket age that pings managers
+
+  // Global alert window for interface-watch ("uplink") devices — alerts fire
+  // only inside this window; status still tracks 24/7. Minutes after midnight,
+  // days = ISO weekday numbers (1=Mon..7=Sun). A device may override via its
+  // own watchAlertWindow.
+  uplinkAlertStartMin Int   @default(360)  // 06:00
+  uplinkAlertEndMin   Int   @default(1080) // 18:00
+  uplinkAlertDays     Int[] @default([1, 2, 3, 4, 5, 6, 7])
+
   updatedAt          DateTime @updatedAt
 
   @@map("setting")
+}
+
+// =============================================================================
+// WhatsApp bot (apps/wabot). See docs/whatsapp-bot-plan.md.
+// =============================================================================
+
+// A site's WhatsApp alert/ticket recipients. Deliberately decoupled from
+// AppUser: field technicians often have no NOC login — a phone number is the
+// whole identity. `alerts`/`tickets` choose which traffic they receive.
+// Unified WhatsApp recipient list per site. A row is either a personal number
+// (kind='number', target='628xxx') or a WhatsApp group (kind='group',
+// target='xxx@g.us'); each carries its own alert/ticket subscription flags so
+// routing is fully mix-and-match from the admin WhatsApp page.
+model WaRecipient {
+  id       String  @id @default(cuid())
+  siteId   String
+  site     Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  name     String
+  kind     String  @default("number") // number | group
+  target   String // phone digits (628xxx) or group JID (xxx@g.us)
+  role     String  @default("technician") // technician | manager | noc
+  alerts   Boolean @default(true)
+  tickets  Boolean @default(true)
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  @@index([siteId])
+  @@map("wa_recipient")
+}
+
+// A user complaint raised over WhatsApp and forwarded to the site's contacts.
+// memberId is set when the reporter's number is a verified AppUser phone —
+// the ticket then carries the member context (site/username) automatically.
+model Ticket {
+  id            String    @id @default(cuid())
+  siteId        String
+  site          Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  memberId      String?
+  member        AppUser?  @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  // Null for web-created complaints from members without a linked WA number —
+  // reporter status updates then live only in the member's ticket history.
+  reporterPhone String?
+  reporterName  String?
+  // Snapshot of the reporter's department at complaint time (free text).
+  reporterDept  String?
+  category      String    @default("gangguan") // gangguan | lambat | voucher | lainnya
+  message       String
+  status        String    @default("open") // open | ack | resolved
+  handledBy     String? // technician name / AppUser that PROSES/SELESAI'd it
+  escalatedAt   DateTime? // set when the worker pinged managers (once per ticket)
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+
+  @@index([siteId, status])
+  @@index([createdAt])
+  @@map("ticket")
+}
+
+// Baileys auth state, one row per key (creds + signal-protocol keys), stored
+// AES-256-GCM encrypted so container rebuilds never require re-pairing and
+// session keys never sit on a volume in plaintext.
+model WaAuthKey {
+  key       String   @id
+  valueEnc  String
+  updatedAt DateTime @updatedAt
+
+  @@map("wa_auth_key")
+}
+
+// Outbound message log. Producers (status engine, ticket forwards, admin test
+// sends) INSERT a row + LPUSH the outbox; wabot BLPOPs, sends, and updates the
+// status so every outbound message is auditable and retries are visible.
+model WaMessage {
+  id        String   @id @default(cuid())
+  to        String // phone digits or group JID
+  kind      String // alert | ticket-forward | reply | broadcast | test
+  body      String
+  status    String   @default("queued") // queued | sent | failed | dead
+  siteId    String?
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([status])
+  @@map("wa_message")
 }
 
 // =============================================================================

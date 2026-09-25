@@ -118,6 +118,7 @@ export default function AdminUsersPage() {
                 <tr>
                   <th className={TABLE.thDense}>Nama</th>
                   <th className={TABLE.thDense}>Email</th>
+                  <th className={TABLE.thDense}>WhatsApp</th>
                   <th className={TABLE.thDense}>Role</th>
                   <th className={TABLE.thDense}>Cakupan</th>
                   <th className={TABLE.thDense}>Status</th>
@@ -130,6 +131,16 @@ export default function AdminUsersPage() {
                     <tr className={TABLE.row}>
                       <td data-label="Nama" className={`${TABLE.tdDense} `}>{u.name}</td>
                       <td data-label="Email" className={TABLE.tdDense}>{u.email}</td>
+                      <td data-label="WhatsApp" className={`${TABLE.tdDense} text-xs`}>
+                        {u.phone ? (
+                          <span className={u.phoneVerified ? 'text-emerald-400' : 'text-amber-400'}>
+                            {u.phoneVerified ? '✓ ' : ''}
+                            {u.phone}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
                       <td data-label="Role" className={TABLE.tdDense}>{u.role}</td>
                       <td data-label="Cakupan" className={`${TABLE.tdDense} text-xs text-slate-400`}>
                         {u.role === 'super_admin' ? 'semua' : `${u.scopeSiteIds.length} site`}
@@ -156,7 +167,7 @@ export default function AdminUsersPage() {
                     </tr>
                     {editId === u.id && (
                       <tr className="border-t border-surface-border bg-surface/40">
-                        <td colSpan={6} className="p-3">
+                        <td colSpan={7} className="p-3">
                           <EditUserForm
                             user={u}
                             sites={sites.data ?? []}
@@ -191,12 +202,19 @@ function AddUserModal({ sites, onClose, onDone }: { sites: Site[]; onClose: () =
     name: '',
     email: '',
     password: '',
+    phone: '',
+    department: '',
     role: 'viewer' as Role,
     scopeSiteIds: [] as string[],
   });
   const add = useMutation({
     mutationFn: () =>
-      api.post('/users', { ...form, scopeSiteIds: form.role === 'super_admin' ? [] : form.scopeSiteIds }),
+      api.post('/users', {
+        ...form,
+        phone: form.phone || null,
+        department: form.department || null,
+        scopeSiteIds: form.role === 'super_admin' ? [] : form.scopeSiteIds,
+      }),
     onSuccess: () => {
       toast.ok('User dibuat');
       onDone();
@@ -220,6 +238,12 @@ function AddUserModal({ sites, onClose, onDone }: { sites: Site[]; onClose: () =
             <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </Select>
+          </Field>
+          <Field label="No. WhatsApp (opsional)">
+            <TextInput value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="08xxx — untuk perintah bot" />
+          </Field>
+          <Field label="Departemen (opsional)">
+            <TextInput value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="mis. Produksi, QC" />
           </Field>
         </div>
         <p className="rounded border border-surface-border bg-surface/40 p-2 text-xs text-slate-400">
@@ -251,6 +275,8 @@ function EditUserForm({ user, sites, onDone }: { user: AppUserPublic; sites: Sit
   const [form, setForm] = useState({
     name: user.name,
     email: user.email,
+    phone: user.phone ?? '',
+    department: user.department ?? '',
     role: user.role as Role,
     scopeSiteIds: user.scopeSiteIds,
     isActive: user.isActive,
@@ -262,6 +288,9 @@ function EditUserForm({ user, sites, onDone }: { user: AppUserPublic; sites: Sit
       api.patch(`/users/${user.id}`, {
         name: form.name,
         email: form.email,
+        // '' unlinks the number; a set value counts as admin-verified.
+        phone: form.phone || null,
+        department: form.department || null,
         role: form.role,
         scopeSiteIds: form.role === 'super_admin' ? [] : form.scopeSiteIds,
         isActive: form.isActive,
@@ -288,6 +317,12 @@ function EditUserForm({ user, sites, onDone }: { user: AppUserPublic; sites: Sit
           <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
             {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
           </Select>
+        </Field>
+        <Field label={`No. WhatsApp${user.phoneVerified ? ' (terverifikasi)' : ''}`}>
+          <TextInput value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="kosongkan untuk lepas tautan" />
+        </Field>
+        <Field label="Departemen">
+          <TextInput value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="mis. Produksi, QC" />
         </Field>
       </div>
       <p className="rounded border border-surface-border bg-surface/40 p-2 text-xs text-slate-400">{ROLE_HINT[form.role]}</p>
