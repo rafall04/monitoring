@@ -1,5 +1,5 @@
 # WhatsApp bot (Baileys socket + outbox consumer). Build context = repo root.
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
