@@ -474,6 +474,58 @@ export class RouterOsV6Client implements MikrotikClient {
 
   private readonly BLOCK_CHAIN = 'noc-block';
   private readonly RFC1918_LIST = 'noc-rfc1918';
+
+  // ---- Per-group chain layout (CPU-scaled blocking) ---------------------------
+  // noc-block is a pure DISPATCHER: one jump per group (matched on the group's
+  // src-address-list) into `noc-blk-<group>`, plus a final unconditional jump into
+  // `noc-blk-semua` for router-wide rules. A forwarded packet therefore evaluates
+  // only the rules of the groups it actually belongs to instead of the union of
+  // every rule on the router — the dominant cost on busy routers. Service rules
+  // inside a group chain drop the src-address-list matcher (membership is implied
+  // by the jump) and carry early-bail matchers so the expensive tls-host (SNI)
+  // inspection only ever engages on the first bytes of TCP/443 flows.
+  private groupChain(group: string): string {
+    return `noc-blk-${group}`;
+  }
+
+  /** All filter rows that belong to the block engine — the dispatcher chain plus
+   *  every per-group chain. */
+  private async blockRows(): Promise<Record<string, string>[]> {
+    const rows = await this.write('/ip/firewall/filter/print');
+    return rows.filter(
+      (r) => r['chain'] === this.BLOCK_CHAIN || (r['chain'] ?? '').startsWith('noc-blk-'),
+    );
+  }
+
+  /** Ensure the dispatcher jump noc-block → noc-blk-<group>. 'semua' is the
+   *  unconditional catch-all appended last; real groups match on their
+   *  src-address-list. Comment `NOC-GROUP:<g>` is deliberately NOT the intent
+   *  `NOC:<g>|<svc>` shape, so listBlockIntents never surfaces jumps. */
+  private async ensureGroupJump(group: string): Promise<void> {
+    const target = this.groupChain(group);
+    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    if (rows.some((r) => r['action'] === 'jump' && r['jump-target'] === target)) return;
+    const params = [
+      `=chain=${this.BLOCK_CHAIN}`,
+      '=action=jump',
+      `=jump-target=${target}`,
+      `=comment=NOC-GROUP:${group}`,
+    ];
+    if (group !== 'semua') params.push(`=src-address-list=noc-grp-${group}`);
+    await this.write('/ip/firewall/filter/add', params);
+  }
+
+  /** Remove the dispatcher jump for a group (when its chain has nothing left). */
+  private async removeGroupJump(group: string): Promise<void> {
+    const target = this.groupChain(group);
+    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    for (const r of rows) {
+      if (r['action'] === 'jump' && r['jump-target'] === target && r['.id']) {
+        await this.write('/ip/firewall/filter/remove', [`=.id=${r['.id']}`]);
+      }
+    }
+  }
+
   // A group's QUIC (udp/443) drop is infra shared by all that group's service
   // intents. Its comment deliberately lacks the 'NOC:<group>|<service>' shape so
   // listBlockIntents never lists it as a toggleable service.
@@ -503,6 +555,11 @@ export class RouterOsV6Client implements MikrotikClient {
     // The RFC1918 exclusion list the per-group QUIC drops reference (created lazily
     // in createIntent). Seeded here so it always exists first. Idempotent.
     await this.ensureRfc1918();
+    // The dispatcher's catch-all: every packet ends by traversing the 'semua'
+    // (router-wide) rule set. Group jumps return here, so members of any group
+    // get the union of their group rules + the semua rules — same semantics as
+    // the legacy flat layout, at a fraction of the per-packet cost.
+    await this.ensureGroupJump('semua');
   }
 
   /** Seed the local-ranges list the QUIC drop excludes, so only internet-bound
@@ -527,24 +584,27 @@ export class RouterOsV6Client implements MikrotikClient {
    *  to the group (router-wide only for 'semua'); created enabled. Idempotent. */
   private async ensureQuicDrop(group: string): Promise<void> {
     const comment = this.quicComment(group);
-    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const rows = await this.blockRows();
     if (rows.some((r) => (r['comment'] ?? '').trim() === comment)) return;
-    const params = [
-      `=chain=${this.BLOCK_CHAIN}`,
+    // Inside the group chain, src-address-list membership is already implied by
+    // the dispatcher jump. connection-state=new: blocking the FIRST packet of a
+    // udp/443 flow is enough — established flows (and every other packet) bail
+    // on the first matcher instead of paying the list check per-packet.
+    await this.write('/ip/firewall/filter/add', [
+      `=chain=${this.groupChain(group)}`,
       '=action=drop',
       '=protocol=udp',
       '=dst-port=443',
+      '=connection-state=new',
       `=dst-address-list=!${this.RFC1918_LIST}`,
       `=comment=${comment}`,
-    ];
-    if (group !== 'semua') params.push(`=src-address-list=noc-grp-${group}`);
-    await this.write('/ip/firewall/filter/add', params);
+    ]);
   }
 
   /** Keep a group's QUIC drop in lockstep with its services: enabled iff at least one
    *  service intent in the group is enabled. No-op if the QUIC rule is absent. */
   private async syncGroupQuic(group: string): Promise<void> {
-    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const rows = await this.blockRows();
     const quic = rows.find((r) => (r['comment'] ?? '').trim() === this.quicComment(group));
     const rid = quic?.['.id'];
     if (!rid) return;
@@ -556,7 +616,7 @@ export class RouterOsV6Client implements MikrotikClient {
   }
 
   async listBlockIntents(): Promise<BlockIntent[]> {
-    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const rows = await this.blockRows();
     // One intent = several rules sharing comment `NOC:<group>|<service>`. Collapse
     // them into a single BlockIntent (id = the '<group>|<service>' key); active only
     // when EVERY member rule is enabled. Rows without that exact comment (the per-group
@@ -596,37 +656,45 @@ export class RouterOsV6Client implements MikrotikClient {
 
   async createIntent(input: { group: string; service: string; tlsHosts?: string[] }): Promise<void> {
     const comment = `NOC:${input.group}|${input.service}`;
-    const src = input.group !== 'semua' ? [`=src-address-list=noc-grp-${input.group}`] : [];
+    const chain = this.groupChain(input.group);
     // The group's QUIC drop is shared infra for all its services — ensure it exists
     // (tied to this group's lifecycle via setIntentActive/removeIntent).
+    if (input.group !== 'semua') await this.ensureGroupJump(input.group);
     await this.ensureQuicDrop(input.group);
     // Snapshot the chain so re-running (e.g. from a toggle-on) converges — adds only
     // the rules that are missing — instead of stacking duplicates.
-    const existing = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const existing = await this.blockRows();
     const sameComment = existing.filter((r) => (r['comment'] ?? '').trim() === comment);
 
     // (1) address-list drop — covers resolved domains AND the static ipRanges that
     //     the route folded into noc-svc-<service> (the no-SNI media/call traffic).
+    //     connection-state=new: the drop only needs to kill connection setup —
+    //     established flows bypass the address-list lookup entirely.
     const dstList = `noc-svc-${input.service}`;
     if (!sameComment.some((r) => r['dst-address-list'] === dstList && !r['tls-host'])) {
       await this.write('/ip/firewall/filter/add', [
-        `=chain=${this.BLOCK_CHAIN}`,
+        `=chain=${chain}`,
         '=action=drop',
         `=dst-address-list=${dstList}`,
-        ...src,
+        '=connection-state=new',
         `=comment=${comment}`,
       ]);
     }
     // (2) one tls-host (SNI) drop per glob — MUST carry protocol=tcp (RouterOS 6.49
     //     rejects tls-host without it: "tls host matcher valid only for tcp").
+    //     CPU guards: dst-port=443 + connection-state=established + the first-8KB
+    //     window confine SNI inspection to TLS ClientHello packets only; without
+    //     them the matcher engages on EVERY tcp packet of EVERY connection.
     for (const host of input.tlsHosts ?? []) {
       if (sameComment.some((r) => r['tls-host'] === host)) continue;
       await this.write('/ip/firewall/filter/add', [
-        `=chain=${this.BLOCK_CHAIN}`,
+        `=chain=${chain}`,
         '=action=drop',
         '=protocol=tcp',
+        '=dst-port=443',
+        '=connection-state=established',
+        '=connection-bytes=0-8192',
         `=tls-host=${host}`,
-        ...src,
         `=comment=${comment}`,
       ]);
     }
@@ -636,7 +704,7 @@ export class RouterOsV6Client implements MikrotikClient {
    *  the group's QUIC drop so it is enabled iff the group still has an active service. */
   async setIntentActive(id: string, active: boolean): Promise<void> {
     const comment = `NOC:${id}`;
-    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const rows = await this.blockRows();
     for (const r of rows) {
       if ((r['comment'] ?? '').trim() !== comment) continue;
       const rid = r['.id'];
@@ -653,13 +721,13 @@ export class RouterOsV6Client implements MikrotikClient {
   async removeIntent(id: string): Promise<void> {
     const comment = `NOC:${id}`;
     const group = this.groupOf(id);
-    const rows = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const rows = await this.blockRows();
     for (const r of rows) {
       if ((r['comment'] ?? '').trim() !== comment) continue;
       const rid = r['.id'];
       if (rid) await this.write('/ip/firewall/filter/remove', [`=.id=${rid}`]);
     }
-    const after = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const after = await this.blockRows();
     const prefix = `NOC:${group}|`;
     if (!after.some((r) => (r['comment'] ?? '').trim().startsWith(prefix))) {
       const quicComment = this.quicComment(group);
@@ -668,6 +736,9 @@ export class RouterOsV6Client implements MikrotikClient {
         const rid = r['.id'];
         if (rid) await this.write('/ip/firewall/filter/remove', [`=.id=${rid}`]);
       }
+      // Group fully empty — pull its dispatcher jump too so the packet path stays
+      // minimal ('semua' keeps its jump: it's the dispatcher's catch-all).
+      if (group !== 'semua') await this.removeGroupJump(group);
     } else {
       await this.syncGroupQuic(group);
     }
@@ -676,6 +747,51 @@ export class RouterOsV6Client implements MikrotikClient {
   /** Remove a single filter rule by raw RouterOS .id (legacy /blocks cleanup). */
   async removeFilterRule(id: string): Promise<void> {
     await this.write('/ip/firewall/filter/remove', [`=.id=${id}`]);
+  }
+
+  /** One-shot migration for routers still carrying the legacy FLAT layout (all
+   *  NOC rules directly in noc-block, evaluated per-packet for every device):
+   *  moves each NOC:*|* / NOC-QUIC:* / NOC-ALLOW:* rule into its per-group chain
+   *  and patches in the early-bail matchers createIntent now emits (connstate on
+   *  drops; dst-port=443 + established + 8KB window on tls-host). Idempotent —
+   *  safe to run on already-migrated routers. */
+  async optimizeBlockLayout(): Promise<{ moved: number; patched: number }> {
+    await this.ensureBlockChain();
+    const rows = await this.blockRows();
+    let moved = 0;
+    let patched = 0;
+    for (const r of rows) {
+      const comment = (r['comment'] ?? '').trim();
+      const id = r['.id'];
+      if (!id || !comment) continue;
+      let group: string | null = null;
+      if (/^NOC:[^|]+\|.+$/.test(comment)) group = this.groupOf(comment.slice(4));
+      else if (comment.startsWith('NOC-QUIC:')) group = comment.slice(9);
+      else if (comment.startsWith('NOC-ALLOW:')) group = comment.slice(10);
+      if (!group) continue;
+
+      const set: string[] = [`=.id=${id}`];
+      const target = this.groupChain(group);
+      if (r['chain'] !== target) {
+        await this.ensureGroupJump(group);
+        set.push(`=chain=${target}`);
+        moved++;
+      }
+      if (r['tls-host']) {
+        if (r['dst-port'] !== '443') set.push('=dst-port=443');
+        if (r['connection-state'] !== 'established') set.push('=connection-state=established');
+        if (!r['connection-bytes']) set.push('=connection-bytes=0-8192');
+      } else if (!r['connection-state']) {
+        set.push('=connection-state=new');
+      }
+      // src-address-list is implied by the group jump — drop the redundant matcher.
+      if (r['src-address-list'] === `noc-grp-${group}`) set.push('=src-address-list=');
+      if (set.length > 1) {
+        await this.write('/ip/firewall/filter/set', set);
+        patched++;
+      }
+    }
+    return { moved, patched };
   }
 
   // ---- Access profiles ------------------------------------------------------
@@ -724,7 +840,7 @@ export class RouterOsV6Client implements MikrotikClient {
     );
     if (access.length === 0) return [];
     const intents = await this.listBlockIntents();
-    const chain = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const chain = await this.blockRows();
     const out: AccessProfile[] = [];
     for (const p of access) {
       const name = p['name'];
@@ -810,7 +926,7 @@ export class RouterOsV6Client implements MikrotikClient {
     const intents = await this.listBlockIntents();
     for (const i of intents) if (i.group === name) await this.removeIntent(`${name}|${i.service}`);
     // 2) allowlist deny-all rule (Phase 2), by comment
-    const chain = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const chain = await this.blockRows();
     for (const r of chain) {
       if ((r['comment'] ?? '').trim() !== `NOC-ALLOW:${name}`) continue;
       const id = r['.id'];
@@ -894,15 +1010,19 @@ export class RouterOsV6Client implements MikrotikClient {
     // The deny-all drop: everything from this group NOT in noc-allow-<name>. Protocol-
     // agnostic so it also kills QUIC. Created/kept DISABLED unless enforce=true (staged).
     const comment = `NOC-ALLOW:${name}`;
-    const chain = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    await this.ensureGroupJump(name);
+    const chain = await this.blockRows();
     const existing = chain.find((r) => (r['comment'] ?? '').trim() === comment);
     if (existing && existing['.id']) {
       await this.write('/ip/firewall/filter/set', [`=.id=${existing['.id']}`, `=disabled=${enforce ? 'no' : 'yes'}`]);
     } else {
+      // Lives in the group chain (membership implied by the dispatcher jump).
+      // connection-state=new: deny-all only needs to kill connection setup —
+      // established flows never evaluate the (potentially large) allow-list.
       await this.write('/ip/firewall/filter/add', [
-        `=chain=${this.BLOCK_CHAIN}`,
+        `=chain=${this.groupChain(name)}`,
         '=action=drop',
-        `=src-address-list=noc-grp-${name}`,
+        '=connection-state=new',
         `=dst-address-list=!${list}`,
         `=disabled=${enforce ? 'no' : 'yes'}`,
         `=comment=${comment}`,
@@ -912,7 +1032,7 @@ export class RouterOsV6Client implements MikrotikClient {
 
   async removeAllowlist(name: string): Promise<void> {
     const comment = `NOC-ALLOW:${name}`;
-    const chain = await this.write('/ip/firewall/filter/print', [`?chain=${this.BLOCK_CHAIN}`]);
+    const chain = await this.blockRows();
     for (const r of chain) {
       if ((r['comment'] ?? '').trim() !== comment) continue;
       const id = r['.id'];

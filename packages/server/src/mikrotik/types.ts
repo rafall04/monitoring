@@ -167,6 +167,9 @@ export interface MikrotikClient {
   createIntent(input: { group: string; service: string; tlsHosts?: string[] }): Promise<void>;
   setIntentActive(id: string, active: boolean): Promise<void>;
   removeIntent(id: string): Promise<void>;
+  /** Migrate legacy flat noc-block rules into the per-group chain layout and
+   *  patch in early-bail matchers. Idempotent; returns {moved, patched}. */
+  optimizeBlockLayout(): Promise<{ moved: number; patched: number }>;
   /** Remove a single filter rule by raw RouterOS .id (legacy /blocks cleanup). */
   removeFilterRule(id: string): Promise<void>;
 
