@@ -70,6 +70,8 @@ export const REDIS_KEYS = {
   /** Firewall drift watch: canonical snapshot (per-menu id → row JSON) the
    *  worker diffs each poll. Redis-only — a wipe just re-baselines silently. */
   routerCfgSnapshot: (routerId: string) => `noc:router:${routerId}:cfgsnap`,
+  /** NAT-traffic watch: last byte counter + first-stale timestamp per device. */
+  deviceNatWatch: (deviceId: string) => `noc:device:${deviceId}:natwatch`,
   /** Per-site device→WiFi correlation, refreshed by the worker's WiFi enricher. */
   siteWifi: (siteId: string) => `noc:site:${siteId}:wifi`,
   /** Idempotency guard for webhook dedup (value = last event hash). */

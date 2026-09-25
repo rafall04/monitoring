@@ -27,6 +27,8 @@ export interface UplinkLike {
   watchInterface: string | null;
   /** TCP-probe devices share the same work-hours alert window. */
   watchPort?: number | null;
+  /** NAT-traffic-watch devices likewise. */
+  watchNatDstPort?: string | null;
   /** Prisma JsonValue — an AlertWindow-shaped object or null. */
   watchAlertWindow: unknown;
 }
@@ -86,7 +88,7 @@ export async function uplinkWindowCatchUp(
 ): Promise<void> {
   const now = new Date();
   for (const d of uplinks) {
-    if (d.status !== 'down' || !(d.watchInterface || d.watchPort)) continue;
+    if (d.status !== 'down' || !(d.watchInterface || d.watchPort || d.watchNatDstPort)) continue;
     const w = resolveUplinkWindow(d, settings);
     const key = uplinkAlertedKey(d.id, now, w);
     if (!key) continue; // window still closed

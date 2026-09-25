@@ -22,7 +22,7 @@ export const ROUTEROS_VERSIONS = ['v6', 'v7'] as const;
 export type RouterOsVersion = (typeof ROUTEROS_VERSIONS)[number];
 
 /** Where a status change came from. */
-export const STATUS_SOURCES = ['webhook', 'polling', 'manual', 'interface', 'tcp'] as const;
+export const STATUS_SOURCES = ['webhook', 'polling', 'manual', 'interface', 'tcp', 'traffic'] as const;
 export type StatusSource = (typeof STATUS_SOURCES)[number];
 
 /** Manual override flags a device so it does not raise alarms (e.g. maintenance). */
@@ -290,6 +290,11 @@ export interface Device {
   /** TCP-port watch: the server probes ipAddress:watchPort — catches "host up,
    *  service dead" (a killed dst-nat forward) that ping never sees. */
   watchPort: number | null;
+  /** NAT-forward watch: dst-port matched against dstnat rules on the router;
+   *  status follows the rule's byte counter (disabled/stalled → down). */
+  watchNatDstPort: string | null;
+  /** Minutes without byte-counter growth before 'down' (null → default 5). */
+  watchNatStaleMin: number | null;
   /** Per-device alert-window override; null = use the global Setting default. */
   watchAlertWindow: AlertWindow | null;
   createdAt: string;

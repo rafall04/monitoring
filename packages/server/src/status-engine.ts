@@ -92,10 +92,12 @@ export async function applyDeviceStatusesByHost(
     where: {
       routerId,
       ipAddress: { in: updates.map((u) => u.host) },
-      // Probe-owned devices (interface/TCP watch) get their verdict from their
-      // own probe — a Netwatch entry on the same IP must not overwrite it.
+      // Probe-owned devices (interface/TCP/NAT-traffic watch) get their
+      // verdict from their own probe — a Netwatch entry on the same IP must
+      // not overwrite it.
       watchInterface: null,
       watchPort: null,
+      watchNatDstPort: null,
     },
   });
   const byIp = new Map(devices.map((d) => [d.ipAddress as string, d]));

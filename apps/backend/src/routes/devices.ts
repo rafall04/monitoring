@@ -120,10 +120,13 @@ export async function deviceRoutes(app: FastifyInstance) {
             mapY: body.mapY ?? null,
             isCritical: body.isCritical,
             note: body.note ?? null,
-            // watch modes are mutually exclusive — a TCP probe wins if both
-            // are somehow supplied (defence in depth; the UI only sends one).
-            watchInterface: body.watchPort ? null : (body.watchInterface ?? null),
-            watchPort: body.watchPort ?? null,
+            // watch modes are mutually exclusive — NAT-traffic > TCP > iface
+            // precedence if several are somehow supplied (the UI sends one).
+            watchInterface:
+              body.watchPort || body.watchNatDstPort ? null : (body.watchInterface ?? null),
+            watchPort: body.watchNatDstPort ? null : (body.watchPort ?? null),
+            watchNatDstPort: body.watchNatDstPort ?? null,
+            watchNatStaleMin: body.watchNatStaleMin ?? null,
             watchAlertWindow: body.watchAlertWindow ?? Prisma.JsonNull,
           },
         });
@@ -238,9 +241,19 @@ export async function deviceRoutes(app: FastifyInstance) {
         ...(areaId !== undefined ? { areaId } : {}),
         ...(lineId !== undefined ? { lineId } : {}),
       };
-      // Watch modes are mutually exclusive: setting one clears the other.
-      if (patch.watchPort) data.watchInterface = null;
-      if (patch.watchInterface) data.watchPort = null;
+      // Watch modes are mutually exclusive: setting one clears the others.
+      if (patch.watchNatDstPort) {
+        data.watchInterface = null;
+        data.watchPort = null;
+      }
+      if (patch.watchPort) {
+        data.watchInterface = null;
+        data.watchNatDstPort = null;
+      }
+      if (patch.watchInterface) {
+        data.watchPort = null;
+        data.watchNatDstPort = null;
+      }
       if (watchAlertWindow !== undefined) {
         data.watchAlertWindow = watchAlertWindow === null ? Prisma.JsonNull : watchAlertWindow;
       }

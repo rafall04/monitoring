@@ -167,6 +167,12 @@ model Device {
   // dst-nat forward) that ICMP Netwatch can never see. Probe-only devices are
   // excluded from Netwatch status reconciliation (their probe owns the verdict).
   watchPort        Int?
+  // NAT traffic watch: status follows the byte counter of the dst-nat rule
+  // matching watchNatDstPort — rule missing → 'unknown', disabled → 'down',
+  // bytes not increasing for watchNatStaleMin minutes (default 5) → 'down'.
+  // Catches "forward alive but nothing is flowing" (data not uploaded).
+  watchNatDstPort  String?
+  watchNatStaleMin Int?
   watchAlertWindow Json?
 
   createdAt DateTime @default(now())

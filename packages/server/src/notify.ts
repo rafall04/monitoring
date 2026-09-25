@@ -81,9 +81,10 @@ export async function maybeNotifyTelegram(
     // Probe-watch devices (interface or TCP port) alert only inside their
     // work-hours window — the status itself still updates 24/7, this gate
     // suppresses the notification only.
-    const uplinkWindow: AlertWindow | null = device.watchInterface || device.watchPort
-      ? resolveUplinkWindow(device, settings)
-      : null;
+    const uplinkWindow: AlertWindow | null =
+      device.watchInterface || device.watchPort || device.watchNatDstPort
+        ? resolveUplinkWindow(device, settings)
+        : null;
     if (uplinkWindow && !withinAlertWindow(uplinkWindow, new Date())) return;
 
     const site = await deps.prisma.site.findUnique({ where: { id: device.siteId } });
@@ -133,9 +134,10 @@ export async function maybeNotifyWhatsApp(
 
     const settings = await getSettings();
     // Same work-hours gate as Telegram for probe-watch devices.
-    const uplinkWindow: AlertWindow | null = device.watchInterface || device.watchPort
-      ? resolveUplinkWindow(device, settings)
-      : null;
+    const uplinkWindow: AlertWindow | null =
+      device.watchInterface || device.watchPort || device.watchNatDstPort
+        ? resolveUplinkWindow(device, settings)
+        : null;
     if (uplinkWindow && !withinAlertWindow(uplinkWindow, new Date())) return;
 
     const site = await deps.prisma.site.findUnique({

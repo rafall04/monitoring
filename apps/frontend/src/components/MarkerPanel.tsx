@@ -28,9 +28,10 @@ const timeToMin = (t: string) => {
   return (h || 0) * 60 + (m || 0);
 };
 
-/** Probe mode — the backend treats watchInterface/watchPort as mutually
- *  exclusive (setting one clears the other); 'netwatch' = plain ping watch. */
-type WatchMode = 'netwatch' | 'interface' | 'tcp';
+/** Probe mode — the backend treats watchInterface/watchPort/watchNatDstPort as
+ *  mutually exclusive (setting one clears the others); 'netwatch' = plain ping
+ *  watch, 'nat' = byte-counter watch on a dst-nat forward rule. */
+type WatchMode = 'netwatch' | 'interface' | 'tcp' | 'nat';
 
 interface MarkerPanelProps {
   site: Site;
@@ -77,10 +78,20 @@ export default function MarkerPanel(props: MarkerPanelProps) {
   // gated by a work-hours window (per-device override or the global Settings
   // default).
   const [watchMode, setWatchMode] = useState<WatchMode>(
-    device?.watchPort ? 'tcp' : device?.watchInterface ? 'interface' : 'netwatch',
+    device?.watchNatDstPort
+      ? 'nat'
+      : device?.watchPort
+        ? 'tcp'
+        : device?.watchInterface
+          ? 'interface'
+          : 'netwatch',
   );
   const [watchInterface, setWatchInterface] = useState(device?.watchInterface ?? '');
   const [watchPort, setWatchPort] = useState(device?.watchPort ? String(device.watchPort) : '');
+  const [watchNatDstPort, setWatchNatDstPort] = useState(device?.watchNatDstPort ?? '');
+  const [watchNatStaleMin, setWatchNatStaleMin] = useState(
+    device?.watchNatStaleMin ? String(device.watchNatStaleMin) : '',
+  );
   const [winOverride, setWinOverride] = useState(Boolean(device?.watchAlertWindow));
   const [winStart, setWinStart] = useState(
     minToTime(device?.watchAlertWindow?.startMin ?? 360),
@@ -90,7 +101,7 @@ export default function MarkerPanel(props: MarkerPanelProps) {
     device?.watchAlertWindow?.days ?? [1, 2, 3, 4, 5, 6, 7],
   );
   const [uplinkOpen, setUplinkOpen] = useState(
-    Boolean(device?.watchInterface || device?.watchPort),
+    Boolean(device?.watchInterface || device?.watchPort || device?.watchNatDstPort),
   );
   const [ifaces, setIfaces] = useState<RouterInterface[] | null>(null);
   const [ifacesErr, setIfacesErr] = useState('');
@@ -130,14 +141,46 @@ export default function MarkerPanel(props: MarkerPanelProps) {
   };
 
   const save = () => {
-    // Mutually exclusive watch fields — the backend clears the sibling anyway,
-    // but sending both nulls keeps intent obvious in the request log.
+    // Mutually exclusive watch fields — the backend clears the siblings anyway,
+    // but sending all nulls keeps intent obvious in the request log. An
+    // invalid/empty NAT dst-port degrades to null (safe no-op) instead of
+    // failing schema validation on save.
+    const natPortNum = Number(watchNatDstPort);
+    const natStaleNum = Number(watchNatStaleMin);
     const watchFields =
-      watchMode === 'interface'
-        ? { watchInterface: watchInterface || null, watchPort: null }
+      watchMode === 'nat'
+        ? {
+            watchNatDstPort:
+              Number.isInteger(natPortNum) && natPortNum >= 1 && natPortNum <= 65535
+                ? watchNatDstPort
+                : null,
+            watchNatStaleMin:
+              Number.isInteger(natStaleNum) && natStaleNum >= 1 && natStaleNum <= 1440
+                ? natStaleNum
+                : null,
+            watchInterface: null,
+            watchPort: null,
+          }
         : watchMode === 'tcp'
-          ? { watchInterface: null, watchPort: watchPort ? Number(watchPort) : null }
-          : { watchInterface: null, watchPort: null };
+          ? {
+              watchPort: watchPort ? Number(watchPort) : null,
+              watchInterface: null,
+              watchNatDstPort: null,
+              watchNatStaleMin: null,
+            }
+          : watchMode === 'interface'
+            ? {
+                watchInterface: watchInterface || null,
+                watchPort: null,
+                watchNatDstPort: null,
+                watchNatStaleMin: null,
+              }
+            : {
+                watchInterface: null,
+                watchPort: null,
+                watchNatDstPort: null,
+                watchNatStaleMin: null,
+              };
     const watchWindow =
       watchMode !== 'netwatch' && winOverride
         ? { startMin: timeToMin(winStart), endMin: timeToMin(winEnd), days: winDays }
@@ -253,6 +296,7 @@ export default function MarkerPanel(props: MarkerPanelProps) {
             <option value="netwatch">Netwatch (ping)</option>
             <option value="interface">Interface router</option>
             <option value="tcp">Port TCP</option>
+            <option value="nat">Forward NAT (traffic)</option>
           </Select>
 
           {watchMode === 'netwatch' && (
@@ -331,6 +375,41 @@ export default function MarkerPanel(props: MarkerPanelProps) {
                   Isi IP address dulu — probe TCP butuh target; tanpa IP status tetap unknown.
                 </p>
               )}
+            </div>
+          )}
+
+          {watchMode === 'nat' && (
+            <div className="mt-2 space-y-1">
+              <span className="block text-2xs font-medium uppercase tracking-wide text-slate-500">
+                Dst-port forward
+              </span>
+              <TextInput
+                type="number"
+                min={1}
+                max={65535}
+                value={watchNatDstPort}
+                onChange={(e) => setWatchNatDstPort(e.target.value)}
+                placeholder="21433"
+                disabled={!editable}
+              />
+              <span className="block pt-1 text-2xs font-medium uppercase tracking-wide text-slate-500">
+                Stall setelah (menit)
+              </span>
+              <TextInput
+                type="number"
+                min={1}
+                max={1440}
+                value={watchNatStaleMin}
+                onChange={(e) => setWatchNatStaleMin(e.target.value)}
+                placeholder="5"
+                disabled={!editable}
+              />
+              <p>
+                Memantau counter bytes pada rule dst-nat{' '}
+                <code>dst-port={watchNatDstPort || 'port'}</code>. Status turun bila rule disabled
+                atau traffic berhenti &gt; {watchNatStaleMin || 'N'} menit — mendeteksi
+                &quot;forward hidup tapi data tidak mengalir&quot;.
+              </p>
             </div>
           )}
 

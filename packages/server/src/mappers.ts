@@ -157,6 +157,8 @@ export function toDeviceDto(d: Device): DeviceDTO {
     note: d.note,
     watchInterface: d.watchInterface,
     watchPort: d.watchPort,
+    watchNatDstPort: d.watchNatDstPort,
+    watchNatStaleMin: d.watchNatStaleMin,
     watchAlertWindow: (d.watchAlertWindow as DeviceDTO['watchAlertWindow']) ?? null,
     createdAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),

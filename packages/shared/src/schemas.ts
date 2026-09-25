@@ -209,6 +209,10 @@ export const createDeviceSchema = z.object({
   // TCP port watch: status = TCP connect from the NOC server to
   // ipAddress:watchPort — detects "host up, service dead" that ping can't.
   watchPort: z.number().int().min(1).max(65535).nullable().optional(),
+  // NAT traffic watch: byte-counter of the dstnat rule with this dst-port;
+  // stale minutes before 'down' (default 5).
+  watchNatDstPort: z.string().max(16).nullable().optional(),
+  watchNatStaleMin: z.number().int().min(1).max(1440).nullable().optional(),
   watchAlertWindow: alertWindowSchema.nullable().optional(),
   // Auto-create the matching /tool/netwatch entry on the router after save.
   // Defaults to TRUE — operators only enter name + IP; Netwatch is wired up
@@ -234,6 +238,9 @@ export const updateDeviceSchema = z.object({
   watchInterface: z.string().max(64).nullable().optional(),
   // TCP port watch — null clears it. Mutually exclusive with watchInterface.
   watchPort: z.number().int().min(1).max(65535).nullable().optional(),
+  // NAT traffic watch — dst-port matched in dstnat rules.
+  watchNatDstPort: z.string().max(16).nullable().optional(),
+  watchNatStaleMin: z.number().int().min(1).max(1440).nullable().optional(),
   watchAlertWindow: alertWindowSchema.nullable().optional(),
   // when true the backend (re)installs the matching /tool/netwatch entry on the
   // router — e.g. after the IP address changed. Not a stored column.

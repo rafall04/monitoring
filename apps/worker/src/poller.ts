@@ -13,7 +13,7 @@ import {
   type RouterMikrotik,
   type StatusEngineDeps,
 } from '@noc/server';
-import type { DeviceStatus } from '@noc/shared';
+import { REDIS_KEYS, type DeviceStatus } from '@noc/shared';
 
 export interface PollHooks {
   /**
@@ -74,6 +74,13 @@ export async function pollRouter(
     // auxiliary watch failure must not take the poll down.
     await pollTcpDevices(deps, router.id).catch((e) =>
       deps.logger.warn({ e, routerId: router.id }, 'tcp watch probe failed'),
+    );
+    // NAT traffic watch — a dst-nat forward that is disabled or whose byte
+    // counter stalls means data silently stopped flowing while every ping
+    // stays green; this probe watches the traffic itself. Same rule: an
+    // auxiliary watch failure must not take the poll down.
+    await pollNatTraffic(deps, router.id, client).catch((e) =>
+      deps.logger.warn({ e, routerId: router.id }, 'nat traffic watch failed'),
     );
 
     return { devicesSeen: entries.length };
@@ -155,6 +162,130 @@ async function pollTcpDevices(
         ? 'up'
         : 'down';
     await applyDeviceStatus(deps, d, next, 'tcp');
+    // The fetched row's `status` is stale after apply — carry the verdict we
+    // just wrote so the catch-up sees "down now", not "down before".
+    if (next === 'down') stillDown.push({ ...d, status: next });
+  }
+
+  if (stillDown.length > 0) {
+    await uplinkWindowCatchUp(deps, stillDown, await getSettings());
+  }
+}
+
+/**
+ * Persisted per-device NAT counter baseline, stored as JSON at
+ * `REDIS_KEYS.deviceNatWatch(deviceId)` (`noc:device:<id>:natwatch`).
+ * `firstSeenAt` is when this watch first observed the rule; `lastGrowthAt`
+ * is the last poll whose byte counter had grown — the stale clock the
+ * 'down' verdict is measured against.
+ */
+interface NatWatchState {
+  bytes: number;
+  lastGrowthAt: string | null;
+  firstSeenAt: string;
+}
+
+/**
+ * Reconcile NAT-traffic-watch devices: `Device.watchNatDstPort` pins the
+ * device to the `dst-port` of a dstnat rule, and the rule's byte counter —
+ * not a ping — is the truth. A killed or disabled dst-nat leaves netwatch
+ * and TCP probes green while the forward silently stops passing data; this
+ * watch reads `/ip firewall nat` and owns the device's status for it.
+ *
+ * Three-state truth, never a blind verdict:
+ *   no dstnat rule on that dst-port → 'unknown' (config drift — show it on
+ *       the map without crying outage), and the stored baseline is dropped
+ *       because a recreated rule restarts the counter anyway;
+ *   rule present but disabled       → 'down' — the forward is OFF, this is
+ *       the incident case: someone disabled the dst-nat;
+ *   enabled                         → compare `bytes` against the Redis
+ *       baseline: growing is 'up'; flat is 'up' inside the grace window
+ *       (`watchNatStaleMin`, default 5) and 'down' past it; a shrunken
+ *       counter means the rule was recreated or the router rebooted, so it
+ *       re-baselines instead of reading a false stall.
+ * One fresh observation alone can't prove flow, so a first read (or a
+ * zero-byte re-baseline) lands on 'unknown', not 'up'.
+ */
+async function pollNatTraffic(
+  deps: StatusEngineDeps,
+  routerId: string,
+  client: MikrotikClient,
+): Promise<void> {
+  const devices = await deps.prisma.device.findMany({
+    where: { routerId, watchNatDstPort: { not: null } },
+  });
+  if (devices.length === 0) return;
+
+  const natRules = await client.listFirewallRaw('nat');
+  const stillDown: Device[] = [];
+
+  for (const d of devices) {
+    const key = REDIS_KEYS.deviceNatWatch(d.id);
+    const rule = natRules.find(
+      (r) => r.chain === 'dstnat' && String(r['dst-port']) === d.watchNatDstPort,
+    );
+
+    let next: DeviceStatus;
+    if (!rule) {
+      next = 'unknown';
+      // Rule is gone — the byte baseline is meaningless; don't leave stale
+      // state behind for a recreated rule to be misjudged against.
+      await deps.redisPub.del(key);
+    } else if (rule.disabled === true || rule.disabled === 'true' || rule.disabled === 'yes') {
+      next = 'down';
+      // Forward is OFF — no traffic can flow, so no baseline to keep either.
+      await deps.redisPub.del(key);
+    } else {
+      const bytes = Number(rule.bytes ?? 0);
+      const now = new Date();
+      const nowIso = now.toISOString();
+
+      let prev: NatWatchState | null = null;
+      try {
+        const raw = await deps.redisPub.get(key);
+        prev = raw ? (JSON.parse(raw) as NatWatchState) : null;
+      } catch {
+        prev = null; // corrupt state reads as first sight, not a crash
+      }
+
+      let state: NatWatchState;
+      if (!prev || typeof prev.bytes !== 'number') {
+        const firstSeenAt = nowIso;
+        state = {
+          bytes,
+          // Counter already non-zero counts as observed growth; a zeroed
+          // rule starts the stale clock at first sight so a forward that
+          // never passes traffic still trips 'down' after the grace window.
+          lastGrowthAt: bytes > 0 ? nowIso : firstSeenAt,
+          firstSeenAt,
+        };
+        next = 'unknown'; // one observation can't prove flow — honest first read
+      } else if (bytes > prev.bytes) {
+        state = { bytes, lastGrowthAt: nowIso, firstSeenAt: prev.firstSeenAt ?? nowIso };
+        next = 'up';
+      } else if (bytes === prev.bytes) {
+        // Flat counter — grace period first: it was still flowing last we
+        // knew; only when nothing has grown for `staleMin` is it 'down'.
+        state = {
+          bytes,
+          lastGrowthAt: prev.lastGrowthAt ?? null,
+          firstSeenAt: prev.firstSeenAt ?? nowIso,
+        };
+        const staleMin = d.watchNatStaleMin ?? 5;
+        const lastGrowthMs = prev.lastGrowthAt ? Date.parse(prev.lastGrowthAt) : NaN;
+        next = now.getTime() - lastGrowthMs > staleMin * 60_000 ? 'down' : 'up';
+      } else {
+        // Counter went backwards — rule deleted+recreated or router rebooted.
+        // Re-baseline rather than read a false stall out of the drop.
+        state = { bytes, lastGrowthAt: nowIso, firstSeenAt: nowIso };
+        next = bytes > 0 ? 'up' : 'unknown';
+      }
+      // Write the (possibly unchanged) state back every poll so firstSeenAt
+      // and lastGrowthAt persist across restarts of this worker.
+      await deps.redisPub.set(key, JSON.stringify(state));
+    }
+
+    await applyDeviceStatus(deps, d, next, 'traffic');
     // The fetched row's `status` is stale after apply — carry the verdict we
     // just wrote so the catch-up sees "down now", not "down before".
     if (next === 'down') stillDown.push({ ...d, status: next });
