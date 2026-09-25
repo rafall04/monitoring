@@ -12,6 +12,6 @@
     "@hapi/boom": "^10.0.1",
     "@noc/server": "*",
     "@noc/shared": "*",
-    "@whiskeysockets/baileys": "^6.7.24"
+    "@whiskeysockets/baileys": "^7.0.0-rc14"
   }
 }

@@ -66,8 +66,10 @@ async function main() {
   });
 
   const redisPub = createRedis('wabot-pub');
-  const redisOutbox = createRedis('wabot-outbox'); // dedicated — BLPOP blocks it
-  const redisControl = createRedis('wabot-control'); // dedicated — BLPOP blocks it
+  // BLPOP blocks up to 5s per pop — the default 5s commandTimeout would race
+  // it and turn every idle pop into a "Command timed out" error.
+  const redisOutbox = createRedis('wabot-outbox', { commandTimeout: 30_000 });
+  const redisControl = createRedis('wabot-control', { commandTimeout: 30_000 });
 
   // `sender` is assigned below; router/sender reference each other through
   // closures that only fire after startup completes.
