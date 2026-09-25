@@ -7,22 +7,36 @@ WORKDIR /app
 # `prisma migrate deploy` fails with "Could not parse schema engine response").
 RUN apk add --no-cache openssl
 
-# Install all workspace dependencies (tsx + prisma live at the root).
-COPY package.json ./
-COPY tsconfig.base.json ./
-COPY packages ./packages
-COPY apps/backend ./apps/backend
+# ---- dependency layer --------------------------------------------------------
+# Manifests + lockfile first so `npm ci` is only re-run when deps change.
+# All workspace package.json files are needed: npm ci resolves the @noc/*
+# workspaces via the root `workspaces` field and validates the lockfile.
+COPY package.json package-lock.json tsconfig.base.json ./
+COPY packages/shared/package.json ./packages/shared/package.json
+COPY packages/server/package.json ./packages/server/package.json
+COPY apps/backend/package.json ./apps/backend/package.json
 # Minimal stubs so npm workspaces resolves every declared workspace.
 COPY apps/worker/package.json ./apps/worker/package.json
 COPY apps/frontend/package.json ./apps/frontend/package.json
+# Schema up-front so the @prisma/client postinstall can find it.
+COPY packages/server/prisma ./packages/server/prisma
 
-RUN npm install
+RUN npm ci
+
+# ---- source layer ------------------------------------------------------------
+COPY packages ./packages
+COPY apps/backend ./apps/backend
 
 # Generate the Prisma client into node_modules.
 RUN npm run -w @noc/server db:generate
 
+# /app/uploads is the compose volume mount (UPLOAD_DIR=/app/uploads) — create it
+# owned by `node` so the fresh named volume inherits writable permissions.
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
+
 ENV NODE_ENV=production
 EXPOSE 4000
+USER node
 
 # Lightweight container healthcheck against the /health endpoint.
 HEALTHCHECK --interval=30s --timeout=5s --retries=5 \

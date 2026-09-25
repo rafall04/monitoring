@@ -75,7 +75,7 @@ export default function AkunPage() {
         newPassword: pw.next,
       }),
     onSuccess: () => {
-      toast.ok('Password diganti — gunakan password baru untuk login WiFi & halaman ini');
+      toast.ok('Password diganti — semua sesi login diputus. Gunakan password baru untuk login WiFi & halaman ini');
       setPw({ current: '', next: '', confirm: '' });
     },
     onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
@@ -100,7 +100,7 @@ export default function AkunPage() {
         {status.isError ? (
           <ErrorState onRetry={() => void status.refetch()}>
             {(status.error as Error)?.message?.includes('tidak tertaut')
-              ? 'Akun ini belum tertaut ke akun hotspot. Hubungi IT Support.'
+              ? 'Akun ini belum tertaut ke akun hotspot. Chat bot WA IT: 0851-3750-1184.'
               : 'Gagal memuat status akun — router mungkin tidak terjangkau.'}
           </ErrorState>
         ) : status.isLoading || !d ? (
@@ -136,7 +136,16 @@ export default function AkunPage() {
               </dl>
               {d.limitUptime || d.limitBytesTotal ? (
                 <p className="mt-3 text-xs text-slate-500">
-                  Limit habis → hubungi IT Support untuk reset.
+                  Limit habis → chat{' '}
+                  <a
+                    href="https://wa.me/6285137501184"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-cyan-400 underline underline-offset-2"
+                  >
+                    bot WA IT (0851-3750-1184)
+                  </a>{' '}
+                  untuk reset.
                 </p>
               ) : null}
             </Card>
@@ -161,7 +170,16 @@ export default function AkunPage() {
                     ))}
                   </div>
                   <p className="mt-3 text-xs text-slate-500">
-                    Butuh aplikasi yang diblokir? Minta penambahan akses ke IT Support.
+                    Butuh aplikasi yang diblokir? Minta penambahan akses ke{' '}
+                    <a
+                      href="https://wa.me/6285137501184"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-cyan-400 underline underline-offset-2"
+                    >
+                      bot WA IT (0851-3750-1184)
+                    </a>
+                    .
                   </p>
                 </>
               )}
@@ -233,6 +251,7 @@ export default function AkunPage() {
               <h3 className="mb-3 text-sm font-semibold text-slate-200">Ganti Password</h3>
               <p className="mb-3 text-xs text-slate-500">
                 Password ini dipakai untuk login WiFi <b>dan</b> halaman ini — keduanya ikut berubah.
+                Semua sesi akan logout — silakan login ulang dengan password baru.
               </p>
               <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-3">
                 <Field label="Password lama">

@@ -5,62 +5,82 @@
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta http-equiv="pragma" content="no-cache">
 <meta http-equiv="expires" content="-1">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" /><style>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Terjadi kesalahan - WiFi PT Shou Fong Lastindo" />
+<meta name="theme-color" content="#0099bb" />
+<meta name="color-scheme" content="light" />
+<style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 20px;
+    padding: 16px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     color: #1f2937;
     background: linear-gradient(135deg, #0099bb 0%, #6610f2 100%);
+    background-attachment: fixed;
+    -webkit-text-size-adjust: 100%;
   }
   .card {
     width: 100%;
-    max-width: 380px;
+    max-width: 400px;
     background: #fff;
     border-radius: 18px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
-    padding: 26px 24px 22px;
+    padding: 26px 24px 20px;
     text-align: center;
   }
-  h3 { font-size: 15px; font-weight: 600; color: #6b7280; }
+  h1 { font-size: 15px; font-weight: 600; color: #4b5563; }
   .err {
     margin: 10px 0 16px;
     padding: 10px 14px;
     font-size: 14px;
     color: #fff;
-    background: #f86c6b;
+    background: #dc2626;
     border-radius: 12px;
     word-break: break-word;
+    line-height: 1.5;
   }
   a.btn {
     display: block;
-    padding: 12px;
-    font-size: 15px;
+    min-height: 48px;
+    padding: 13px 12px;
+    font-size: 16px;
     font-weight: 700;
     letter-spacing: .5px;
     color: #fff;
     text-decoration: none;
     border-radius: 50px;
     background: linear-gradient(135deg, #0099bb, #6610f2);
+    -webkit-tap-highlight-color: transparent;
   }
-  .help { margin-top: 14px; font-size: 12px; color: #6b7280; line-height: 1.6; }
+  a.btn:hover { opacity: .92; }
+  a.btn:active { transform: scale(.98); }
+  a.btn:focus-visible { outline: 2px solid #0099bb; outline-offset: 2px; }
+  .help { margin-top: 14px; font-size: 12px; color: #4b5563; line-height: 1.6; }
   .help b { color: #374151; }
-  .foot { margin-top: 14px; font-size: 11px; color: #b6bcc4; }
-  .foot b { color: #8a909a; }
+  .help a { color: #007a96; font-weight: 600; }
+  .help a:focus-visible { outline: 2px solid #0099bb; outline-offset: 2px; }
+  .foot { margin-top: 14px; font-size: 11px; color: #6b7280; }
+  .foot b { color: #4b5563; }
+
+  @media (max-width: 360px) {
+    body { padding: 12px; }
+    .card { padding: 20px 18px 16px; border-radius: 14px; }
+  }
 </style>
 </head>
 <body>
-  <div class="card">
-    <h3>Terjadi Kesalahan</h3>
-    <div class="err">$(error)</div>
+  <main class="card">
+    <h1>Terjadi Kesalahan</h1>
+    <div class="err" role="alert">$(error)</div>
     <a class="btn" href="$(link-login)">KEMBALI KE LOGIN</a>
-    <div class="help">Sampaikan pesan error di atas ke <b>IT Support &mdash; Aldi</b> agar cepat ditangani.</div>
+    <div class="help">Sampaikan pesan error di atas ke bot WhatsApp IT <a href="https://wa.me/6285137501184"><b>0851-3750-1184</b></a> agar cepat ditangani.</div>
     <div class="foot">&copy; Copyright 2026 | <b>RAF</b> - All rights reserved</div>
-  </div>
+  </main>
 <script type="text/javascript">
   try { document.getElementById('title').innerHTML = window.location.hostname + ' &gt; error'; } catch (e) {}
 </script>

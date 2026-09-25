@@ -20,33 +20,61 @@ const ACCENT_PRESETS: Array<{ name: string; rgb: string; hex: string }> = [
   { name: 'Slate',  rgb: '100 116 139', hex: '#64748B' },
 ];
 
+// Numeric fields are kept as STRINGS in local form state: coercing per keystroke
+// (`Number(e.target.value)`) means clearing the input stores NaN, which renders
+// as "NaN" and serializes to null -> a 400 on save. Coerce once, on save;
+// an empty/invalid field falls back to the last server value.
+const NUMERIC_KEYS = [
+  'defaultMapLat',
+  'defaultMapLng',
+  'defaultMapZoom',
+  'defaultPollSec',
+  'eventRetentionDays',
+  'auditRetentionDays',
+  'netwatchIntervalSec',
+  'netwatchTimeoutMs',
+] as const;
+type NumericKey = (typeof NUMERIC_KEYS)[number];
+type SettingsForm = Omit<Settings, NumericKey> & Record<NumericKey, string>;
+
+const toForm = (s: Settings): SettingsForm => ({
+  ...s,
+  ...(Object.fromEntries(NUMERIC_KEYS.map((k) => [k, String(s[k])])) as Record<NumericKey, string>),
+});
+
 export default function AdminSettingsPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/settings') });
-  const [form, setForm] = useState<Settings | null>(null);
+  const [form, setForm] = useState<SettingsForm | null>(null);
   const [logoBusy, setLogoBusy] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
 
   useEffect(() => {
-    if (q.data) setForm(q.data);
+    if (q.data) setForm(toForm(q.data));
   }, [q.data]);
 
   const save = useMutation({
     mutationFn: () => {
-      if (!form) throw new Error('not loaded');
+      if (!form || !q.data) throw new Error('not loaded');
+      // Empty/non-numeric input -> keep the server's current value rather than
+      // sending NaN/null.
+      const num = (k: NumericKey): number => {
+        const n = Number(form[k]);
+        return Number.isFinite(n) ? n : q.data[k];
+      };
       return api.patch<Settings>('/settings', {
         orgName: form.orgName,
         logoUrl: form.logoUrl,
         accentRgb: form.accentRgb,
         themeDefault: form.themeDefault,
-        defaultMapLat: Number(form.defaultMapLat),
-        defaultMapLng: Number(form.defaultMapLng),
-        defaultMapZoom: Number(form.defaultMapZoom),
-        defaultPollSec: Number(form.defaultPollSec),
-        eventRetentionDays: Number(form.eventRetentionDays),
-        auditRetentionDays: Number(form.auditRetentionDays),
-        netwatchIntervalSec: Number(form.netwatchIntervalSec),
-        netwatchTimeoutMs: Number(form.netwatchTimeoutMs),
+        defaultMapLat: num('defaultMapLat'),
+        defaultMapLng: num('defaultMapLng'),
+        defaultMapZoom: num('defaultMapZoom'),
+        defaultPollSec: num('defaultPollSec'),
+        eventRetentionDays: num('eventRetentionDays'),
+        auditRetentionDays: num('auditRetentionDays'),
+        netwatchIntervalSec: num('netwatchIntervalSec'),
+        netwatchTimeoutMs: num('netwatchTimeoutMs'),
         netwatchExtraUp: form.netwatchExtraUp,
         netwatchExtraDown: form.netwatchExtraDown,
         telegramDownTemplate: form.telegramDownTemplate,
@@ -54,7 +82,7 @@ export default function AdminSettingsPage() {
       });
     },
     onSuccess: (s) => {
-      setForm(s);
+      setForm(toForm(s));
       qc.setQueryData(['settings'], s);
       qc.invalidateQueries({ queryKey: ['branding'] });
       setSavedMsg('Tersimpan ✓');
@@ -213,16 +241,16 @@ export default function AdminSettingsPage() {
         <h2 className="font-semibold text-slate-200">Default peta &amp; polling</h2>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Field label="Center lat">
-            <TextInput value={String(form.defaultMapLat)} onChange={(e) => setForm({ ...form, defaultMapLat: Number(e.target.value) })} />
+            <TextInput inputMode="decimal" value={form.defaultMapLat} onChange={(e) => setForm({ ...form, defaultMapLat: e.target.value })} />
           </Field>
           <Field label="Center lng">
-            <TextInput value={String(form.defaultMapLng)} onChange={(e) => setForm({ ...form, defaultMapLng: Number(e.target.value) })} />
+            <TextInput inputMode="decimal" value={form.defaultMapLng} onChange={(e) => setForm({ ...form, defaultMapLng: e.target.value })} />
           </Field>
           <Field label="Default zoom">
-            <TextInput value={String(form.defaultMapZoom)} onChange={(e) => setForm({ ...form, defaultMapZoom: Number(e.target.value) })} />
+            <TextInput inputMode="numeric" value={form.defaultMapZoom} onChange={(e) => setForm({ ...form, defaultMapZoom: e.target.value })} />
           </Field>
           <Field label="Poll interval (detik)">
-            <TextInput value={String(form.defaultPollSec)} onChange={(e) => setForm({ ...form, defaultPollSec: Number(e.target.value) })} />
+            <TextInput inputMode="numeric" value={form.defaultPollSec} onChange={(e) => setForm({ ...form, defaultPollSec: e.target.value })} />
           </Field>
         </div>
       </Card>
@@ -240,14 +268,16 @@ export default function AdminSettingsPage() {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Field label="Ping interval (detik)">
             <TextInput
-              value={String(form.netwatchIntervalSec)}
-              onChange={(e) => setForm({ ...form, netwatchIntervalSec: Number(e.target.value) })}
+              inputMode="numeric"
+              value={form.netwatchIntervalSec}
+              onChange={(e) => setForm({ ...form, netwatchIntervalSec: e.target.value })}
             />
           </Field>
           <Field label="ICMP timeout (ms)">
             <TextInput
-              value={String(form.netwatchTimeoutMs)}
-              onChange={(e) => setForm({ ...form, netwatchTimeoutMs: Number(e.target.value) })}
+              inputMode="numeric"
+              value={form.netwatchTimeoutMs}
+              onChange={(e) => setForm({ ...form, netwatchTimeoutMs: e.target.value })}
             />
           </Field>
         </div>
@@ -318,10 +348,10 @@ export default function AdminSettingsPage() {
         <h2 className="font-semibold text-slate-200">Retensi data</h2>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Field label="Event status (hari)">
-            <TextInput value={String(form.eventRetentionDays)} onChange={(e) => setForm({ ...form, eventRetentionDays: Number(e.target.value) })} />
+            <TextInput inputMode="numeric" value={form.eventRetentionDays} onChange={(e) => setForm({ ...form, eventRetentionDays: e.target.value })} />
           </Field>
           <Field label="Audit log (hari)">
-            <TextInput value={String(form.auditRetentionDays)} onChange={(e) => setForm({ ...form, auditRetentionDays: Number(e.target.value) })} />
+            <TextInput inputMode="numeric" value={form.auditRetentionDays} onChange={(e) => setForm({ ...form, auditRetentionDays: e.target.value })} />
           </Field>
         </div>
         <p className="text-2xs text-slate-500">
@@ -334,7 +364,7 @@ export default function AdminSettingsPage() {
           {save.isPending ? 'Menyimpan…' : 'Simpan perubahan'}
         </Button>
         {q.data && (
-          <Button variant="ghost" onClick={() => setForm(q.data)}>
+          <Button variant="ghost" onClick={() => setForm(toForm(q.data))}>
             Reset
           </Button>
         )}

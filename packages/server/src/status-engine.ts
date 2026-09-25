@@ -107,11 +107,41 @@ export async function applyDeviceStatusesByHost(
     await pipe.exec();
   }
 
+  const changedSites = new Set<string>();
+  let changedCount = 0;
   for (const t of transitions) {
-    await applyDeviceStatus(deps, t.device, t.status, source, t.at);
+    const changed = await applyDeviceStatus(deps, t.device, t.status, source, t.at, {
+      skipSiteSummary: true,
+    });
+    if (changed) {
+      changedCount++;
+      changedSites.add(t.device.siteId);
+    }
   }
 
-  return { matched: byIp.size, changed: transitions.length };
+  // Recompute + publish site.summary ONCE per affected site at the end —
+  // publishing it per device would fan out N redundant recomputes per poll.
+  for (const siteId of changedSites) {
+    const summary = await computeSiteSummary(deps.prisma, siteId);
+    await publishSiteEvent(deps.redisPub, siteId, {
+      type: 'site.summary',
+      siteId,
+      summary,
+    });
+  }
+
+  return { matched: byIp.size, changed: changedCount };
+}
+
+/** Options for applyDeviceStatus. */
+export interface ApplyDeviceStatusOptions {
+  /**
+   * Skip the site.summary recompute+publish after a transition. Batch callers
+   * that apply many transitions in a loop set this and publish ONE summary per
+   * affected site at the end (see applyDeviceStatusesByHost and the worker's
+   * reconcile-to-unknown sweep).
+   */
+  skipSiteSummary?: boolean;
 }
 
 /** Apply a status to a known device row. Returns whether the status changed. */
@@ -121,6 +151,7 @@ export async function applyDeviceStatus(
   newStatus: DeviceStatus,
   source: StatusSource,
   occurredAt: Date = new Date(),
+  opts: ApplyDeviceStatusOptions = {},
 ): Promise<boolean> {
   const cachePayload = JSON.stringify({
     status: newStatus,
@@ -134,30 +165,46 @@ export async function applyDeviceStatus(
     return false;
   }
 
-  const oldStatus = device.status;
   // Clear ack metadata on recovery — an incident has ended; the next down event
   // is a fresh incident that must be acknowledged again.
   const clearAck = newStatus === 'up';
-  const updated = await deps.prisma.$transaction(async (tx) => {
-    const d = await tx.device.update({
-      where: { id: device.id },
+
+  // Atomic transition. The row is re-read INSIDE the transaction and the write
+  // is guarded on the status just observed (`updateMany` with `status: cur`),
+  // so a concurrent writer (webhook vs poller vs reconcile) can no longer
+  // interleave between our read and update — which used to produce duplicate
+  // StatusEvents and clobber a fresher status. `count === 0` means another
+  // writer transitioned first (or the row was deleted mid-flight): treat it as
+  // "no transition" — heartbeat refresh only, no event/publish/notify.
+  const applied = await deps.prisma.$transaction(async (tx) => {
+    const cur = await tx.device.findUnique({ where: { id: device.id } });
+    if (!cur || cur.status === newStatus) return null;
+    const res = await tx.device.updateMany({
+      where: { id: device.id, status: cur.status },
       data: {
         status: newStatus,
         statusSince: occurredAt,
         ...(clearAck ? { ackBy: null, ackAt: null } : {}),
       },
     });
+    if (res.count === 0) return null;
     await tx.statusEvent.create({
       data: {
         deviceId: device.id,
-        oldStatus,
+        oldStatus: cur.status,
         newStatus,
         source,
         occurredAt,
       },
     });
-    return d;
+    return cur;
   });
+
+  if (!applied) {
+    await deps.redisPub.set(REDIS_KEYS.deviceStatus(device.id), cachePayload);
+    return false;
+  }
+  const oldStatus = applied.status;
 
   await deps.redisPub.set(REDIS_KEYS.deviceStatus(device.id), cachePayload);
 
@@ -170,19 +217,23 @@ export async function applyDeviceStatus(
     source,
   });
 
-  // Push an updated site summary so dashboards stay in sync without polling.
-  const summary = await computeSiteSummary(deps.prisma, device.siteId);
-  await publishSiteEvent(deps.redisPub, device.siteId, {
-    type: 'site.summary',
-    siteId: device.siteId,
-    summary,
-  });
+  if (!opts.skipSiteSummary) {
+    // Push an updated site summary so dashboards stay in sync without polling.
+    const summary = await computeSiteSummary(deps.prisma, device.siteId);
+    await publishSiteEvent(deps.redisPub, device.siteId, {
+      type: 'site.summary',
+      siteId: device.siteId,
+      summary,
+    });
+  }
 
   // Fire-and-forget Telegram alert for critical devices (server mode).
-  await maybeNotifyTelegram(deps, device, oldStatus, newStatus);
+  // `applied` is the row re-read inside the tx, so isCritical/manualOverride/
+  // silencedUntil are as fresh as the transition itself.
+  await maybeNotifyTelegram(deps, applied, oldStatus, newStatus);
 
   deps.logger.info(
-    { deviceId: device.id, name: updated.name, oldStatus, newStatus, source },
+    { deviceId: device.id, name: applied.name, oldStatus, newStatus, source },
     'device status changed',
   );
   return true;
@@ -196,6 +247,14 @@ export async function updateRouterStatus(
   resource: RouterResource | null,
 ): Promise<void> {
   const lastSeenAt = status === 'online' ? new Date() : undefined;
+  // Read the current status first: the fan-out below is only worth it when
+  // reachability actually changed — a steady 'online' heartbeat every poll
+  // interval would otherwise spam every joined socket with a no-op event.
+  // lastSeenAt + the Redis heartbeat are still written unconditionally.
+  const prev = await deps.prisma.routerMikrotik.findUnique({
+    where: { id: router.id },
+    select: { status: true },
+  });
   await deps.prisma.routerMikrotik.update({
     where: { id: router.id },
     data: {
@@ -208,6 +267,7 @@ export async function updateRouterStatus(
     REDIS_KEYS.routerStatus(router.id),
     JSON.stringify({ status, at: new Date().toISOString() }),
   );
+  if (prev?.status === status) return;
   await publishSiteEvent(deps.redisPub, router.siteId, {
     type: 'router.status',
     siteId: router.siteId,

@@ -18,6 +18,8 @@
 #
 # Flags (automation): --ip, --frontend-domain, --backend-domain, --backend-port,
 #   --frontend-port, --tls/--no-tls, --yes (skip prompts, reuse .env),
+#   --app-bind 127.0.0.1 (bind the published app ports to localhost only —
+#                       recommended when a proxy/tunnel fronts the apps),
 #   --cloudflare  (external proxy / Cloudflare Tunnel: apps on the ports, domain
 #                  URLs over HTTPS, no bundled Caddy — just forward localhost).
 # =============================================================================
@@ -38,6 +40,7 @@ BACKEND_PORT="${BACKEND_PORT:-$(getenv BACKEND_PORT)}"
 FRONTEND_PORT="${FRONTEND_PORT:-$(getenv FRONTEND_PORT)}"
 TLS="${TLS:-$(getenv DEPLOY_TLS)}"
 EXTERNAL="${EXTERNAL:-$(getenv DEPLOY_EXTERNAL)}"
+APP_BIND="${APP_BIND:-$(getenv APP_BIND)}"
 ASSUME_YES=0
 
 # ---- flags ----
@@ -53,6 +56,7 @@ while [ $# -gt 0 ]; do
     --no-tls) TLS=0; shift ;;
     --cloudflare|--external-proxy|--external) EXTERNAL=1; shift ;;
     --proxy) EXTERNAL=0; shift ;; # use the bundled Caddy proxy instead of an external one
+    --app-bind|--bind) APP_BIND="$2"; shift 2 ;;
     -y|--yes) ASSUME_YES=1; shift ;;
     -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
@@ -83,9 +87,12 @@ TLS="${TLS:-0}"
 EXTERNAL="${EXTERNAL:-0}"
 BACKEND_PORT="${BACKEND_PORT:-3500}"
 FRONTEND_PORT="${FRONTEND_PORT:-3600}"
-HTTP_PORT=80
-HTTPS_PORT=443
-APP_BIND=""   # apps are always published on the custom host ports (direct access)
+HTTP_PORT="${HTTP_PORT:-$(getenv HTTP_PORT)}";   HTTP_PORT="${HTTP_PORT:-80}"
+HTTPS_PORT="${HTTPS_PORT:-$(getenv HTTPS_PORT)}"; HTTPS_PORT="${HTTPS_PORT:-443}"
+# Optional bind address for the published app ports. Compose expects an "IP:"
+# prefix (${APP_BIND}port:container), so normalise to include the colon.
+APP_BIND="${APP_BIND:-}"
+[ -n "$APP_BIND" ] && APP_BIND="${APP_BIND%:}:"
 
 # ---- derive URLs + (when a domain is set) the bundled Caddy proxy ----
 CADDYFILE="./Caddyfile"
@@ -120,7 +127,8 @@ elif [ -n "$FRONTEND_DOMAIN" ]; then
     cat > .caddy/Caddyfile <<CADDY
 ${FS} {
 	encode gzip
-	reverse_proxy frontend:3000
+	handle /ws* { reverse_proxy backend:4000 }
+	handle { reverse_proxy frontend:3000 }
 }
 ${BS} {
 	encode gzip
@@ -149,6 +157,23 @@ fi
 
 echo "==> ${LAYOUT}  web=${WEB_URL}  api=${API_URL}  (apps on host ${FRONTEND_PORT}/${BACKEND_PORT})"
 
+# Behind a proxy/tunnel the app ports don't need to be reachable from the LAN —
+# suggest binding them to loopback unless the operator already chose a bind.
+BIND_HINT=""
+if [ -z "$APP_BIND" ] && [ "$LAYOUT" != "direct" ]; then
+  BIND_HINT="   TIP: app ports are published on all interfaces — re-run with --app-bind 127.0.0.1 to expose them only through the proxy"
+fi
+
+# X-Forwarded-For (client IPs for rate limiting / audit logs) is only trusted
+# when the app ports are loopback-bound, i.e. reachable solely via the proxy.
+TRUST_PROXY="${TRUST_PROXY:-$(getenv TRUST_PROXY)}"
+if [ -z "$TRUST_PROXY" ]; then
+  case "${APP_BIND%:}" in
+    127.0.0.1|localhost|::1) TRUST_PROXY=true ;;
+    *) TRUST_PROXY=false ;;
+  esac
+fi
+
 # ---- prerequisites ----
 for pkg in curl openssl; do
   command -v "$pkg" >/dev/null 2>&1 || { echo "==> installing $pkg"; $SUDO apt-get update -y && $SUDO apt-get install -y "$pkg"; }
@@ -170,13 +195,36 @@ JWT_ACCESS_SECRET="$(getenv JWT_ACCESS_SECRET)";       JWT_ACCESS_SECRET="${JWT_
 JWT_REFRESH_SECRET="$(getenv JWT_REFRESH_SECRET)";     JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-$(openssl rand -base64 48)}"
 CREDENTIALS_ENC_KEY="$(getenv CREDENTIALS_ENC_KEY)";   CREDENTIALS_ENC_KEY="${CREDENTIALS_ENC_KEY:-$(openssl rand -base64 32)}"
 SUPER_ADMIN_EMAIL="$(getenv SUPER_ADMIN_EMAIL)";       SUPER_ADMIN_EMAIL="${SUPER_ADMIN_EMAIL:-admin@noc.local}"
-SUPER_ADMIN_PASSWORD="$(getenv SUPER_ADMIN_PASSWORD)"; SUPER_ADMIN_PASSWORD="${SUPER_ADMIN_PASSWORD:-admin123}"
+# Random per-install password (printed once in the summary); kept on re-runs.
+SUPER_ADMIN_PASSWORD="$(getenv SUPER_ADMIN_PASSWORD)"; SUPER_ADMIN_PASSWORD="${SUPER_ADMIN_PASSWORD:-$(openssl rand -base64 12)}"
 SUPER_ADMIN_NAME="$(getenv SUPER_ADMIN_NAME)";         SUPER_ADMIN_NAME="${SUPER_ADMIN_NAME:-Super Admin}"
+
+# ---- operator-tunable settings: keep existing .env values on re-run ----
+LOG_LEVEL="$(getenv LOG_LEVEL)";                       LOG_LEVEL="${LOG_LEVEL:-info}"
+TRUST_PROXY="${TRUST_PROXY:-}"
+WEBHOOK_IP_ALLOWLIST="$(getenv WEBHOOK_IP_ALLOWLIST)"; WEBHOOK_IP_ALLOWLIST="${WEBHOOK_IP_ALLOWLIST:-}"
+UPLOAD_DIR="$(getenv UPLOAD_DIR)";                     UPLOAD_DIR="${UPLOAD_DIR:-./uploads}"
+MAX_UPLOAD_MB="$(getenv MAX_UPLOAD_MB)";               MAX_UPLOAD_MB="${MAX_UPLOAD_MB:-8}"
+JWT_ACCESS_TTL="$(getenv JWT_ACCESS_TTL)";             JWT_ACCESS_TTL="${JWT_ACCESS_TTL:-15m}"
+JWT_REFRESH_TTL="$(getenv JWT_REFRESH_TTL)";           JWT_REFRESH_TTL="${JWT_REFRESH_TTL:-30d}"
+WORKER_HEALTH_PORT="$(getenv WORKER_HEALTH_PORT)";     WORKER_HEALTH_PORT="${WORKER_HEALTH_PORT:-4100}"
+POLL_INTERVAL_DEFAULT_SEC="$(getenv POLL_INTERVAL_DEFAULT_SEC)"; POLL_INTERVAL_DEFAULT_SEC="${POLL_INTERVAL_DEFAULT_SEC:-20}"
+RECONCILE_INTERVAL_SEC="$(getenv RECONCILE_INTERVAL_SEC)";       RECONCILE_INTERVAL_SEC="${RECONCILE_INTERVAL_SEC:-300}"
+WORKER_SHARD_COUNT="$(getenv WORKER_SHARD_COUNT)";     WORKER_SHARD_COUNT="${WORKER_SHARD_COUNT:-1}"
+WORKER_SHARD_INDEX="$(getenv WORKER_SHARD_INDEX)";     WORKER_SHARD_INDEX="${WORKER_SHARD_INDEX:-0}"
+SEED_DEMO="$(getenv SEED_DEMO)";                       SEED_DEMO="${SEED_DEMO:-}"
+
+# Keys written by this script — anything else already in .env is an operator
+# addition and gets carried over so re-runs don't silently drop custom vars.
+MANAGED_KEYS="NODE_ENV LOG_LEVEL DEPLOY_LAYOUT DEPLOY_TLS DEPLOY_EXTERNAL SERVER_IP FRONTEND_DOMAIN BACKEND_DOMAIN BACKEND_PORT FRONTEND_PORT HTTP_PORT HTTPS_PORT APP_BIND CADDYFILE CADDY_SITE_ADDRESS PUBLIC_BASE_URL CORS_ORIGIN POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB DATABASE_URL REDIS_URL BACKEND_HOST TRUST_PROXY WORKER_HEALTH_PORT POLL_INTERVAL_DEFAULT_SEC RECONCILE_INTERVAL_SEC WORKER_SHARD_COUNT WORKER_SHARD_INDEX JWT_ACCESS_SECRET JWT_REFRESH_SECRET JWT_ACCESS_TTL JWT_REFRESH_TTL CREDENTIALS_ENC_KEY WEBHOOK_IP_ALLOWLIST UPLOAD_DIR MAX_UPLOAD_MB SUPER_ADMIN_EMAIL SUPER_ADMIN_PASSWORD SUPER_ADMIN_NAME SEED_DEMO NEXT_PUBLIC_API_BASE_URL NEXT_PUBLIC_WS_URL NEXT_PUBLIC_BACKEND_PORT"
+EXTRA_ENV=""
+[ -f .env ] && EXTRA_ENV="$(awk -F= -v keys=" ${MANAGED_KEYS} " \
+  '/^[A-Za-z_][A-Za-z0-9_]*=/ { if (index(keys, " " $1 " ") == 0) print }' .env)"
 
 # ---- write .env ----
 cat > .env <<EOF
 NODE_ENV=production
-LOG_LEVEL=info
+LOG_LEVEL=${LOG_LEVEL}
 
 # ---- Deployment (set by deploy.sh) ----
 DEPLOY_LAYOUT=${LAYOUT}
@@ -207,41 +255,56 @@ REDIS_URL=redis://redis:6379
 
 # ---- Backend ----
 BACKEND_HOST=0.0.0.0
+# Trust X-Forwarded-For for client IPs (rate limits, audit). 'true' only when the
+# app ports are loopback-bound behind a proxy — otherwise spoofable.
+TRUST_PROXY=${TRUST_PROXY}
 
 # ---- Worker ----
-WORKER_HEALTH_PORT=4100
-POLL_INTERVAL_DEFAULT_SEC=20
-RECONCILE_INTERVAL_SEC=300
-WORKER_SHARD_COUNT=1
-WORKER_SHARD_INDEX=0
+WORKER_HEALTH_PORT=${WORKER_HEALTH_PORT}
+POLL_INTERVAL_DEFAULT_SEC=${POLL_INTERVAL_DEFAULT_SEC}
+RECONCILE_INTERVAL_SEC=${RECONCILE_INTERVAL_SEC}
+WORKER_SHARD_COUNT=${WORKER_SHARD_COUNT}
+WORKER_SHARD_INDEX=${WORKER_SHARD_INDEX}
 
 # ---- Auth (JWT) ----
 JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
 JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
-JWT_ACCESS_TTL=15m
-JWT_REFRESH_TTL=30d
+JWT_ACCESS_TTL=${JWT_ACCESS_TTL}
+JWT_REFRESH_TTL=${JWT_REFRESH_TTL}
 
 # ---- Credential encryption (AES-256-GCM) ----
 CREDENTIALS_ENC_KEY=${CREDENTIALS_ENC_KEY}
 
 # ---- Webhook ----
-WEBHOOK_IP_ALLOWLIST=
+WEBHOOK_IP_ALLOWLIST=${WEBHOOK_IP_ALLOWLIST}
 
 # ---- Uploads ----
-UPLOAD_DIR=./uploads
-MAX_UPLOAD_MB=8
+UPLOAD_DIR=${UPLOAD_DIR}
+MAX_UPLOAD_MB=${MAX_UPLOAD_MB}
 
 # ---- First super admin (change the password after first login!) ----
 SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL}
 SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD}
 SUPER_ADMIN_NAME=${SUPER_ADMIN_NAME}
-# Set SEED_DEMO=true for sample data; leave unset for a clean production DB.
+# Set SEED_DEMO=true for demo accounts + sample data; empty = clean production DB.
+SEED_DEMO=${SEED_DEMO}
 
 # ---- Frontend (baked into the build) ----
 NEXT_PUBLIC_API_BASE_URL=${API_URL}
 NEXT_PUBLIC_WS_URL=${WS_URL}
 NEXT_PUBLIC_BACKEND_PORT=${BACKEND_PORT}
 EOF
+
+# Re-attach operator-added keys this script doesn't manage (survive re-runs).
+if [ -n "$EXTRA_ENV" ]; then
+  {
+    echo ""
+    echo "# ---- Operator additions (preserved from previous .env) ----"
+    printf '%s\n' "$EXTRA_ENV"
+  } >> .env
+fi
+# .env contains secrets — keep it readable by root only.
+chmod 600 .env
 echo "==> wrote .env"
 
 # ---- build + start ----
@@ -276,6 +339,7 @@ cat <<EOF
  Migrations + seed run automatically on the backend container.
  Open the firewall for port(s): ${PORTS_NOTE}
 ${DNS_NOTE}
+${BIND_HINT}
  Logs:   docker compose ${COMPOSE_PROFILE} logs -f
  Stop:   docker compose ${COMPOSE_PROFILE} down
  Update: git pull && sudo ./deploy.sh --yes        # reuse saved config

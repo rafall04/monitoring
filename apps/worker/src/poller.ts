@@ -2,10 +2,20 @@ import {
   applyDeviceStatusesByHost,
   clientForRouter,
   updateRouterStatus,
+  type MikrotikClient,
   type RouterMikrotik,
   type StatusEngineDeps,
 } from '@noc/server';
 import type { DeviceStatus } from '@noc/shared';
+
+export interface PollHooks {
+  /**
+   * Called with the freshly created client as soon as it exists, so the caller
+   * can force-close its socket (`abort()`) when a poll deadline expires while a
+   * command is still in flight — otherwise the wedged socket lingers until GC.
+   */
+  onClient?: (client: MikrotikClient) => void;
+}
 
 /**
  * Poll one router's Netwatch table and reconcile device statuses. Also refreshes
@@ -16,8 +26,10 @@ import type { DeviceStatus } from '@noc/shared';
 export async function pollRouter(
   deps: StatusEngineDeps,
   router: RouterMikrotik,
+  hooks?: PollHooks,
 ): Promise<{ devicesSeen: number }> {
   const client = clientForRouter(router);
+  hooks?.onClient?.(client);
   try {
     const resource = await client.getResource();
     await updateRouterStatus(deps, router, 'online', resource);

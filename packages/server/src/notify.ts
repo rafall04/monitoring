@@ -11,21 +11,32 @@ import type { PrismaClient } from '@prisma/client';
 import type { Logger } from 'pino';
 import { renderTemplate } from '@noc/shared';
 import { decryptSecret } from './crypto';
+import { createLogger } from './logger';
 import type { Redis } from './redis';
 import { getSettings } from './settings';
 
 const TG_API = 'https://api.telegram.org';
+const log = createLogger('notify');
 
-/** Send one Telegram message. Returns true on HTTP 2xx. Never throws. */
+/**
+ * Send one Telegram message. Returns true on HTTP 2xx. Never throws.
+ * Bounded by a 10s timeout — this is awaited in the device status path, so a
+ * hung Telegram API call must not stall status application.
+ */
 export async function sendTelegram(botToken: string, chatId: string, text: string): Promise<boolean> {
   try {
     const res = await fetch(`${TG_API}/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(10_000),
     });
+    if (!res.ok) {
+      log.warn({ status: res.status }, 'telegram sendMessage returned non-2xx');
+    }
     return res.ok;
-  } catch {
+  } catch (err) {
+    log.warn({ err: (err as Error)?.message ?? String(err) }, 'telegram sendMessage failed');
     return false;
   }
 }

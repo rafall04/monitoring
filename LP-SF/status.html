@@ -6,17 +6,24 @@ $(if refresh-timeout)
 <meta http-equiv="refresh" content="$(refresh-timeout-secs)">
 $(endif)
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" /><style>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Status sesi WiFi PT Shou Fong Lastindo" />
+<meta name="theme-color" content="#0099bb" />
+<meta name="color-scheme" content="light" />
+<style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 20px;
+    padding: 16px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     color: #1f2937;
     background: linear-gradient(135deg, #0099bb 0%, #6610f2 100%);
+    background-attachment: fixed;
+    -webkit-text-size-adjust: 100%;
   }
   .card {
     width: 100%;
@@ -24,19 +31,21 @@ $(endif)
     background: #fff;
     border-radius: 18px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
-    padding: 26px 24px 22px;
+    padding: 26px 22px 18px;
     text-align: center;
   }
-  h3 { font-size: 15px; font-weight: 600; color: #6b7280; }
+  h1 { font-size: 15px; font-weight: 600; color: #4b5563; }
   .user { font-size: 22px; font-weight: 700; color: #0099bb; margin: 4px 0 16px; word-break: break-all; }
   table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 14px; }
-  td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; }
-  td.k { width: 40%; color: #6b7280; font-weight: 600; }
+  td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; word-break: break-word; }
+  td.k { width: 42%; color: #4b5563; font-weight: 600; }
   tr:hover td { background: #f9fafb; }
   .btn {
+    display: block;
     width: 100%;
+    min-height: 48px;
     padding: 12px;
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 700;
     letter-spacing: .5px;
     color: #fff;
@@ -44,12 +53,36 @@ $(endif)
     border-radius: 50px;
     cursor: pointer;
     background: linear-gradient(135deg, #0099bb, #6610f2);
+    -webkit-tap-highlight-color: transparent;
   }
   .btn:hover { opacity: .92; }
-  .warn { color: #f86c6b; }
+  .btn:active { transform: scale(.98); }
+  .btn:focus-visible { outline: 2px solid #0099bb; outline-offset: 2px; }
+  .warn { color: #dc2626; }
   iframe { float: none; height: 22px; width: 100%; border: 0; }
-  .foot { margin-top: 16px; font-size: 11px; color: #b6bcc4; }
-  .foot b { color: #8a909a; }
+  .foot { margin-top: 16px; font-size: 11px; color: #6b7280; line-height: 1.6; }
+  .foot b { color: #4b5563; }
+  .foot a { color: #007a96; font-weight: 600; }
+
+  @media (max-width: 360px) {
+    body { padding: 12px; }
+    .card { padding: 20px 16px 14px; border-radius: 14px; }
+    .user { font-size: 19px; }
+    table { font-size: 13px; }
+    td { padding: 7px 8px; }
+  }
+
+  @media (max-height: 500px) {
+    body { align-items: flex-start; padding: 12px; }
+    .card { padding: 18px 18px 14px; }
+    .user { margin-bottom: 10px; }
+    table { margin-bottom: 10px; }
+    .foot { margin-top: 10px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
 </style>
 <script language="JavaScript">
 $(if advert-pending == 'yes')
@@ -70,15 +103,15 @@ $(endif)
 </head>
 
 <body $(if advert-pending == 'yes') onLoad="openAdvert()" $(endif)>
-  <div class="card">
+  <main class="card">
     $(if login-by == 'trial')
-      <h3>Selamat Datang</h3>
+      <h1>Selamat Datang</h1>
       <div class="user" id="user">$(mac)</div>
     $(elif login-by != 'mac')
-      <h3>Selamat Datang</h3>
+      <h1>Selamat Datang</h1>
       <div class="user" id="user">$(username)</div>
     $(elif login-by = 'mac')
-      <h3>Selamat Datang</h3>
+      <h1>Selamat Datang</h1>
       <div class="user" id="user">$(mac)</div>
     $(endif)
 
@@ -106,8 +139,8 @@ $(endif)
       $(endif)
     </form>
 
-    <div class="foot">Aplikasi tidak bisa diakses? Itu batas akses akun Anda &mdash; bukan error.<br>Kendala koneksi / minta penambahan akses: <b>IT Support &mdash; Aldi</b><br>&copy; Copyright 2026 | <b>RAF</b> - All rights reserved</div>
-  </div>
+    <div class="foot">Aplikasi tidak bisa diakses? Itu batas akses akun Anda &mdash; bukan error.<br>Kendala koneksi / minta penambahan akses: bot WhatsApp IT <a href="https://wa.me/6285137501184">0851-3750-1184</a><br>&copy; Copyright 2026 | <b>RAF</b> - All rights reserved</div>
+  </main>
 
 <script type="text/javascript">
   try { document.getElementById('title').innerHTML = window.location.hostname + ' &gt; status'; } catch (e) {}

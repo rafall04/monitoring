@@ -80,7 +80,7 @@ export default function SiteMapPage() {
   const toast = useToast();
   const confirm = useConfirm();
 
-  useSiteSocket(
+  const live = useSiteSocket(
     siteId,
     useCallback((ev) => applyWsEvent(qc, ev), [qc]),
   );
@@ -170,6 +170,23 @@ export default function SiteMapPage() {
         subtitle={`${site.data.region ? `${site.data.region} · ` : ''}${devices.data?.length ?? 0} devices`}
         actions={
           <>
+            {/* WS health — without it a dead socket looks identical to a live
+                map that happens to be quiet. */}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-2xs font-medium ${
+                live ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'
+              }`}
+              title={
+                live
+                  ? 'Realtime: perubahan status masuk langsung'
+                  : 'Koneksi realtime terputus — data di-refresh tiap 60 detik'
+              }
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${live ? 'bg-emerald-400' : 'animate-pulse bg-amber-400'}`}
+              />
+              {live ? 'Live' : 'Menyambung ulang…'}
+            </span>
             {canCreate && (
               <Button
                 variant="secondary"
@@ -316,6 +333,10 @@ export default function SiteMapPage() {
           />
         ) : selected || adding ? (
           <MarkerPanel
+            // Form state is initialized from `device` at mount — remount per
+            // selection so editing device A then clicking B can't leak A's
+            // field values into B's record.
+            key={selected?.id ?? 'add'}
             site={site.data}
             mode={adding ? 'add' : 'edit'}
             device={selected}
@@ -325,6 +346,7 @@ export default function SiteMapPage() {
             canEditAttributes={canEditAttr}
             canCreate={canCreate}
             canDelete={canDelete}
+            busy={update.isPending || create.isPending}
             onClose={() => {
               setSelected(null);
               setAdding(null);

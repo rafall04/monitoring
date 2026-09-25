@@ -1,14 +1,21 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useBranding } from '@/lib/branding';
 
-export default function LoginPage() {
+/** Safe post-login target: only same-origin paths, never '//' (scheme-relative). */
+function safeNext(raw: string | null): string | null {
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return null;
+  return raw;
+}
+
+function LoginForm() {
   const { login } = useAuth();
   const branding = useBranding();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -22,8 +29,9 @@ export default function LoginPage() {
     try {
       const u = await login(email, password);
       // Members (hotspot end-users) land on their self-service page; staff on
-      // the NOC overview.
-      router.replace(u.role === 'member' ? '/akun' : '/');
+      // the NOC overview — unless a deep link was preserved across the login.
+      const next = safeNext(searchParams.get('next'));
+      router.replace(next ?? (u.role === 'member' ? '/akun' : '/'));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -149,6 +157,15 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+// useSearchParams() must sit under a Suspense boundary (Next.js App Router).
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }
 

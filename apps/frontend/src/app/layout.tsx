@@ -14,7 +14,7 @@ const themeScript = `(function(){try{var t=localStorage.getItem('noc_theme');doc
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="id" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>

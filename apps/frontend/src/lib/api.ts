@@ -30,8 +30,31 @@ export function setTokens(access: string, refresh: string): void {
   localStorage.setItem(ACCESS_KEY, access);
   localStorage.setItem(REFRESH_KEY, refresh);
 }
+// ---- auth state sync ---------------------------------------------------------
+// Token storage lives in localStorage but React state lives in AuthProvider.
+// tryRefresh() rewrites the stored snapshot out-of-band (a refresh response
+// carries a fresh user — role/scope may have changed server-side), so listeners
+// are notified to keep the context in step without a full page reload.
+const authListeners = new Set<(u: AppUserPublic | null) => void>();
+export function onAuthChange(cb: (u: AppUserPublic | null) => void): () => void {
+  authListeners.add(cb);
+  return () => {
+    authListeners.delete(cb);
+  };
+}
+function notifyAuthChange(u: AppUserPublic | null): void {
+  for (const cb of authListeners) {
+    try {
+      cb(u);
+    } catch {
+      /* listener errors must not break the request path */
+    }
+  }
+}
+
 export function setStoredUser(user: AppUserPublic): void {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
+  notifyAuthChange(user);
 }
 export function getStoredUser(): AppUserPublic | null {
   if (typeof window === 'undefined') return null;
@@ -47,6 +70,22 @@ export function clearAuth(): void {
   localStorage.removeItem(ACCESS_KEY);
   localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);
+  notifyAuthChange(null);
+}
+
+// ---- forced logout -----------------------------------------------------------
+// Concurrent 401s can all decide the session is dead at once — guard so only
+// the first performs the redirect (the navigation unloads the page anyway).
+let loggingOut = false;
+export function redirectToLogin(): void {
+  if (typeof window === 'undefined' || loggingOut) return;
+  loggingOut = true;
+  // Already on the login page — keep the URL as-is (it may carry its own
+  // ?next= already; wrapping it again would nest the param).
+  if (window.location.pathname === '/login') return;
+  // Preserve the deep link so the user lands back where they were.
+  const here = window.location.pathname + window.location.search;
+  window.location.href = `/login?next=${encodeURIComponent(here)}`;
 }
 
 export class ApiError extends Error {
@@ -60,7 +99,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function tryRefresh(): Promise<boolean> {
+async function doRefresh(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
   try {
@@ -79,6 +118,22 @@ export async function tryRefresh(): Promise<boolean> {
   }
 }
 
+// Single-flight refresh: the backend ROTATES the refresh token on every call,
+// so a burst of concurrent 401s must share one request — parallel refreshes
+// race, the losers land on the just-revoked token, and everyone gets logged out.
+let refreshPromise: Promise<boolean> | null = null;
+export function tryRefresh(): Promise<boolean> {
+  refreshPromise ??= doRefresh().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
+}
+
+// 401 on these endpoints is an expected answer (bad credentials, dead refresh
+// token) — not an expired session to recover from. Anything else under /auth/
+// (e.g. /auth/me, /auth/change-password) DOES go through the refresh retry.
+const AUTH_401_EXEMPT = new Set(['/auth/login', '/auth/refresh', '/auth/logout']);
+
 async function request<T>(path: string, init: RequestInit, retry = true): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) {
@@ -89,10 +144,10 @@ async function request<T>(path: string, init: RequestInit, retry = true): Promis
 
   const res = await fetch(`${apiBase()}/api/v1${path}`, { ...init, headers });
 
-  if (res.status === 401 && retry && !path.startsWith('/auth/')) {
+  if (res.status === 401 && retry && !AUTH_401_EXEMPT.has(path.split('?')[0] ?? path)) {
     if (await tryRefresh()) return request<T>(path, init, false);
     clearAuth();
-    if (typeof window !== 'undefined') window.location.href = '/login';
+    redirectToLogin();
     throw new ApiError(401, 'Session expired');
   }
 

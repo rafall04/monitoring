@@ -1,15 +1,17 @@
 // =============================================================================
-// Seed: first super_admin (from env) + demo data (company/sites/routers/devices)
-// + demo operator & viewer accounts so RBAC can be tried immediately.
-// Safe to re-run: the super_admin is upserted; demo data is created only once.
+// Seed: first super_admin (from env). Demo operator & viewer accounts + demo
+// data (company/sites/routers/devices) only when SEED_DEMO=true.
+// Safe to re-run: users are created-only (existing accounts never touched —
+// no re-activation, no role/password reset); demo data is created only once.
 // =============================================================================
 
 import bcrypt from 'bcryptjs';
 import { prisma } from '../src/db';
 import { encryptSecret, generateToken } from '../src/crypto';
 
-// Create a user if missing; for an existing user only refresh role/active so a
-// password the admin already changed is never reset by a redeploy.
+// Create a user only if missing. `update: {}` means a re-seed NEVER touches an
+// existing account: no password reset, no re-activation of a disabled account,
+// no role flip back — a redeploy must not undo an admin's deliberate change.
 async function ensureUser(
   email: string,
   name: string,
@@ -19,7 +21,7 @@ async function ensureUser(
 ) {
   await prisma.appUser.upsert({
     where: { email },
-    update: { role, isActive: true },
+    update: {},
     create: {
       name,
       email,
@@ -32,25 +34,26 @@ async function ensureUser(
 }
 
 async function main() {
-  // ---- Default accounts (always seeded; password only set on first create) ----
+  // ---- Super admin (always seeded; password only set on first create) ----
   const adminEmail = process.env.SUPER_ADMIN_EMAIL ?? 'admin@noc.local';
   const adminPassword = process.env.SUPER_ADMIN_PASSWORD ?? 'admin123';
   const adminName = process.env.SUPER_ADMIN_NAME ?? 'Super Admin';
 
   await ensureUser(adminEmail, adminName, adminPassword, 'super_admin');
-  await ensureUser('operator@noc.local', 'Operator', 'operator123', 'operator');
-  await ensureUser('demo@noc.local', 'Demo Viewer', 'demo123', 'viewer');
-  console.log('✓ default accounts ready:');
-  console.log(`   ${adminEmail} / ${adminPassword}  (super_admin)`);
-  console.log('   operator@noc.local / operator123  (operator)');
-  console.log('   demo@noc.local / demo123  (viewer)');
+  // Never log the password — it lands in container logs / CI output otherwise.
+  console.log(`✓ super_admin ready: ${adminEmail}`);
 
-  // Demo data (Demo Corp + sample sites/routers/devices) is OPT-IN so production
-  // deploys start with a clean database. Enable with SEED_DEMO=true.
+  // Demo accounts + demo data (Demo Corp + sample sites/routers/devices) are
+  // OPT-IN so production deploys start with a clean database and no extra
+  // logins with well-known passwords. Enable with SEED_DEMO=true.
   if (process.env.SEED_DEMO !== 'true') {
-    console.log('• SEED_DEMO not set — skipping demo data (clean start)');
+    console.log('• SEED_DEMO not set — skipping demo accounts + demo data (clean start)');
     return;
   }
+
+  await ensureUser('operator@noc.local', 'Operator', 'operator123', 'operator');
+  await ensureUser('demo@noc.local', 'Demo Viewer', 'demo123', 'viewer');
+  console.log('✓ demo accounts ready: operator@noc.local, demo@noc.local');
 
   const existing = await prisma.company.count();
   if (existing > 0) {

@@ -25,10 +25,32 @@ declare module 'fastify' {
   }
 }
 
+/**
+ * Parse TRUST_PROXY into a Fastify-compatible value:
+ * 'true'/'false' -> boolean, digits -> hop count, otherwise a comma-separated
+ * list of trusted proxy IPs/CIDRs. Default 'false': the backend port is usually
+ * published on the host, and trusting XFF from any peer makes client-IP-based
+ * controls (rate limits, webhook allowlist) spoofable.
+ */
+function parseTrustProxy(raw: string): boolean | number | string[] {
+  const v = raw.trim();
+  if (v === 'true') return true;
+  if (v === 'false' || v === '') return false;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
-    trustProxy: true,
+    trustProxy: parseTrustProxy(env.TRUST_PROXY),
     bodyLimit: 1_048_576,
+    // Cap wedged connections (e.g. a dead upstream hanging a proxied request)
+    // so sockets can't pile up forever.
+    connectionTimeout: 30_000,
+    requestTimeout: 60_000,
     logger: {
       level: env.LOG_LEVEL,
       ...(isDev
@@ -43,7 +65,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   await app.register(cors, {
-    origin: corsOrigins.length > 0 ? corsOrigins : true,
+    // Fail closed: an empty whitelist must NOT reflect arbitrary origins.
+    // (Same-origin traffic via the frontend proxy never needs CORS anyway.)
+    origin: corsOrigins.length > 0 ? corsOrigins : false,
     credentials: true,
   });
   await app.register(jwt, {
@@ -57,7 +81,20 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   const uploadDir = resolve(env.UPLOAD_DIR);
   await mkdir(uploadDir, { recursive: true });
-  await app.register(fastifyStatic, { root: uploadDir, prefix: '/uploads/' });
+  await app.register(fastifyStatic, {
+    root: uploadDir,
+    prefix: '/uploads/',
+    setHeaders: (res, filePath) => {
+      // Uploads are user content served from our origin: never sniff MIME, and
+      // strip scripting ability. SVGs get the strictest policy — an uploaded
+      // SVG executing same-origin JS could steal the localStorage auth token.
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader(
+        'Content-Security-Policy',
+        filePath.endsWith('.svg') ? "default-src 'none'" : 'sandbox',
+      );
+    },
+  });
 
   app.decorateRequest('appUser', null);
   const redisPub = createRedis('backend-pub');

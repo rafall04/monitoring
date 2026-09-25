@@ -45,7 +45,11 @@ export default function AdminSitesPage() {
   const [editRouterId, setEditRouterId] = useState<string | null>(null);
   const [scriptFor, setScriptFor] = useState<{ routerId: string; host: string; cli: string; mode: string } | null>(null);
 
-  const addCompany = useMutation({ mutationFn: () => api.post('/companies', { name: companyName }), onSuccess: () => { setCompanyName(''); invalidate(); } });
+  const addCompany = useMutation({
+    mutationFn: () => api.post('/companies', { name: companyName }),
+    onSuccess: () => { setCompanyName(''); invalidate(); },
+    onError: (e) => toast.error(`Gagal menambah company: ${(e as Error).message}`),
+  });
   const addSite = useMutation({
     mutationFn: () =>
       api.post('/sites', {
@@ -57,6 +61,7 @@ export default function AdminSitesPage() {
         defaultZoom: Number(siteForm.defaultZoom),
       }),
     onSuccess: () => { setSiteForm({ ...siteForm, name: '' }); invalidate(); },
+    onError: (e) => toast.error(`Gagal menambah site: ${(e as Error).message}`),
   });
   const addRouter = useMutation({
     mutationFn: () =>
@@ -71,6 +76,7 @@ export default function AdminSitesPage() {
         routerosVersion: routerForm.routerosVersion,
       }),
     onSuccess: () => { setRouterForm({ ...routerForm, name: '', host: '', password: '' }); invalidate(); },
+    onError: (e) => toast.error(`Gagal menambah router: ${(e as Error).message}`),
   });
   const delSite = useMutation({
     mutationFn: (id: string) => api.del(`/sites/${id}`),

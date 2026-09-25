@@ -1,6 +1,7 @@
 $(if http-status == 302)Hotspot login required$(endif)
 $(if http-header == "Location")$(link-redirect)$(endif)
-<html>
+<!DOCTYPE html>
+<html lang="id">
 <!--
 <?xml version="1.0" encoding="UTF-8"?>
   <WISPAccessGatewayParam
@@ -17,11 +18,14 @@ $(if http-header == "Location")$(link-redirect)$(endif)
   </WISPAccessGatewayParam>
 -->
 <head>
-<title>...</title>
+<title>Mengalihkan...</title>
 <meta http-equiv="refresh" content="0; url=$(link-redirect)">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="pragma" content="no-cache">
 <meta http-equiv="expires" content="-1">
 </head>
 <body>
+<p>Login diperlukan &mdash; <a href="$(link-redirect)">klik di sini untuk melanjutkan</a>.</p>
 </body>
 </html>

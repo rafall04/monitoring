@@ -16,6 +16,7 @@ import {
 } from '@noc/shared';
 import { api } from '@/lib/api';
 import { DEVICE_ICONS, deviceSvg } from '@/lib/icons';
+import { useToast } from '@/lib/toast';
 import { Button, Field, Select, StatusPill, Textarea, TextInput } from './ui';
 
 interface MarkerPanelProps {
@@ -28,6 +29,8 @@ interface MarkerPanelProps {
   canEditAttributes: boolean;
   canCreate: boolean;
   canDelete: boolean;
+  /** Parent mutation in flight — guards the submit button against double-click. */
+  busy?: boolean;
   onClose: () => void;
   onSave: (id: string, patch: UpdateDeviceInput) => void;
   onCreate: (body: CreateDeviceInput) => void;
@@ -36,6 +39,7 @@ interface MarkerPanelProps {
 
 export default function MarkerPanel(props: MarkerPanelProps) {
   const { site, mode, device, addPos, routers, areas } = props;
+  const toast = useToast();
 
   const [name, setName] = useState(device?.name ?? '');
   const [ipAddress, setIpAddress] = useState(device?.ipAddress ?? '');
@@ -77,7 +81,11 @@ export default function MarkerPanel(props: MarkerPanelProps) {
 
   const save = () => {
     if (mode === 'add') {
-      if (!routerId) return;
+      // Used to silently return — the operator got no hint why nothing happened.
+      if (!routerId) {
+        toast.error('Pilih router dulu — setiap device butuh router sebagai sumber Netwatch.');
+        return;
+      }
       // syncNetwatch defaults to true on the backend — operators don't need to
       // think about it. It's a no-op anyway when ipAddress is null.
       const body: CreateDeviceInput = {
@@ -336,8 +344,8 @@ export default function MarkerPanel(props: MarkerPanelProps) {
 
       {editable && (
         <div className="flex items-center justify-between gap-2 border-t border-surface-border p-4">
-          <Button variant="primary" onClick={save} disabled={!name}>
-            {mode === 'add' ? 'Create' : 'Save'}
+          <Button variant="primary" onClick={save} disabled={!name || props.busy}>
+            {props.busy ? 'Menyimpan…' : mode === 'add' ? 'Create' : 'Save'}
           </Button>
           {mode === 'edit' && device && props.canDelete && (
             <Button variant="danger" onClick={() => props.onDelete(device.id)}>

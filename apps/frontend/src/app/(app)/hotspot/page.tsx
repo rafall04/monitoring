@@ -161,6 +161,7 @@ export default function HotspotPage() {
       setNewUser(emptyUser);
       invalidateUsers();
     },
+    onError: (e) => toast.error(`Gagal menambah user: ${(e as Error).message}`),
   });
   const updateUser = useMutation({
     mutationFn: (body: {
@@ -176,6 +177,7 @@ export default function HotspotPage() {
       setEditUser(null);
       invalidateUsers();
     },
+    onError: (e) => toast.error(`Gagal menyimpan user: ${(e as Error).message}`),
   });
   const resetCounters = useMutation({
     mutationFn: (id: string) => api.post(`/hotspot/${rid}/users/reset-counters`, { id }),
@@ -289,6 +291,7 @@ export default function HotspotPage() {
       setEditProfile(null);
       invalidateProfiles();
     },
+    onError: (e) => toast.error(`Gagal menyimpan profil: ${(e as Error).message}`),
   });
 
   // ---- vouchers ----
@@ -311,6 +314,7 @@ export default function HotspotPage() {
         limitBytesTotal: toBytes(voucher.limitData, voucher.limitUnit),
       }),
     onSuccess: (d) => setVoucherRows(d.vouchers),
+    onError: (e) => toast.error(`Gagal membuat voucher: ${(e as Error).message}`),
   });
 
   if (!canView)

@@ -40,7 +40,7 @@ shutting-down = Layanan hotspot tutup
 # If user profile has limit of shared-users, then this error will be shown
 # after reaching this limit
 
-user-session-limit = Akun $(username) sedang dipakai di perangkat lain (maks. 1). Logout dulu atau hubungi IT Support.
+user-session-limit = Akun $(username) sedang dipakai di perangkat lain (maks. 1). Logout dulu atau chat bot WA IT: 0851-3750-1184.
 
 # license-session-limit
 # Depending on licence number of active hotspot clients is limited to
@@ -72,19 +72,19 @@ chap-missing = web browser did not send challenge response (try again, enable Ja
 # has sent an error string with Access-Reject message, then it will
 # override this setting.
 
-invalid-username = Username / Password tidak sesuai. Periksa kembali — lupa akun? Hubungi IT Support (Aldi).
+invalid-username = Username / Password tidak sesuai. Periksa kembali — lupa akun? Chat bot WA IT: 0851-3750-1184.
 
 # invalid-mac
 # Local users (on hotspot server) can be bound to some MAC address. If login
 # from different MAC is tried, this error message will be shown.
 
-invalid-mac = Akun $(username) tidak bisa dipakai di perangkat ini (MAC berbeda). Hubungi IT Support.
+invalid-mac = Akun $(username) tidak bisa dipakai di perangkat ini (MAC berbeda). Chat bot WA IT: 0851-3750-1184.
 
 # uptime-limit, traffic-limit
 # For local hotspot users in case if limits are reached
 
-uptime-limit = Batas waktu pemakaian $(username) sudah habis. Hubungi IT Support untuk reset.
-traffic-limit = Kuota data $(username) sudah habis. Hubungi IT Support untuk reset.
+uptime-limit = Batas waktu pemakaian $(username) sudah habis. Chat bot WA IT 0851-3750-1184 untuk reset.
+traffic-limit = Kuota data $(username) sudah habis. Chat bot WA IT 0851-3750-1184 untuk reset.
 
 # radius-timeout
 # User is authenticated by RADIUS server, but no response is received from it,

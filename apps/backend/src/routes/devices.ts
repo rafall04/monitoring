@@ -19,7 +19,7 @@ import {
   reorderSchema,
   updateDeviceSchema,
 } from '@noc/shared';
-import { badRequest, notFound } from '../lib/errors';
+import { badRequest, conflict, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import {
   assertSiteAccess,
@@ -88,23 +88,44 @@ export async function deviceRoutes(app: FastifyInstance) {
       if (!router) throw notFound('Router not found');
       assertSiteAccess(req.appUser, router.siteId);
 
-      const created = await prisma.device.create({
-        data: {
-          routerId: router.id,
-          siteId: router.siteId,
-          name: body.name,
-          ipAddress: body.ipAddress ?? null,
-          type: body.type,
-          iconKey: body.iconKey ?? null,
-          iconUrl: body.iconUrl ?? null,
-          geoLat: body.geoLat ?? null,
-          geoLng: body.geoLng ?? null,
-          mapX: body.mapX ?? null,
-          mapY: body.mapY ?? null,
-          isCritical: body.isCritical,
-          note: body.note ?? null,
-        },
-      });
+      // (routerId, ipAddress) is unique — return a clear 409 instead of a
+      // P2002 500. Pre-check for a friendly message; the catch below covers
+      // the race.
+      if (body.ipAddress) {
+        const dupe = await prisma.device.findFirst({
+          where: { routerId: router.id, ipAddress: body.ipAddress },
+          select: { id: true },
+        });
+        if (dupe) {
+          throw conflict(`A device with IP ${body.ipAddress} already exists on this router`);
+        }
+      }
+
+      let created;
+      try {
+        created = await prisma.device.create({
+          data: {
+            routerId: router.id,
+            siteId: router.siteId,
+            name: body.name,
+            ipAddress: body.ipAddress ?? null,
+            type: body.type,
+            iconKey: body.iconKey ?? null,
+            iconUrl: body.iconUrl ?? null,
+            geoLat: body.geoLat ?? null,
+            geoLng: body.geoLng ?? null,
+            mapX: body.mapX ?? null,
+            mapY: body.mapY ?? null,
+            isCritical: body.isCritical,
+            note: body.note ?? null,
+          },
+        });
+      } catch (e) {
+        if (isUniqueViolation(e)) {
+          throw conflict(`A device with IP ${body.ipAddress} already exists on this router`);
+        }
+        throw e;
+      }
 
       let netwatchSynced = false;
       let netwatchError: string | undefined;
@@ -156,7 +177,73 @@ export async function deviceRoutes(app: FastifyInstance) {
       if (!before) throw notFound('Device not found');
       assertSiteAccess(req.appUser, before.siteId);
 
-      let d = await prisma.device.update({ where: { id }, data: patch });
+      // Structural fields must reference objects in the SAME site — mirror the
+      // /assign endpoint's validation so PATCH can't park a device in another
+      // site's area/line.
+      const { areaId: reqAreaId, lineId: reqLineId, ...fields } = patch;
+      let areaId: string | null | undefined; // undefined = untouched
+      let lineId: string | null | undefined;
+      if (reqLineId !== undefined) {
+        if (reqLineId) {
+          const line = await prisma.line.findUnique({
+            where: { id: reqLineId },
+            include: { area: true },
+          });
+          if (!line || line.area.siteId !== before.siteId) {
+            throw badRequest('Line not in this site');
+          }
+          lineId = line.id;
+          areaId = line.areaId; // keep area consistent with the line
+        } else {
+          lineId = null;
+        }
+      }
+      if (reqAreaId !== undefined) {
+        if (reqAreaId) {
+          const area = await prisma.area.findUnique({ where: { id: reqAreaId } });
+          if (!area || area.siteId !== before.siteId) {
+            throw badRequest('Area not in this site');
+          }
+          areaId = area.id;
+          const keptLineId = lineId !== undefined ? lineId : before.lineId;
+          if (keptLineId) {
+            const ln = await prisma.line.findUnique({ where: { id: keptLineId } });
+            if (!ln || ln.areaId !== areaId) lineId = null; // line no longer matches
+          }
+        } else {
+          areaId = null;
+          lineId = null;
+        }
+      }
+
+      // (routerId, ipAddress) is unique — pre-check for a friendly 409; the
+      // catch below covers the race.
+      if (patch.ipAddress && patch.ipAddress !== before.ipAddress) {
+        const dupe = await prisma.device.findFirst({
+          where: { routerId: before.routerId, ipAddress: patch.ipAddress, NOT: { id } },
+          select: { id: true },
+        });
+        if (dupe) {
+          throw conflict(`A device with IP ${patch.ipAddress} already exists on this router`);
+        }
+      }
+
+      let d;
+      try {
+        d = await prisma.device.update({
+          where: { id },
+          data: {
+            ...fields,
+            ...(areaId !== undefined ? { areaId } : {}),
+            ...(lineId !== undefined ? { lineId } : {}),
+          },
+        });
+      } catch (e) {
+        if (isUniqueViolation(e)) {
+          throw conflict(`A device with IP ${patch.ipAddress} already exists on this router`);
+        }
+        throw e;
+      }
 
       // Re-install the router entry whenever a field that is BAKED INTO it
       // changed — the watched host, the label, or the criticality that decides
@@ -205,6 +292,16 @@ export async function deviceRoutes(app: FastifyInstance) {
         deviceId: dto.id,
         device: dto,
       });
+      // manualOverride/isCritical change the DISPLAYED status (maintenance
+      // wins) and site counts — push a fresh summary so dashboards stay honest
+      // without waiting for the next device.status event.
+      if (patch.manualOverride !== undefined || patch.isCritical !== undefined) {
+        await publishSiteEvent(app.redisPub, dto.siteId, {
+          type: 'site.summary',
+          siteId: dto.siteId,
+          summary: await computeSiteSummary(prisma, dto.siteId),
+        });
+      }
       await writeAudit(req, {
         action: 'update',
         entity: 'device',
@@ -430,4 +527,10 @@ async function installNetwatchForDevice(
   } finally {
     await client.close();
   }
+}
+
+/** Prisma unique-constraint violation (P2002), checked structurally so we
+ *  don't need a runtime import of @prisma/client in the backend package. */
+function isUniqueViolation(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { code?: unknown }).code === 'P2002';
 }

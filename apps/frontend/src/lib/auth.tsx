@@ -6,8 +6,10 @@ import { hasPermission } from '@noc/shared';
 import {
   api,
   clearAuth,
+  getAccessToken,
   getRefreshToken,
   getStoredUser,
+  onAuthChange,
   setStoredUser,
   setTokens,
 } from './api';
@@ -37,6 +39,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setUser(getStoredUser());
     setReady(true);
+
+    // The localStorage snapshot can be stale (role/scope changed by an admin,
+    // or the account deactivated) — re-fetch once so the UI agrees with what
+    // the backend will actually enforce. A 401 here flows through the api
+    // client's refresh/relogin path on its own.
+    if (getAccessToken()) {
+      api
+        .get<AppUserPublic>('/auth/me')
+        .then((u) => {
+          setStoredUser(u);
+          setUser(u);
+        })
+        .catch(() => {
+          /* network blip — keep the cached snapshot */
+        });
+    }
+  }, []);
+
+  // tryRefresh() (in lib/api) writes a fresh user snapshot on every token
+  // rotation — mirror it into React state so role/scope changes take effect
+  // without a reload.
+  useEffect(() => onAuthChange((u) => setUser(u)), []);
+
+  // Cross-tab sync: logout (or a login as a different user) in another tab is
+  // invisible to this one without a storage listener. The Shell redirects to
+  // /login as soon as `user` goes null.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'noc_user' || e.key === 'noc_access' || e.key === 'noc_refresh') {
+        setUser(getStoredUser());
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   const login = async (email: string, password: string) => {

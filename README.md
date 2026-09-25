@@ -135,12 +135,20 @@ Same via flags (automation), e.g. `sudo ./deploy.sh --ip 172.17.11.12
 `--yes` to skip prompts and reuse the saved config. TLS needs the domains public
 + ports 80/443 reachable for the ACME challenge.
 
-Three accounts are seeded by default — **change the passwords after first login**
-(or set `SUPER_ADMIN_PASSWORD` before the first run):
+The installer generates a random `SUPER_ADMIN_PASSWORD` (printed once in the
+deploy summary; kept on re-runs — set it yourself before the first run to choose
+it). Only the super-admin is always seeded — **change the password after first
+login**:
 
 | Login | Password | Role |
 | --- | --- | --- |
-| `admin@noc.local` | `admin123` | super admin |
+| `admin@noc.local` | `$SUPER_ADMIN_PASSWORD` | super admin |
+
+The demo accounts + sample data are opt-in via `SEED_DEMO=true` (in `.env`
+before the first deploy, or inline with `npm run seed`):
+
+| Login | Password | Role |
+| --- | --- | --- |
 | `operator@noc.local` | `operator123` | operator |
 | `demo@noc.local` | `demo123` | viewer |
 
@@ -197,6 +205,8 @@ See `.env.example` for the full list. Highlights:
 | `CREDENTIALS_ENC_KEY` | base64 **32-byte** key for AES-256-GCM router secrets |
 | `PUBLIC_BASE_URL` | public URL used when generating Netwatch scripts |
 | `WEBHOOK_IP_ALLOWLIST` | optional CSV of router IPs allowed to hit the webhook |
+| `TRUST_PROXY` | trust `X-Forwarded-For` (`true`, hop count, or proxy IPs) — only when behind a proxy and the backend port isn't public |
+| `APP_BIND` | optional bind IP for the published app ports (e.g. `127.0.0.1:` behind a proxy) — `deploy.sh --app-bind` |
 | `POLL_INTERVAL_DEFAULT_SEC` | default worker poll interval |
 | `WORKER_SHARD_COUNT` / `WORKER_SHARD_INDEX` | horizontal worker scaling |
 | `NEXT_PUBLIC_API_BASE_URL` / `NEXT_PUBLIC_WS_URL` | inlined into the frontend at **build** time |

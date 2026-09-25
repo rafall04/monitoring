@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   clientForRouter,
+  computeSiteSummary,
   decryptSecret,
   encryptSecret,
   env,
@@ -9,9 +10,13 @@ import {
   getNetwatchConfig,
   netwatchApiInput,
   prisma,
+  publishSiteEvent,
   scriptFor,
+  toDeviceDto,
   toRouterPublic,
-  type Prisma,
+  updateRouterStatus,
+  type Device,
+  type Logger,
 } from '@noc/server';
 import {
   createRouterSchema,
@@ -112,26 +117,22 @@ export async function routerRoutes(app: FastifyInstance) {
     return null;
   });
 
-  // Test Connection: returns identity + resource if reachable.
+  // Test Connection: returns identity + resource if reachable. Status writes go
+  // through updateRouterStatus (status-engine) so the Redis cache and the
+  // `router.status` realtime event stay consistent with the worker poller.
   app.post('/:id/test', testGuard, async (req) => {
     const { id } = idParamSchema.parse(req.params);
     const r = await prisma.routerMikrotik.findUnique({ where: { id } });
     if (!r) throw notFound('Router not found');
     assertSiteAccess(req.appUser, r.siteId);
+    const deps = { prisma, redisPub: app.redisPub, logger: req.log as unknown as Logger };
     const client = clientForRouter(r);
     try {
       const resource: RouterResource = await client.getResource();
-      await prisma.routerMikrotik.update({
-        where: { id },
-        data: {
-          status: 'online',
-          lastSeenAt: new Date(),
-          resourceCache: resource as unknown as Prisma.InputJsonValue,
-        },
-      });
+      await updateRouterStatus(deps, r, 'online', resource);
       return { ok: true, resource };
     } catch (err) {
-      await prisma.routerMikrotik.update({ where: { id }, data: { status: 'offline' } });
+      await updateRouterStatus(deps, r, 'offline', null);
       throw badGateway(`Connection failed: ${(err as Error)?.message ?? err}`);
     } finally {
       await client.close();
@@ -330,6 +331,7 @@ export async function routerRoutes(app: FastifyInstance) {
     let imported = 0;
     let skipped = 0;
     const created: string[] = [];
+    const createdRows: Device[] = [];
     try {
       const entries = await client.listNetwatch();
       let order = await prisma.device.count({ where: { siteId: r.siteId, areaId: null } });
@@ -342,9 +344,10 @@ export async function routerRoutes(app: FastifyInstance) {
         const type = guessDeviceType(`${e.comment ?? ''} ${e.name ?? ''} ${name}`);
         const status = e.status === 'up' ? 'up' : e.status === 'down' ? 'down' : 'unknown';
         const d = await prisma.device.create({
-          data: { routerId: r.id, siteId: r.siteId, name, ipAddress: e.host, type, status, netwatchSynced: true, orderIndex: order++ },
+          data: { routerId: r.id, siteId: r.siteId, name, ipAddress: e.host, type, status, statusSince: new Date(), netwatchSynced: true, orderIndex: order++ },
         });
         created.push(d.name);
+        createdRows.push(d);
         known.add(e.host);
         imported++;
       }
@@ -352,6 +355,23 @@ export async function routerRoutes(app: FastifyInstance) {
       throw badGateway(`MikroTik error: ${(err as Error)?.message ?? err}`);
     } finally {
       await client.close();
+    }
+
+    // Realtime fan-out: same event shapes the frontend applyWsEvent expects —
+    // a device.created per row, then one recomputed site summary.
+    for (const d of createdRows) {
+      await publishSiteEvent(app.redisPub, r.siteId, {
+        type: 'device.created',
+        siteId: r.siteId,
+        device: toDeviceDto(d),
+      });
+    }
+    if (createdRows.length > 0) {
+      await publishSiteEvent(app.redisPub, r.siteId, {
+        type: 'site.summary',
+        siteId: r.siteId,
+        summary: await computeSiteSummary(prisma, r.siteId),
+      });
     }
     await writeAudit(req, { action: 'netwatch-import', entity: 'router', entityId: id, after: { imported, skipped } });
     return { imported, skipped, devices: created };

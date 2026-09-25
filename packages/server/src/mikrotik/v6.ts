@@ -49,6 +49,36 @@ function describeBlock(r: Row): string {
 
 type Row = Record<string, string>;
 
+/**
+ * Best-effort synchronous teardown of a node-routeros connection: clears its
+ * internal keepalive timers and destroys the transport socket directly. Used
+ * when the conn is broken/wedged and a graceful close() could hang — the
+ * library's close() resolves only on the connector's 'close' event, which a
+ * dead socket may never emit. Never throws.
+ */
+function killRouterOsConn(conn: RouterOSAPI): void {
+  try {
+    const c = conn as unknown as {
+      connector?: { destroy?: () => void } | null;
+      connectionHoldInterval?: NodeJS.Timeout;
+      keptaliveby?: NodeJS.Timeout;
+      connected: boolean;
+      connecting: boolean;
+    };
+    if (c.connectionHoldInterval) clearTimeout(c.connectionHoldInterval);
+    if (c.keptaliveby) clearTimeout(c.keptaliveby);
+    c.connected = false;
+    c.connecting = false;
+    try {
+      c.connector?.destroy?.();
+    } catch {
+      /* socket already dead */
+    }
+  } catch {
+    /* cleanup path — never throw */
+  }
+}
+
 function num(v: string | undefined): number | undefined {
   if (v == null) return undefined;
   const n = Number(v);
@@ -106,6 +136,12 @@ export class RouterOsV6Client implements MikrotikClient {
   private connected = false;
   /** In-flight connect, so concurrent callers share one socket. */
   private connecting: Promise<RouterOSAPI> | null = null;
+  /**
+   * Bumped on close()/abort() so a connect still in flight knows the caller
+   * already gave up — the fresh socket is destroyed instead of resurrecting
+   * state nobody will ever close.
+   */
+  private generation = 0;
   private readonly cfg: MikrotikConfig;
 
   constructor(cfg: MikrotikConfig) {
@@ -151,7 +187,25 @@ export class RouterOsV6Client implements MikrotikClient {
         this.connected = false;
       },
     );
-    await conn.connect();
+    const gen = this.generation;
+    try {
+      await conn.connect();
+    } catch (err) {
+      // Connect failed mid-handshake — make sure the socket is really dead.
+      killRouterOsConn(conn);
+      throw err;
+    }
+    if (gen !== this.generation) {
+      // close()/abort() ran while connect() was in flight; don't adopt a socket
+      // the caller already dropped.
+      killRouterOsConn(conn);
+      throw new Error('mikrotik connection closed while connecting');
+    }
+    // A previous conn can still be parked here: write() only flips `connected`
+    // on failure, leaving the broken socket referenced. Kill it BEFORE
+    // overwriting so it can't leak.
+    const stale = this.conn;
+    if (stale && stale !== conn) killRouterOsConn(stale);
     this.conn = conn;
     this.connected = true;
     return conn;
@@ -1045,15 +1099,47 @@ export class RouterOsV6Client implements MikrotikClient {
   }
 
   async close(): Promise<void> {
-    if (this.conn && this.connected) {
-      try {
-        await this.conn.close();
-      } catch {
-        /* ignore close errors */
-      }
-    }
-    this.connected = false;
+    // Close whenever a conn exists — not only when `connected` is true. A conn
+    // whose socket died mid-command has connected=false yet still holds the
+    // socket object + keepalive timers, so gating on `connected` leaked it.
+    const conn = this.conn;
     this.conn = null;
+    this.connected = false;
+    this.generation++; // invalidate any in-flight connect
+    if (!conn) return;
+    try {
+      // Graceful FIN first — but conn.close() resolves only on the connector's
+      // 'close' event, which a wedged socket may never emit. Cap the wait, then
+      // force-destroy whatever is left (idempotent after a successful close).
+      await Promise.race([
+        conn.close().catch(() => undefined),
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, 1500).unref();
+        }),
+      ]);
+    } catch {
+      /* ignore close errors */
+    }
+    killRouterOsConn(conn);
+  }
+
+  /**
+   * Force-close the underlying socket synchronously — for callers whose
+   * deadline already expired and cannot wait for a graceful FIN that may never
+   * arrive (a wedged connection's close() resolves only on the connector
+   * 'close' event). The next api() call reconnects cleanly. Never throws.
+   */
+  abort(): void {
+    this.generation++;
+    const conn = this.conn;
+    this.conn = null;
+    this.connected = false;
+    if (conn) killRouterOsConn(conn);
+  }
+
+  /** Synonym for abort() — force-close the socket without waiting. */
+  destroy(): void {
+    this.abort();
   }
 
   private hotspotParams(input: Partial<AddHotspotUserInput>): string[] {

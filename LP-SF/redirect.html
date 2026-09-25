@@ -1,12 +1,16 @@
 $(if http-status == 302)Hotspot redirect$(endif)
 $(if http-header == "Location")$(link-redirect)$(endif)
-<html>
+<!DOCTYPE html>
+<html lang="id">
 <head>
-<title>...</title>
+<title>Mengalihkan...</title>
 <meta http-equiv="refresh" content="0; url=$(link-redirect)">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="pragma" content="no-cache">
 <meta http-equiv="expires" content="-1">
 </head>
 <body>
+<p>Anda sedang dialihkan &mdash; <a href="$(link-redirect)">klik di sini jika halaman tidak berpindah</a>.</p>
 </body>
 </html>

@@ -68,6 +68,17 @@ export default function DiagnosticsPage() {
   const confirm = useConfirm();
   const toast = useToast();
 
+  // Mutation results belong to the router they ran against — switching the
+  // selector without resetting would show router A's log/ping under router B.
+  const selectRouter = (id: string) => {
+    setRid(id);
+    ping.reset();
+    trace.reset();
+    netInfo.reset();
+    log.reset();
+    poe.reset();
+  };
+
   const valid = isIp(ip);
   const busy = ping.isPending || netInfo.isPending;
 
@@ -112,7 +123,7 @@ export default function DiagnosticsPage() {
               <span className="text-xs text-slate-400">Router</span>
               <Select
                 value={routerId ?? ''}
-                onChange={(e) => setRid(e.target.value)}
+                onChange={(e) => selectRouter(e.target.value)}
                 className="w-full sm:w-64"
               >
                 {routers.data?.map((r) => (

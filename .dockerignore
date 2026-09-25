@@ -7,11 +7,23 @@ dist
 .git
 .gitignore
 *.md
-!README.md
 .env
 .env.*
 uploads
+**/uploads
 logs
 caddy_data
 caddy_config
 npm-debug.log*
+
+# Repo docs / tooling / deploy assets — not needed inside the images.
+docs/
+LP-SF/
+.github/
+.caddy/
+.preview/
+.claude/
+deploy.sh
+docker-compose.yml
+Caddyfile
+README.md

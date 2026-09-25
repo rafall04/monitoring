@@ -154,7 +154,10 @@ model Device {
 
   @@index([siteId])
   @@index([routerId])
-  @@index([routerId, ipAddress])
+  // One row per watched host per router: status is resolved by
+  // routerId+ipAddress, so duplicates would race which row gets the update.
+  // Postgres still allows multiple rows with ipAddress = NULL.
+  @@unique([routerId, ipAddress])
   @@index([siteId, status])
   @@index([lineId])
   @@index([areaId])
@@ -171,6 +174,8 @@ model StatusEvent {
   occurredAt DateTime @default(now())
 
   @@index([deviceId, occurredAt])
+  // Retention sweep purges by `occurredAt < cutoff` — without this it seq-scans.
+  @@index([occurredAt])
   @@map("status_event")
 }
 
@@ -206,6 +211,8 @@ model RefreshToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+  // Retention sweep purges expired tokens by `expiresAt < now`.
+  @@index([expiresAt])
   @@map("refresh_token")
 }
 

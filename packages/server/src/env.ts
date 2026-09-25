@@ -35,6 +35,11 @@ const EnvSchema = z.object({
   BACKEND_HOST: z.string().default('0.0.0.0'),
   BACKEND_PORT: z.coerce.number().int().default(4000),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
+  // X-Forwarded-For handling: 'true'/'false', a hop count, or a CSV of trusted
+  // proxy IPs/CIDRs. Keep 'false' while the backend port is published directly —
+  // a publicly reachable API trusting XFF lets anyone spoof client IPs and dodge
+  // rate limits / IP allowlists.
+  TRUST_PROXY: z.string().default('false'),
 
   WORKER_HEALTH_PORT: z.coerce.number().int().default(4100),
   POLL_INTERVAL_DEFAULT_SEC: z.coerce.number().int().default(20),

@@ -41,6 +41,14 @@ export async function webhookRoutes(app: FastifyInstance) {
     const router = await prisma.routerMikrotik.findUnique({ where: { webhookToken: token } });
     if (!router) throw unauthorized('Invalid webhook token');
 
+    // Receiving a webhook proves the router is alive. Mark it BEFORE applying
+    // the device status (and before payload validation) so a downstream error
+    // or a malformed body can't leave the router flagged offline even though
+    // it just phoned home.
+    await prisma.routerMikrotik
+      .update({ where: { id: router.id }, data: { status: 'online', lastSeenAt: new Date() } })
+      .catch(() => undefined);
+
     const q = req.query as Record<string, string | undefined>;
     const b = (req.body ?? {}) as Record<string, unknown>;
     const parsed = netwatchWebhookSchema.parse({
@@ -53,11 +61,6 @@ export async function webhookRoutes(app: FastifyInstance) {
       { prisma, redisPub: app.redisPub, logger: req.log as unknown as Logger },
       { routerId: router.id, host: parsed.host, status: parsed.status, source: 'webhook' },
     );
-
-    // Receiving a webhook proves the router is alive.
-    await prisma.routerMikrotik
-      .update({ where: { id: router.id }, data: { status: 'online', lastSeenAt: new Date() } })
-      .catch(() => undefined);
 
     reply.code(204);
     return null;

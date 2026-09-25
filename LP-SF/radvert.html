@@ -1,29 +1,41 @@
-<html>
+<!DOCTYPE html>
+<html lang="id">
 <head>
-<title>mikrotik hotspot > advertisement</title>
+<title>Advertisement - PT Shou Fong Lastindo</title>
 <meta http-equiv="refresh" content="2; url=$(link-orig)">
-<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#0099bb" />
+<meta name="color-scheme" content="light" />
 <meta http-equiv="pragma" content="no-cache">
 <meta http-equiv="expires" content="-1">
-<style type="text/css">
-<!--
-textarea,input,select {
-	background-color: #FDFBFB;
-	border: 1px #BBBBBB solid;
-	padding: 2px;
-	margin: 1px;
-	font-size: 14px;
-	color: #808080;
-}
-
-body{ color: #737373; font-size: 12px; font-family: verdana; }
-
-a, a:link, a:visited, a:active { color: #AAAAAA; text-decoration: none; font-size: 12px; }
-a:hover { border-bottom: 1px dotted #c1c1c1; color: #AAAAAA; }
-img {border: none;}
-td { font-size: 12px; color: #7A7A7A; }
-
--->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #1f2937;
+    background: linear-gradient(135deg, #0099bb 0%, #6610f2 100%);
+    background-attachment: fixed;
+  }
+  .card {
+    width: 100%;
+    max-width: 400px;
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
+    padding: 26px 24px 20px;
+    text-align: center;
+  }
+  .big { font-size: 17px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
+  .sub { font-size: 13px; color: #4b5563; line-height: 1.6; }
+  .sub a { color: #007a96; font-weight: 600; }
+  .sub a:focus-visible { outline: 2px solid #0099bb; outline-offset: 2px; }
 </style>
 <script language="JavaScript">
 <!--
@@ -47,16 +59,13 @@ td { font-size: 12px; color: #7A7A7A; }
 </script>
 </head>
 <body onLoad="openAdvert()">
-<table width="100%" height="100%">
-<tr>
-	<td align="center" valign="middle">
-	Advertisement.
-	<br><br>
-	If nothing happens, open
-	<a href="$(link-redirect)" target="hotspot_advert">advertisement</a>
-	manually.
-	</td>
-</tr>
-</table>
+  <main class="card">
+    <div class="big">Advertisement</div>
+    <div class="sub">
+      Jika tidak terjadi apa-apa, buka
+      <a href="$(link-redirect)" target="hotspot_advert">advertisement</a>
+      secara manual.
+    </div>
+  </main>
 </body>
 </html>

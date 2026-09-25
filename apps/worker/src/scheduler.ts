@@ -1,7 +1,9 @@
 import {
   applyDeviceStatus,
+  computeSiteSummary,
   env,
   prisma,
+  publishSiteEvent,
   updateRouterStatus,
   type Logger,
   type RouterMikrotik,
@@ -13,19 +15,37 @@ interface RouterState {
   lastPolled: number;
   failures: number;
   nextAllowed: number; // circuit-breaker: do not poll before this time
+  /**
+   * Set once this outage's devices have been reconciled to `unknown`. The
+   * reconcile fires on EVERY failure past the threshold until it completes
+   * once (a crash mid-batch must not leave devices stuck on a stale status);
+   * reset when the router polls healthy again.
+   */
+  reconciled: boolean;
 }
 
 /**
  * Reject if `p` does not settle within `ms`. The underlying promise is left to
- * resolve/reject on its own (and any socket it holds will be GC'd) — the point
- * is that the *caller* is freed so a hung router poll can't block the scheduler.
+ * resolve/reject on its own — the point is that the *caller* is freed so a hung
+ * router poll can't block the scheduler. `onTimeout` lets the caller release
+ * resources the overdue work still holds (e.g. force-close the wedged RouterOS
+ * socket) instead of waiting on GC.
  */
-function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+function withDeadline<T>(
+  p: Promise<T>,
+  ms: number,
+  label: string,
+  onTimeout?: () => void,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`${label} exceeded ${ms}ms deadline`)),
-      ms,
-    );
+    const timer = setTimeout(() => {
+      try {
+        onTimeout?.();
+      } catch {
+        /* best effort */
+      }
+      reject(new Error(`${label} exceeded ${ms}ms deadline`));
+    }, ms);
     p.then(
       (v) => { clearTimeout(timer); resolve(v); },
       (e) => { clearTimeout(timer); reject(e); },
@@ -52,6 +72,8 @@ export class PollScheduler {
   private lastReload = 0;
   private running = false;
   private runningSince = 0;
+  /** Size of the batch currently in flight — feeds the scaled stuck threshold. */
+  private lastDueCount = 0;
   private timer: NodeJS.Timeout | null = null;
   private watchdog: NodeJS.Timeout | null = null;
 
@@ -96,9 +118,20 @@ export class PollScheduler {
   /** Defense-in-depth: a poll should never outlast its deadline, but if one
    *  somehow does, unstick the scheduler so it keeps polling other routers. */
   private checkStuck(): void {
-    if (this.running && Date.now() - this.runningSince > this.stuckMs) {
+    // Scale the ceiling with the batch actually in flight: with N due routers
+    // over `concurrency` lanes, a perfectly healthy tick can legitimately take
+    // (N/concurrency) * pollDeadlineMs. A fixed 120s false-fires on big fleets.
+    const threshold = Math.max(
+      this.stuckMs,
+      (this.lastDueCount / this.concurrency) * this.pollDeadlineMs * 1.5,
+    );
+    if (this.running && Date.now() - this.runningSince > threshold) {
       this.logger.error(
-        { stuckMs: Date.now() - this.runningSince },
+        {
+          stuckMs: Date.now() - this.runningSince,
+          thresholdMs: threshold,
+          dueCount: this.lastDueCount,
+        },
         'scheduler tick stuck past deadline — forcing it free (watchdog)',
       );
       this.running = false;
@@ -117,6 +150,12 @@ export class PollScheduler {
     const all = await prisma.routerMikrotik.findMany();
     this.routers = all.filter((r) => this.inShard(r.id));
     this.stats.routerCount = this.routers.length;
+    // Prune breaker/reconcile state for routers we no longer poll (deleted, or
+    // re-sharded to another worker) so the map can't grow without bound.
+    const live = new Set(this.routers.map((r) => r.id));
+    for (const id of this.state.keys()) {
+      if (!live.has(id)) this.state.delete(id);
+    }
   }
 
   private isDue(router: RouterMikrotik, now: number): boolean {
@@ -139,6 +178,7 @@ export class PollScheduler {
         this.lastReload = now;
       }
       const due = this.routers.filter((r) => this.isDue(r, now));
+      this.lastDueCount = due.length;
       if (due.length > 0) await this.runPool(due);
       this.stats.lastTick = Date.now();
     } catch (err) {
@@ -167,15 +207,26 @@ export class PollScheduler {
       lastPolled: 0,
       failures: 0,
       nextAllowed: 0,
+      reconciled: false,
     };
+    // The poller hands its client up so the deadline can force-close the wedged
+    // socket (abort()) — otherwise an overdue poll keeps the connection (and
+    // its keepalive timers) alive until GC.
+    let abortPoll: (() => void) | undefined;
     try {
       const { devicesSeen } = await withDeadline(
-        pollRouter(this.deps, router),
+        pollRouter(this.deps, router, {
+          onClient: (client) => {
+            abortPoll = () => (client as { abort?: () => void }).abort?.();
+          },
+        }),
         this.pollDeadlineMs,
         `poll ${router.host}`,
+        () => abortPoll?.(),
       );
       st.failures = 0;
       st.nextAllowed = 0;
+      st.reconciled = false; // healthy again — a future outage reconciles afresh
       this.logger.debug({ routerId: router.id, devicesSeen }, 'polled router');
     } catch (err) {
       st.failures++;
@@ -195,15 +246,20 @@ export class PollScheduler {
       // Once the router is confirmed offline (not a one-off timeout), its
       // devices' real status is unknowable — leaving them green would make the
       // dashboard lie during the exact event operators care about. Flip them to
-      // `unknown` exactly once on crossing the threshold; recovery polls restore
-      // real up/down from Netwatch. The status engine no-ops unchanged status.
-      if (st.failures === this.reconcileAfterFailures) {
-        await this.reconcileDevicesUnknown(router).catch((e) =>
+      // `unknown` once per outage; recovery polls restore real up/down from
+      // Netwatch. Firing only at failures === threshold could miss forever if
+      // the reconcile attempt itself crashed — so retry on EVERY subsequent
+      // failure until it completes once (reconciled), reset on success above.
+      if (st.failures >= this.reconcileAfterFailures && !st.reconciled) {
+        try {
+          await this.reconcileDevicesUnknown(router);
+          st.reconciled = true;
+        } catch (e) {
           this.logger.warn(
             { routerId: router.id, err: (e as Error)?.message ?? String(e) },
             'device reconciliation failed',
-          ),
-        );
+          );
+        }
       }
     } finally {
       st.lastPolled = Date.now();
@@ -217,8 +273,46 @@ export class PollScheduler {
       where: { routerId: router.id, status: { in: ['up', 'down'] } },
     });
     if (devices.length === 0) return;
+    const changedSites = new Set<string>();
     for (const device of devices) {
-      await applyDeviceStatus(this.deps, device, 'unknown', 'polling');
+      try {
+        const changed = await applyDeviceStatus(
+          this.deps,
+          device,
+          'unknown',
+          'polling',
+          undefined,
+          { skipSiteSummary: true },
+        );
+        if (changed) changedSites.add(device.siteId);
+      } catch (e) {
+        // One bad row (e.g. P2025 — the device was deleted mid-flight) must not
+        // abort the rest of the batch.
+        this.logger.warn(
+          {
+            routerId: router.id,
+            deviceId: device.id,
+            err: (e as Error)?.message ?? String(e),
+          },
+          'device reconcile to unknown failed',
+        );
+      }
+    }
+    // One site.summary publish per affected site at the end, not per device.
+    for (const siteId of changedSites) {
+      try {
+        const summary = await computeSiteSummary(this.deps.prisma, siteId);
+        await publishSiteEvent(this.deps.redisPub, siteId, {
+          type: 'site.summary',
+          siteId,
+          summary,
+        });
+      } catch (e) {
+        this.logger.warn(
+          { siteId, err: (e as Error)?.message ?? String(e) },
+          'site summary publish failed',
+        );
+      }
     }
     this.logger.info(
       { routerId: router.id, count: devices.length },

@@ -45,3 +45,21 @@ jobs:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
           NEXT_PUBLIC_WS_URL: ws://localhost:4000/ws
           NEXT_PUBLIC_BACKEND_PORT: '4000'
+
+      # Surface known vulnerabilities but don't fail CI yet — several advisories
+      # need major-version bumps tracked separately.
+      - name: Dependency audit (high+)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  # Builds every Dockerfile so a broken image fails CI instead of a deploy.
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build all images
+        run: docker compose build

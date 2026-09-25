@@ -41,6 +41,7 @@ import type {
   WsServerEvent,
 } from '@noc/shared';
 import { api } from './api';
+import { useToast } from './toast';
 
 export const qk = {
   sites: ['sites'] as const,
@@ -338,6 +339,9 @@ export function useSiteDevices(id: string | undefined) {
     queryKey: qk.siteDevices(id ?? ''),
     queryFn: () => api.get<Device[]>(`/sites/${id}/devices`),
     enabled: Boolean(id),
+    // Safety net for when the WS feed is down — the map may lag up to a
+    // minute, but never goes permanently stale.
+    refetchInterval: 60_000,
   });
 }
 export function useSiteSummary(id: string | undefined) {
@@ -345,6 +349,7 @@ export function useSiteSummary(id: string | undefined) {
     queryKey: qk.siteSummary(id ?? ''),
     queryFn: () => api.get<SiteSummary>(`/sites/${id}/summary`),
     enabled: Boolean(id),
+    refetchInterval: 60_000,
   });
 }
 export function useSiteWifi(id: string | undefined, enabled = true) {
@@ -573,6 +578,22 @@ export function applyWsEvent(qc: QueryClient, ev: WsServerEvent): void {
       upd(ev.siteId, (old) => old?.filter((d) => d.id !== ev.deviceId));
       touchSummary(ev.siteId);
       break;
+    case 'router.status':
+      // Patch every cached router list variant (all-sites + per-site) — the
+      // router row's status/lastSeenAt/resource chips update live.
+      qc.setQueriesData<RouterPublic[]>({ queryKey: ['routers'] }, (old) =>
+        old?.map((r) =>
+          r.id === ev.routerId
+            ? {
+                ...r,
+                status: ev.status,
+                lastSeenAt: ev.lastSeenAt,
+                resourceCache: ev.resource,
+              }
+            : r,
+        ),
+      );
+      break;
     case 'site.summary':
       qc.setQueryData(qk.siteSummary(ev.siteId), ev.summary);
       break;
@@ -585,6 +606,7 @@ export function applyWsEvent(qc: QueryClient, ev: WsServerEvent): void {
 
 export function useMoveDevice(siteId: string) {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (v: { id: string; pos: PatchDevicePositionInput }) =>
       api.patch<Device>(`/devices/${v.id}/position`, v.pos),
@@ -596,9 +618,13 @@ export function useMoveDevice(siteId: string) {
       );
       return { prev };
     },
-    onError: (_e, _v, ctx) => {
+    onError: (e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(qk.siteDevices(siteId), ctx.prev);
+      // The marker snaps back on rollback — say why, or it reads as a UI glitch.
+      toast.error(`Gagal memindahkan device: ${(e as Error).message}`);
     },
+    // Reconcile with the server even if the WS echo was missed/dropped.
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.siteDevices(siteId) }),
   });
 }
 
@@ -689,9 +715,13 @@ export function useAssignDevice(siteId: string) {
 
 export function useReorderDevices(siteId: string) {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (ids: string[]) => api.post('/devices/reorder', { ids }),
-    onMutate: (ids) => {
+    onMutate: async (ids) => {
+      // Cancel first — an in-flight refetch landing after our optimistic write
+      // would clobber it with the old order (same pattern as useMoveDevice).
+      await qc.cancelQueries({ queryKey: qk.siteDevices(siteId) });
       const prev = qc.getQueryData<Device[]>(qk.siteDevices(siteId));
       qc.setQueryData<Device[]>(qk.siteDevices(siteId), (old) =>
         old?.map((d) => {
@@ -701,8 +731,10 @@ export function useReorderDevices(siteId: string) {
       );
       return { prev };
     },
-    onError: (_e, _v, ctx) => {
+    onError: (e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(qk.siteDevices(siteId), ctx.prev);
+      toast.error(`Gagal mengubah urutan: ${(e as Error).message}`);
     },
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.siteDevices(siteId) }),
   });
 }

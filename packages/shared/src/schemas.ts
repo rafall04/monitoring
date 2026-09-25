@@ -144,13 +144,33 @@ export type UpdateRouterInput = z.infer<typeof updateRouterSchema>;
 
 // ---- Device ------------------------------------------------------------------
 
+// ipAddress may be an IP literal OR a hostname — but it is interpolated
+// straight into RouterOS /tool/netwatch commands (host=<v>, find where
+// host="<v>"), so whitespace, quotes, backslashes and control chars are
+// rejected outright.
+const deviceIp = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[^\s"'\\\x00-\x1f\x7f]+$/, 'IP/hostname contains invalid characters');
+
+// The device name lands in the Netwatch entry's comment field — single line.
+const deviceName = z.string().min(1).max(120).regex(/^[^\r\n]+$/, 'Name must be a single line');
+
+// Custom image URLs: local uploads or https only — blocks javascript:/data:
+// URIs and plain-http tracking pixels.
+const imageUrl = z
+  .string()
+  .max(512)
+  .regex(/^(\/uploads\/|https:\/\/)/, 'Only /uploads/ or https:// URLs');
+
 export const createDeviceSchema = z.object({
   routerId: z.string().min(1),
-  name: z.string().min(1).max(120),
-  ipAddress: z.string().max(64).nullable().optional(),
+  name: deviceName,
+  ipAddress: deviceIp.nullable().optional(),
   type: zEnum(DEVICE_TYPES).default('other'),
   iconKey: z.string().max(64).nullable().optional(),
-  iconUrl: z.string().max(512).nullable().optional(),
+  iconUrl: imageUrl.nullable().optional(),
   areaId: z.string().nullable().optional(),
   lineId: z.string().nullable().optional(),
   orderIndex: z.number().int().optional(),
@@ -169,11 +189,11 @@ export const createDeviceSchema = z.object({
 export type CreateDeviceInput = z.infer<typeof createDeviceSchema>;
 
 export const updateDeviceSchema = z.object({
-  name: z.string().min(1).max(120).optional(),
-  ipAddress: z.string().max(64).nullable().optional(),
+  name: deviceName.optional(),
+  ipAddress: deviceIp.nullable().optional(),
   type: zEnum(DEVICE_TYPES).optional(),
   iconKey: z.string().max(64).nullable().optional(),
-  iconUrl: z.string().max(512).nullable().optional(),
+  iconUrl: imageUrl.nullable().optional(),
   areaId: z.string().nullable().optional(),
   lineId: z.string().nullable().optional(),
   orderIndex: z.number().int().optional(),
@@ -289,6 +309,9 @@ export type CreateIntentInput = z.infer<typeof createIntentSchema>;
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(255),
   newPassword: z.string().min(8).max(255),
+  // Post the session's current refresh token to keep it alive through the
+  // revoke-all; without it every session (including this one) is logged out.
+  refreshToken: z.string().min(10).optional(),
 });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
@@ -390,7 +413,7 @@ export type HotspotUserBulkInput = z.infer<typeof hotspotUserBulkSchema>;
 // and the member owns the credential. Still rate-limit the endpoint like login.
 export const hotspotSelfPasswordSchema = z.object({
   currentPassword: z.string().min(1).max(255),
-  newPassword: z.string().min(1).max(255),
+  newPassword: z.string().min(4).max(255),
 });
 export type HotspotSelfPasswordInput = z.infer<typeof hotspotSelfPasswordSchema>;
 
@@ -405,7 +428,7 @@ const accentRgbRegex = /^\s*\d{1,3}\s+\d{1,3}\s+\d{1,3}\s*$/;
 
 export const updateSettingsSchema = z.object({
   orgName: z.string().min(1).max(80).optional(),
-  logoUrl: z.string().max(512).nullable().optional(),
+  logoUrl: imageUrl.nullable().optional(),
   accentRgb: z.string().regex(accentRgbRegex, 'Use "R G B" channel triplet').optional(),
   themeDefault: z.enum(['dark', 'light']).optional(),
   defaultMapLat: z.number().min(-90).max(90).optional(),

@@ -95,6 +95,13 @@ export async function siteRoutes(app: FastifyInstance) {
 
   app.post('/', manage, async (req) => {
     const { telegramBotToken, ...body } = createSiteSchema.parse(req.body);
+    // Verify the referenced company first — otherwise Postgres raises P2003
+    // (FK violation) which surfaces as an opaque 500.
+    const company = await prisma.company.findUnique({
+      where: { id: body.companyId },
+      select: { id: true },
+    });
+    if (!company) throw badRequest('Company not found');
     const s = await prisma.site.create({
       data: {
         companyId: body.companyId,
@@ -151,7 +158,8 @@ export async function siteRoutes(app: FastifyInstance) {
     const before = await prisma.site.findUnique({ where: { id } });
     if (!before) throw notFound('Site not found');
     await prisma.site.delete({ where: { id } });
-    await writeAudit(req, { action: 'delete', entity: 'site', entityId: id, before });
+    // toSiteDto strips telegramBotEncrypted — never write secrets to the audit log.
+    await writeAudit(req, { action: 'delete', entity: 'site', entityId: id, before: toSiteDto(before) });
     reply.code(204);
     return null;
   });
@@ -168,6 +176,15 @@ export async function siteRoutes(app: FastifyInstance) {
     const { url } = await saveUpload(part, 'floorplan');
 
     const q = req.query as { width?: string; height?: string };
+    // NaN/negative dims would poison the Int columns + CRS.Simple bounds.
+    if (q.width) {
+      const w = Number(q.width);
+      if (!Number.isFinite(w) || w <= 0) throw badRequest('width must be a positive number');
+    }
+    if (q.height) {
+      const h = Number(q.height);
+      if (!Number.isFinite(h) || h <= 0) throw badRequest('height must be a positive number');
+    }
     const width = q.width ? Number(q.width) : site.floorplanWidth;
     const height = q.height ? Number(q.height) : site.floorplanHeight;
     const imageBounds: ImageBounds | undefined =

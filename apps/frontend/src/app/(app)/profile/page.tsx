@@ -32,7 +32,7 @@ export default function ProfilePage() {
       }),
     onSuccess: () => {
       setPw({ current: '', next: '', confirm: '' });
-      toast.ok('Password diubah. Session di device lain akan otomatis logout.');
+      toast.ok('Password diubah. Semua sesi logout — sesi ini juga bisa ikut logout, silakan login ulang jika diminta.');
     },
     onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
   });
@@ -119,7 +119,8 @@ export default function ProfilePage() {
             {changePw.isPending ? 'Mengubah…' : 'Ubah password'}
           </Button>
           <span className="ml-3 text-2xs text-slate-500">
-            Setelah berhasil, semua session aktif di device lain akan logout.
+            Setelah berhasil, semua sesi login akan logout — termasuk mungkin sesi ini.
+            Siapkan password baru untuk login ulang.
           </span>
         </div>
       </Card>

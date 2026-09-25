@@ -16,12 +16,18 @@ export interface RetentionStats {
   lastRunAt: number;
   lastEventsDeleted: number;
   lastAuditDeleted: number;
+  lastRefreshTokensDeleted: number;
 }
 
 export class RetentionSweeper {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
-  public stats: RetentionStats = { lastRunAt: 0, lastEventsDeleted: 0, lastAuditDeleted: 0 };
+  public stats: RetentionStats = {
+    lastRunAt: 0,
+    lastEventsDeleted: 0,
+    lastAuditDeleted: 0,
+    lastRefreshTokensDeleted: 0,
+  };
 
   constructor(private readonly logger: Logger) {}
 
@@ -45,16 +51,20 @@ export class RetentionSweeper {
       const auditDeleted = await this.purgeOlderThan('auditLog', s.auditRetentionDays);
       // Ruijie port-event timeline shares the status-event retention window.
       await this.purgeOlderThan('ruijiePortEvent', s.eventRetentionDays);
+      // Expired refresh tokens are dead weight — purge by expiresAt, not age.
+      const refreshTokensDeleted = await this.purgeExpiredRefreshTokens();
 
       this.stats = {
         lastRunAt: Date.now(),
         lastEventsDeleted: eventsDeleted,
         lastAuditDeleted: auditDeleted,
+        lastRefreshTokensDeleted: refreshTokensDeleted,
       };
       this.logger.info(
         {
           eventsDeleted,
           auditDeleted,
+          refreshTokensDeleted,
           eventRetentionDays: s.eventRetentionDays,
           auditRetentionDays: s.auditRetentionDays,
         },
@@ -109,6 +119,30 @@ export class RetentionSweeper {
           : table === 'auditLog'
             ? await prisma.auditLog.deleteMany({ where: { id: { in: idList } } })
             : await prisma.ruijiePortEvent.deleteMany({ where: { id: { in: idList } } });
+      totalDeleted += res.count;
+      if (ids.length < BATCH_SIZE) break;
+    }
+    return totalDeleted;
+  }
+
+  /**
+   * Delete refresh tokens past their expiry (`expiresAt < now`). Same batched
+   * find-then-delete shape as purgeOlderThan so a huge backlog of dead
+   * sessions can't block the worker.
+   */
+  private async purgeExpiredRefreshTokens(): Promise<number> {
+    const now = new Date();
+    let totalDeleted = 0;
+    for (let safety = 0; safety < 200; safety++) {
+      const ids = await prisma.refreshToken.findMany({
+        where: { expiresAt: { lt: now } },
+        select: { id: true },
+        take: BATCH_SIZE,
+      });
+      if (ids.length === 0) break;
+      const res = await prisma.refreshToken.deleteMany({
+        where: { id: { in: ids.map((r) => r.id) } },
+      });
       totalDeleted += res.count;
       if (ids.length < BATCH_SIZE) break;
     }

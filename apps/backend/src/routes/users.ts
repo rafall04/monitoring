@@ -43,14 +43,39 @@ export async function userRoutes(app: FastifyInstance) {
     const before = await prisma.appUser.findUnique({ where: { id } });
     if (!before) throw notFound('User not found');
 
+    // A super_admin must not lock themselves out via PATCH (DELETE already
+    // refuses): no deactivating or demoting your own account.
+    if (id === req.appUser.id) {
+      if (body.isActive === false) {
+        throw badRequest('You cannot deactivate your own account');
+      }
+      if (body.role !== undefined && body.role !== 'super_admin') {
+        throw badRequest('You cannot demote your own account');
+      }
+    }
+
+    // Friendly 409 on email collision (unique constraint) instead of a P2002 500.
+    if (body.email && body.email !== before.email) {
+      const exists = await prisma.appUser.findUnique({ where: { email: body.email } });
+      if (exists) throw conflict('Email already in use');
+    }
+
     const { password, ...rest } = body;
-    const u = await prisma.appUser.update({
-      where: { id },
-      data: {
-        ...rest,
-        ...(password ? { passwordHash: await bcrypt.hash(password, 10) } : {}),
-      },
-    });
+    let u;
+    try {
+      u = await prisma.appUser.update({
+        where: { id },
+        data: {
+          ...rest,
+          ...(password ? { passwordHash: await bcrypt.hash(password, 10) } : {}),
+        },
+      });
+    } catch (e) {
+      if (typeof e === 'object' && e !== null && (e as { code?: unknown }).code === 'P2002') {
+        throw conflict('Email already in use');
+      }
+      throw e;
+    }
     await writeAudit(req, {
       action: 'update',
       entity: 'app_user',
