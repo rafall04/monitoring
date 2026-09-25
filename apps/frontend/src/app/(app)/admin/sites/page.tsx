@@ -14,11 +14,13 @@ import { useConfirm, usePrompt, useToast } from '@/lib/toast';
 import {
   Badge,
   Button,
+  buttonClass,
   Card,
   Field,
   Page,
   PageBody,
   PageHeader,
+  SectionHeader,
   Select,
   Spinner,
   TextInput,
@@ -83,6 +85,11 @@ export default function AdminSitesPage() {
     onSuccess: () => { setRouterForm({ ...routerForm, name: '', host: '', password: '' }); invalidate(); },
     onError: (e) => toast.error(`Gagal menambah router: ${(e as Error).message}`),
   });
+  const delCompany = useMutation({
+    mutationFn: (id: string) => api.del(`/companies/${id}`),
+    onSuccess: () => { toast.ok('Company dihapus'); invalidate(); },
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+  });
   const delSite = useMutation({
     mutationFn: (id: string) => api.del(`/sites/${id}`),
     onSuccess: () => { toast.ok('Site dihapus'); invalidate(); },
@@ -101,6 +108,15 @@ export default function AdminSitesPage() {
       danger: true,
     });
     if (ok) delRouter.mutate(r.id);
+  };
+  const askDeleteCompany = async (c: { id: string; name: string }) => {
+    const ok = await confirm({
+      title: 'Hapus company?',
+      body: `${c.name} beserta seluruh site, router, dan device di dalamnya akan dihapus permanen.`,
+      confirmLabel: 'Hapus',
+      danger: true,
+    });
+    if (ok) delCompany.mutate(c.id);
   };
   const askDeleteSite = async (s: { id: string; name: string }) => {
     const ok = await confirm({
@@ -180,129 +196,243 @@ export default function AdminSitesPage() {
 
   const sitesByCompany = (cid: string) => sites.data?.filter((s) => s.companyId === cid) ?? [];
   const routersBySite = (sid: string) => routers.data?.filter((r) => r.siteId === sid) ?? [];
+  const companyNameOf = (cid: string) => companies.data?.find((c) => c.id === cid)?.name ?? '';
+  const siteNameOf = (sid: string) => sites.data?.find((s) => s.id === sid)?.name ?? '';
 
   return (
     <Page>
       <PageHeader title="Sites & Routers" subtitle="Kelola company, site, router, dan Netwatch." />
       <PageBody>
         {/* Companies */}
-        <Card className="p-4">
-        <h2 className="mb-3 font-semibold text-slate-200">Companies</h2>
-        <div className="mb-3 flex items-end gap-2">
-          <Field label="New company">
-            <TextInput value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
-          </Field>
-          <Button onClick={() => addCompany.mutate()} disabled={!companyName}>Add</Button>
+        <Card className="p-4 sm:p-5">
+          <SectionHeader
+            title="Companies"
+            action={<Badge tone="slate">{companies.data?.length ?? 0}</Badge>}
+          />
+          <div className="mb-1 flex items-end gap-2">
+            <div className="w-64 max-w-full">
+              <Field label="New company">
+                <TextInput
+                  value={companyName}
+                  placeholder="Nama company"
+                  onChange={(e) => setCompanyName(e.target.value)}
+                />
+              </Field>
+            </div>
+            <Button onClick={() => addCompany.mutate()} disabled={!companyName}>Add</Button>
+          </div>
+          {companies.isLoading ? (
+            <Spinner />
+          ) : (
+            <ul className="mt-3 divide-y divide-surface-border text-sm">
+              {companies.data?.map((c) => (
+                <li key={c.id} className="flex items-center justify-between gap-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium text-slate-200">{c.name}</span>
+                    <Badge tone="accent">{sitesByCompany(c.id).length} site</Badge>
+                  </div>
+                  <button
+                    className="noc-tap inline-flex shrink-0 items-center rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-red-500/10 hover:text-red-400"
+                    onClick={() => askDeleteCompany(c)}
+                  >
+                    delete
+                  </button>
+                </li>
+              ))}
+              {companies.data?.length === 0 && (
+                <li className="py-3 text-center text-xs text-slate-500">Belum ada company.</li>
+              )}
+            </ul>
+          )}
+        </Card>
+
+      {/* Sites */}
+      <Card className="p-4 sm:p-5">
+        <SectionHeader
+          title="Sites"
+          action={<Badge tone="slate">{sites.data?.length ?? 0}</Badge>}
+        />
+        <div className="mb-4 rounded-lg border border-dashed border-surface-border bg-surface/40 p-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+            <Field label="Company">
+              <Select value={siteForm.companyId} onChange={(e) => setSiteForm({ ...siteForm, companyId: e.target.value })}>
+                <option value="">—</option>
+                {companies.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Name"><TextInput value={siteForm.name} placeholder="SF 6" onChange={(e) => setSiteForm({ ...siteForm, name: e.target.value })} /></Field>
+            <Field label="Map mode">
+              <Select value={siteForm.mapMode} onChange={(e) => setSiteForm({ ...siteForm, mapMode: e.target.value })}>
+                <option value="geo">geo</option>
+                <option value="floorplan">floorplan</option>
+              </Select>
+            </Field>
+            {siteForm.mapMode === 'geo' && (
+              <>
+                <Field label="Center lat"><TextInput value={siteForm.geoCenterLat} onChange={(e) => setSiteForm({ ...siteForm, geoCenterLat: e.target.value })} /></Field>
+                <Field label="Center lng"><TextInput value={siteForm.geoCenterLng} onChange={(e) => setSiteForm({ ...siteForm, geoCenterLng: e.target.value })} /></Field>
+              </>
+            )}
+            <Field label="Zoom"><TextInput value={siteForm.defaultZoom} onChange={(e) => setSiteForm({ ...siteForm, defaultZoom: e.target.value })} /></Field>
+          </div>
+          <div className="mt-2 flex justify-end">
+            <Button onClick={() => addSite.mutate()} disabled={!siteForm.companyId || !siteForm.name}>Add site</Button>
+          </div>
         </div>
-        {companies.isLoading ? <Spinner /> : (
-          <ul className="text-sm text-slate-300">
-            {companies.data?.map((c) => <li key={c.id} className="py-0.5">{c.name}</li>)}
-          </ul>
+
+        {sites.isLoading ? (
+          <Spinner />
+        ) : (
+          <div className="space-y-2">
+            {sites.data?.map((s) => (
+              <SiteRow
+                key={s.id}
+                site={s}
+                companyName={companyNameOf(s.companyId)}
+                routerCount={routersBySite(s.id).length}
+                onDelete={() => askDeleteSite(s)}
+                onUploaded={invalidate}
+              />
+            ))}
+            {sites.data?.length === 0 && (
+              <div className="py-3 text-center text-xs text-slate-500">Belum ada site.</div>
+            )}
+          </div>
         )}
       </Card>
 
-      {/* Sites */}
-      <Card className="p-4">
-        <h2 className="mb-3 font-semibold text-slate-200">Sites</h2>
-        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          <Field label="Company">
-            <Select value={siteForm.companyId} onChange={(e) => setSiteForm({ ...siteForm, companyId: e.target.value })}>
-              <option value="">—</option>
-              {companies.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </Select>
-          </Field>
-          <Field label="Name"><TextInput value={siteForm.name} onChange={(e) => setSiteForm({ ...siteForm, name: e.target.value })} /></Field>
-          <Field label="Map mode">
-            <Select value={siteForm.mapMode} onChange={(e) => setSiteForm({ ...siteForm, mapMode: e.target.value })}>
-              <option value="geo">geo</option>
-              <option value="floorplan">floorplan</option>
-            </Select>
-          </Field>
-          <Field label="Center lat"><TextInput value={siteForm.geoCenterLat} onChange={(e) => setSiteForm({ ...siteForm, geoCenterLat: e.target.value })} /></Field>
-          <Field label="Center lng"><TextInput value={siteForm.geoCenterLng} onChange={(e) => setSiteForm({ ...siteForm, geoCenterLng: e.target.value })} /></Field>
-          <Field label="Zoom"><TextInput value={siteForm.defaultZoom} onChange={(e) => setSiteForm({ ...siteForm, defaultZoom: e.target.value })} /></Field>
-        </div>
-        <Button onClick={() => addSite.mutate()} disabled={!siteForm.companyId || !siteForm.name}>Add site</Button>
-
-        <div className="mt-4 space-y-2">
-          {sites.data?.map((s) => (
-            <SiteRow key={s.id} site={s} onDelete={() => askDeleteSite(s)} onUploaded={invalidate} />
-          ))}
-        </div>
-      </Card>
-
       {/* Routers */}
-      <Card className="p-4">
-        <h2 className="mb-3 font-semibold text-slate-200">Routers (MikroTik)</h2>
-        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-          <Field label="Site">
-            <Select value={routerForm.siteId} onChange={(e) => setRouterForm({ ...routerForm, siteId: e.target.value })}>
-              <option value="">—</option>
-              {sites.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
-          </Field>
-          <Field label="Name"><TextInput value={routerForm.name} onChange={(e) => setRouterForm({ ...routerForm, name: e.target.value })} /></Field>
-          <Field label="Host"><TextInput value={routerForm.host} onChange={(e) => setRouterForm({ ...routerForm, host: e.target.value })} /></Field>
-          <Field label="Port"><TextInput value={routerForm.apiPort} onChange={(e) => setRouterForm({ ...routerForm, apiPort: e.target.value })} /></Field>
-          <Field label="User"><TextInput value={routerForm.username} onChange={(e) => setRouterForm({ ...routerForm, username: e.target.value })} /></Field>
-          <Field label="Password"><TextInput type="password" value={routerForm.password} onChange={(e) => setRouterForm({ ...routerForm, password: e.target.value })} /></Field>
-          <Field label="Version">
-            <Select value={routerForm.routerosVersion} onChange={(e) => setRouterForm({ ...routerForm, routerosVersion: e.target.value })}>
-              <option value="v6">v6</option>
-              <option value="v7">v7</option>
-            </Select>
-          </Field>
+      <Card className="p-4 sm:p-5">
+        <SectionHeader
+          title="Routers (MikroTik)"
+          action={<Badge tone="slate">{routers.data?.length ?? 0}</Badge>}
+        />
+        <div className="mb-4 rounded-lg border border-dashed border-surface-border bg-surface/40 p-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+            <Field label="Site">
+              <Select value={routerForm.siteId} onChange={(e) => setRouterForm({ ...routerForm, siteId: e.target.value })}>
+                <option value="">—</option>
+                {sites.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Name"><TextInput value={routerForm.name} placeholder="SF 6" onChange={(e) => setRouterForm({ ...routerForm, name: e.target.value })} /></Field>
+            <Field label="Host"><TextInput value={routerForm.host} placeholder="10.0.0.1" onChange={(e) => setRouterForm({ ...routerForm, host: e.target.value })} /></Field>
+            <Field label="Port"><TextInput value={routerForm.apiPort} onChange={(e) => setRouterForm({ ...routerForm, apiPort: e.target.value })} /></Field>
+            <Field label="User"><TextInput value={routerForm.username} onChange={(e) => setRouterForm({ ...routerForm, username: e.target.value })} /></Field>
+            <Field label="Password"><TextInput type="password" value={routerForm.password} onChange={(e) => setRouterForm({ ...routerForm, password: e.target.value })} /></Field>
+            <Field label="Version">
+              <Select value={routerForm.routerosVersion} onChange={(e) => setRouterForm({ ...routerForm, routerosVersion: e.target.value })}>
+                <option value="v6">v6</option>
+                <option value="v7">v7</option>
+              </Select>
+            </Field>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={routerForm.useTls}
+                onChange={(e) => setRouterForm({ ...routerForm, useTls: e.target.checked })}
+              />
+              Use TLS (api-ssl)
+            </label>
+            <Button onClick={() => addRouter.mutate()} disabled={!routerForm.siteId || !routerForm.host || !routerForm.name}>Add router</Button>
+          </div>
         </div>
-        <Button onClick={() => addRouter.mutate()} disabled={!routerForm.siteId || !routerForm.host}>Add router</Button>
 
-        <div className="mt-4 space-y-2">
-          {routers.data?.map((r) => (
-            <div key={r.id} className="rounded border border-surface-border p-3 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="font-medium text-slate-100">{r.name}</span>{' '}
-                  <span className="text-slate-500">{r.host}:{r.apiPort} · {r.routerosVersion} · {r.status}</span>
+        {routers.isLoading ? (
+          <Spinner />
+        ) : (
+          <div className="space-y-2">
+            {routers.data?.map((r) => (
+              <div key={r.id} className="rounded-lg border border-surface-border bg-surface/30 p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-slate-100">{r.name}</span>
+                      <Badge
+                        tone={
+                          r.status === 'online'
+                            ? 'emerald'
+                            : r.status === 'offline'
+                              ? 'red'
+                              : 'slate'
+                        }
+                      >
+                        {r.status}
+                      </Badge>
+                      <Badge tone="slate">{r.routerosVersion}</Badge>
+                      {r.useTls && <Badge tone="sky">TLS</Badge>}
+                    </div>
+                    <div className="mt-0.5 truncate font-mono text-2xs text-slate-500">
+                      {siteNameOf(r.siteId) || '—'} · {r.host}:{r.apiPort} · {r.username}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button variant="secondary" onClick={() => testConn(r.id)}>Test</Button>
+                    <Button variant="secondary" onClick={() => checkDrift(r.id)}>Cek sinkron</Button>
+                    <Button variant="secondary" onClick={() => installNetwatch(r.id)}>Sync Netwatch</Button>
+                    <Button variant="secondary" onClick={() => importNetwatch(r.id)}>Import</Button>
+                    <Button
+                      variant="ghost"
+                      onClick={async () => {
+                        const host = await askPrompt({
+                          title: 'Generate Netwatch script',
+                          label: 'IP / hostname device',
+                          placeholder: '192.168.88.10',
+                        });
+                        if (host) void loadScript(r.id, host);
+                      }}
+                    >
+                      Script
+                    </Button>
+                    <button
+                      className="noc-tap inline-flex items-center rounded-md px-2 py-1 text-xs font-medium text-accent transition hover:bg-accent/10"
+                      onClick={() => setEditRouterId((c) => (c === r.id ? null : r.id))}
+                    >
+                      {editRouterId === r.id ? 'close' : 'edit'}
+                    </button>
+                    <button
+                      className="noc-tap inline-flex items-center rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-red-500/10 hover:text-red-400"
+                      onClick={() => askDeleteRouter(r)}
+                    >
+                      delete
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button variant="secondary" onClick={() => testConn(r.id)}>Test</Button>
-                  <Button variant="secondary" onClick={() => checkDrift(r.id)}>Cek sinkron</Button>
-                  <Button variant="secondary" onClick={() => installNetwatch(r.id)}>Sync Netwatch</Button>
-                  <Button variant="secondary" onClick={() => importNetwatch(r.id)}>Import</Button>
-                  <Button
-                    variant="ghost"
-                    onClick={async () => {
-                      const host = await askPrompt({
-                        title: 'Generate Netwatch script',
-                        label: 'IP / hostname device',
-                        placeholder: '192.168.88.10',
-                      });
-                      if (host) void loadScript(r.id, host);
-                    }}
-                  >
-                    Script
-                  </Button>
-                  <button className="noc-tap inline-flex items-center text-accent hover:opacity-80" onClick={() => setEditRouterId((c) => (c === r.id ? null : r.id))}>{editRouterId === r.id ? 'close' : 'edit'}</button>
-                  <button className="noc-tap inline-flex items-center text-red-400 hover:text-red-300" onClick={() => askDeleteRouter(r)}>delete</button>
-                </div>
+                {(testResult[r.id] || importMsg[r.id] || installMsg[r.id]) && (
+                  <div className="mt-2 space-y-0.5 border-t border-surface-border/60 pt-2">
+                    {testResult[r.id] && <div className="text-xs text-slate-400">{testResult[r.id]}</div>}
+                    {importMsg[r.id] && <div className="text-xs text-emerald-400">{importMsg[r.id]}</div>}
+                    {installMsg[r.id] && <div className="text-xs text-emerald-400">{installMsg[r.id]}</div>}
+                  </div>
+                )}
+                {drift[r.id] && <DriftReport d={drift[r.id]!} />}
+                {editRouterId === r.id && (
+                  <EditRouterForm router={r} onSave={saveRouter} onCancel={() => setEditRouterId(null)} />
+                )}
               </div>
-              {testResult[r.id] && <div className="mt-1 text-xs text-slate-400">{testResult[r.id]}</div>}
-              {importMsg[r.id] && <div className="mt-1 text-xs text-emerald-400">{importMsg[r.id]}</div>}
-              {installMsg[r.id] && <div className="mt-1 text-xs text-emerald-400">{installMsg[r.id]}</div>}
-              {drift[r.id] && <DriftReport d={drift[r.id]!} />}
-              {editRouterId === r.id && (
-                <EditRouterForm router={r} onSave={saveRouter} onCancel={() => setEditRouterId(null)} />
-              )}
-            </div>
-          ))}
-        </div>
+            ))}
+            {routers.data?.length === 0 && (
+              <div className="py-3 text-center text-xs text-slate-500">Belum ada router.</div>
+            )}
+          </div>
+        )}
       </Card>
 
       {scriptFor && (
-        <Card className="p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-200">Netwatch script · {scriptFor.host}</h2>
-            <button className="noc-tap inline-flex items-center text-slate-400" onClick={() => setScriptFor(null)}>✕</button>
-          </div>
+        <Card className="p-4 sm:p-5">
+          <SectionHeader
+            title={`Netwatch script · ${scriptFor.host}`}
+            action={
+              <button
+                className="noc-tap inline-flex items-center rounded-md px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
+                onClick={() => setScriptFor(null)}
+              >
+                ✕ tutup
+              </button>
+            }
+          />
           <p className="mb-2 text-xs text-slate-400">
             Paste ke terminal router, atau install via API. Webhook update status realtime.
             {scriptFor.mode === 'router' && ' Script ini sudah termasuk alert Telegram untuk device critical.'}
@@ -409,7 +539,19 @@ function DriftReport({ d }: { d: DriftState }) {
   );
 }
 
-function SiteRow({ site, onDelete, onUploaded }: { site: Site; onDelete: () => void; onUploaded: () => void }) {
+function SiteRow({
+  site,
+  companyName,
+  routerCount,
+  onDelete,
+  onUploaded,
+}: {
+  site: Site;
+  companyName: string;
+  routerCount: number;
+  onDelete: () => void;
+  onUploaded: () => void;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [dims, setDims] = useState({ w: '1600', h: '1000' });
   const [busy, setBusy] = useState(false);
@@ -450,17 +592,45 @@ function SiteRow({ site, onDelete, onUploaded }: { site: Site; onDelete: () => v
   };
 
   return (
-    <div className="rounded border border-surface-border p-3 text-sm">
+    <div className="rounded-lg border border-surface-border bg-surface/30 p-3 text-sm sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <span className="font-medium text-slate-100">{site.name}</span>{' '}
-          <span className="text-slate-500">· {site.mapMode}</span>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="font-medium text-slate-100">{site.name}</span>
+          <Badge tone="accent">{site.mapMode}</Badge>
+          {companyName && <Badge tone="slate">{companyName}</Badge>}
+          <Badge tone="slate">{routerCount} router</Badge>
+          {site.mapMode === 'floorplan' && site.floorplanImageUrl && (
+            <Badge tone="emerald">denah ✓</Badge>
+          )}
         </div>
-        <button className="noc-tap inline-flex items-center text-red-400 hover:text-red-300" onClick={onDelete}>delete</button>
+        <button
+          className="noc-tap inline-flex shrink-0 items-center rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-red-500/10 hover:text-red-400"
+          onClick={onDelete}
+        >
+          delete
+        </button>
       </div>
+
       {site.mapMode === 'floorplan' && (
-        <div className="mt-2 flex flex-wrap items-end gap-2">
-          <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="noc-tap block text-xs text-slate-400" />
+        <div className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-surface-border bg-surface/40 p-2.5">
+          <div className="flex items-center gap-2">
+            <label className={`${buttonClass('secondary')} cursor-pointer`}>
+              {file ? 'Ganti file' : 'Pilih gambar…'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+            <span className="max-w-44 truncate text-xs text-slate-500">
+              {file
+                ? file.name
+                : site.floorplanImageUrl
+                  ? `tersimpan · ${site.floorplanWidth ?? '?'}×${site.floorplanHeight ?? '?'}`
+                  : 'belum ada denah'}
+            </span>
+          </div>
           <Field label="W"><TextInput value={dims.w} onChange={(e) => setDims({ ...dims, w: e.target.value })} className="w-20" /></Field>
           <Field label="H"><TextInput value={dims.h} onChange={(e) => setDims({ ...dims, h: e.target.value })} className="w-20" /></Field>
           <Button variant="secondary" onClick={upload} disabled={!file || busy}>{busy ? 'Uploading…' : 'Upload floorplan'}</Button>
@@ -468,7 +638,7 @@ function SiteRow({ site, onDelete, onUploaded }: { site: Site; onDelete: () => v
       )}
 
       <div className="mt-3 border-t border-surface-border pt-3">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+        <div className="mb-2 text-2xs font-semibold uppercase tracking-wider text-slate-500">
           Telegram alert (device critical)
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -480,7 +650,7 @@ function SiteRow({ site, onDelete, onUploaded }: { site: Site; onDelete: () => v
             </Select>
           </Field>
           <Field label="Chat ID">
-            <TextInput value={tg.chatId} onChange={(e) => setTg({ ...tg, chatId: e.target.value })} placeholder="-100123456" className="w-36" />
+            <TextInput value={tg.chatId} onChange={(e) => setTg({ ...tg, chatId: e.target.value })} placeholder="-100123456" className="w-40" />
           </Field>
           <Field label={site.hasTelegramToken ? 'Bot token (tersimpan)' : 'Bot token'}>
             <TextInput
@@ -488,14 +658,14 @@ function SiteRow({ site, onDelete, onUploaded }: { site: Site; onDelete: () => v
               value={tg.token}
               onChange={(e) => setTg({ ...tg, token: e.target.value })}
               placeholder={site.hasTelegramToken ? 'kosong = tetap' : '123456:ABC-DEF…'}
-              className="w-44"
+              className="w-52"
             />
           </Field>
           <Button onClick={() => saveTg.mutate()} disabled={saveTg.isPending}>Simpan</Button>
           <Button variant="secondary" onClick={() => testTg.mutate()} disabled={testTg.isPending}>Kirim tes</Button>
         </div>
-        {tgMsg && <div className="mt-1 text-xs text-slate-400">{tgMsg}</div>}
-        <p className="mt-1 text-2xs text-slate-500">
+        {tgMsg && <div className="mt-1.5 text-xs text-slate-400">{tgMsg}</div>}
+        <p className="mt-1.5 text-2xs text-slate-500">
           server = NOC yang kirim (token aman di server) · router = script Netwatch yang kirim (perlu Install/Sync di router) · hanya device is_critical.
         </p>
       </div>
@@ -552,8 +722,8 @@ function EditRouterForm({
   };
 
   return (
-    <div className="mt-3 border-t border-surface-border pt-3">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+    <div className="mt-3 rounded-lg border border-surface-border bg-surface/40 p-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
         <Field label="Name"><TextInput value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <Field label="Host"><TextInput value={f.host} onChange={(e) => setF({ ...f, host: e.target.value })} /></Field>
         <Field label="Port"><TextInput value={f.apiPort} onChange={(e) => setF({ ...f, apiPort: e.target.value })} /></Field>
@@ -571,14 +741,16 @@ function EditRouterForm({
           <TextInput value={f.pollIntervalSec} placeholder="default" onChange={(e) => setF({ ...f, pollIntervalSec: e.target.value })} />
         </Field>
       </div>
-      <label className="mt-2 flex items-center gap-2 text-sm text-slate-300">
-        <input type="checkbox" checked={f.useTls} onChange={(e) => setF({ ...f, useTls: e.target.checked })} />
-        Use TLS (api-ssl)
-      </label>
-      <div className="mt-2 flex items-center gap-2">
-        <Button onClick={submit} disabled={busy || !f.host || !f.name}>{busy ? 'Saving…' : 'Save router'}</Button>
-        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-        {err && <span className="text-sm text-red-400">{err}</span>}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-sm text-slate-300">
+          <input type="checkbox" checked={f.useTls} onChange={(e) => setF({ ...f, useTls: e.target.checked })} />
+          Use TLS (api-ssl)
+        </label>
+        <div className="flex items-center gap-2">
+          {err && <span className="text-xs text-red-400">{err}</span>}
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button onClick={submit} disabled={busy || !f.host || !f.name}>{busy ? 'Saving…' : 'Save router'}</Button>
+        </div>
       </div>
     </div>
   );
