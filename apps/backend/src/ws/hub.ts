@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import websocket, { type SocketStream } from '@fastify/websocket';
+import websocket from '@fastify/websocket';
 import type { WebSocket } from 'ws';
 import { createRedis, prisma } from '@noc/server';
 import {
@@ -145,8 +145,7 @@ export async function registerWebsocketHub(app: FastifyInstance): Promise<void> 
   }, 60_000);
   revalidateTimer.unref?.();
 
-  app.get('/ws', { websocket: true }, async (connection: SocketStream, req) => {
-    const ws = connection.socket;
+  app.get('/ws', { websocket: true }, async (ws: WebSocket, req) => {
     const token = (req.query as { token?: string })?.token;
 
     let userId: string;

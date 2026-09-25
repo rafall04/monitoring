@@ -297,14 +297,14 @@ export default function SiteMapPage() {
                 devices={devices.data ?? []}
                 wifiLinks={wifiLinks}
                 editable={editable}
-                onSelect={(d) => {
+                onSelect={(d: Device) => {
                   setAdding(null);
                   setSelected(d);
                 }}
-                onMove={(id, pos) => move.mutate({ id, pos })}
+                onMove={(id: string, pos: PatchDevicePositionInput) => move.mutate({ id, pos })}
                 onMapAdd={
                   editMode && canCreate
-                    ? (pos) => {
+                    ? (pos: PatchDevicePositionInput) => {
                         setSelected(null);
                         setAdding(pos);
                       }

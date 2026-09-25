@@ -44,7 +44,6 @@ const nextConfig = {
   reactStrictMode: true,
   // Compile the workspace package (shipped as TS source) with Next's toolchain.
   transpilePackages: ['@noc/shared'],
-  eslint: { ignoreDuringBuilds: true },
   async rewrites() {
     return [
       { source: '/api/:path*', destination: `${backendOrigin}/api/:path*` },

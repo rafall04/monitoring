@@ -5,7 +5,11 @@ import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, {
+  type FastifyInstance,
+  type FastifyServerOptions,
+  type RawServerDefault,
+} from 'fastify';
 import { ZodError } from 'zod';
 import {
   corsOrigins,
@@ -44,8 +48,10 @@ function parseTrustProxy(raw: string): boolean | number | string[] {
 }
 
 export async function buildApp(): Promise<FastifyInstance> {
-  const app = Fastify({
-    trustProxy: parseTrustProxy(env.TRUST_PROXY),
+  const app = Fastify<RawServerDefault>({
+    // Fastify 5 dropped `number` from the trustProxy type but still honours a
+    // hop count at runtime (passed to proxy-addr).
+    trustProxy: parseTrustProxy(env.TRUST_PROXY) as FastifyServerOptions['trustProxy'],
     bodyLimit: 1_048_576,
     // Cap wedged connections (e.g. a dead upstream hanging a proxied request)
     // so sockets can't pile up forever.
@@ -88,19 +94,19 @@ export async function buildApp(): Promise<FastifyInstance> {
       // Uploads are user content served from our origin: never sniff MIME, and
       // strip scripting ability. SVGs get the strictest policy — an uploaded
       // SVG executing same-origin JS could steal the localStorage auth token.
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader(
+      res.header('X-Content-Type-Options', 'nosniff');
+      res.header(
         'Content-Security-Policy',
         filePath.endsWith('.svg') ? "default-src 'none'" : 'sandbox',
       );
     },
   });
 
-  app.decorateRequest('appUser', null);
+  app.decorateRequest('appUser');
   const redisPub = createRedis('backend-pub');
   app.decorate('redisPub', redisPub);
 
-  app.setErrorHandler((err, req, reply) => {
+  app.setErrorHandler((err: unknown, req, reply) => {
     if (err instanceof ZodError) {
       reply.code(400).send({ error: 'ValidationError', issues: err.issues });
       return;
@@ -109,11 +115,12 @@ export async function buildApp(): Promise<FastifyInstance> {
       reply.code(err.statusCode).send({ error: err.name, message: err.message });
       return;
     }
-    const status = (err as { statusCode?: number }).statusCode ?? 500;
+    const e = err as { statusCode?: number; name?: string; message?: string };
+    const status = e.statusCode ?? 500;
     if (status >= 500) req.log.error({ err }, 'unhandled error');
     reply.code(status).send({
-      error: err.name ?? 'Error',
-      message: status >= 500 ? 'Internal Server Error' : err.message,
+      error: e.name ?? 'Error',
+      message: status >= 500 ? 'Internal Server Error' : e.message,
     });
   });
 
