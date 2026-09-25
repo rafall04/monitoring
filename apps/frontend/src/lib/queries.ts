@@ -42,7 +42,7 @@ import type {
 } from '@noc/shared';
 import { api } from './api';
 import { liteInterval } from './lite';
-import { useToast } from './toast';
+import { useToast, type ToastApi } from './toast';
 
 export const qk = {
   sites: ['sites'] as const,
@@ -554,8 +554,10 @@ export function useAuditLog(
   });
 }
 
-/** Apply a realtime event into the query cache (granular, per-device updates). */
-export function applyWsEvent(qc: QueryClient, ev: WsServerEvent): void {
+/** Apply a realtime event into the query cache (granular, per-device updates).
+ *  `toast` is optional — events that only warrant a heads-up (no cache work)
+ *  are silently skipped when no toaster is provided. */
+export function applyWsEvent(qc: QueryClient, ev: WsServerEvent, toast?: ToastApi): void {
   const upd = (siteId: string, fn: (old: Device[] | undefined) => Device[] | undefined) =>
     qc.setQueryData<Device[]>(qk.siteDevices(siteId), fn);
   // Any device change can shift the site's up/down/unknown/maintenance counts.
@@ -609,6 +611,18 @@ export function applyWsEvent(qc: QueryClient, ev: WsServerEvent): void {
     case 'site.summary':
       qc.setQueryData(qk.siteSummary(ev.siteId), ev.summary);
       break;
+    case 'router.config': {
+      // Firewall drift watch fired. Toast only — NO refetch: nothing cached
+      // under the keys above stores config diffs, so invalidating would churn
+      // queries without changing what's displayed.
+      const first = ev.changes[0] ?? '';
+      const extra = ev.changes.length - 1;
+      let msg = `Konfig ${ev.routerName} berubah${first ? `: ${first}` : ''}`;
+      if (msg.length > 140) msg = `${msg.slice(0, 139)}…`;
+      if (extra > 0) msg += ` (+${extra})`;
+      toast?.warning(msg);
+      break;
+    }
     default:
       break;
   }

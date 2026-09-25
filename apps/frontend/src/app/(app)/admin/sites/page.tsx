@@ -44,7 +44,7 @@ export default function AdminSitesPage() {
   // ---- forms state ----
   const [companyName, setCompanyName] = useState('');
   const [siteForm, setSiteForm] = useState({ companyId: '', name: '', mapMode: 'geo', geoCenterLat: '-6.2', geoCenterLng: '106.8', defaultZoom: '13' });
-  const [routerForm, setRouterForm] = useState({ siteId: '', name: '', host: '', apiPort: '8728', useTls: false, username: 'admin', password: '', routerosVersion: 'v6' });
+  const [routerForm, setRouterForm] = useState({ siteId: '', name: '', host: '', apiPort: '8728', useTls: false, username: 'admin', password: '', routerosVersion: 'v6', watchConfig: true });
   const [testResult, setTestResult] = useState<Record<string, string>>({});
   const [importMsg, setImportMsg] = useState<Record<string, string>>({});
   const [drift, setDrift] = useState<Record<string, DriftState | undefined>>({});
@@ -81,6 +81,7 @@ export default function AdminSitesPage() {
         username: routerForm.username,
         password: routerForm.password,
         routerosVersion: routerForm.routerosVersion,
+        watchConfig: routerForm.watchConfig,
       }),
     onSuccess: () => { setRouterForm({ ...routerForm, name: '', host: '', password: '' }); invalidate(); },
     onError: (e) => toast.error(`Gagal menambah router: ${(e as Error).message}`),
@@ -328,14 +329,24 @@ export default function AdminSitesPage() {
             </Field>
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <label className="flex items-center gap-2 text-sm text-slate-300">
-              <input
-                type="checkbox"
-                checked={routerForm.useTls}
-                onChange={(e) => setRouterForm({ ...routerForm, useTls: e.target.checked })}
-              />
-              Use TLS (api-ssl)
-            </label>
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={routerForm.useTls}
+                  onChange={(e) => setRouterForm({ ...routerForm, useTls: e.target.checked })}
+                />
+                Use TLS (api-ssl)
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={routerForm.watchConfig}
+                  onChange={(e) => setRouterForm({ ...routerForm, watchConfig: e.target.checked })}
+                />
+                Pantau perubahan konfig firewall (drift alert)
+              </label>
+            </div>
             <Button onClick={() => addRouter.mutate()} disabled={!routerForm.siteId || !routerForm.host || !routerForm.name}>Add router</Button>
           </div>
         </div>
@@ -363,6 +374,9 @@ export default function AdminSitesPage() {
                       </Badge>
                       <Badge tone="slate">{r.routerosVersion}</Badge>
                       {r.useTls && <Badge tone="sky">TLS</Badge>}
+                      <Badge tone={r.watchConfig ? 'emerald' : 'slate'}>
+                        {r.watchConfig ? 'drift ✓' : 'drift off'}
+                      </Badge>
                     </div>
                     <div className="mt-0.5 truncate font-mono text-2xs text-slate-500">
                       {siteNameOf(r.siteId) || '—'} · {r.host}:{r.apiPort} · {r.username}
@@ -696,6 +710,7 @@ function EditRouterForm({
     password: '',
     routerosVersion: router.routerosVersion as string,
     pollIntervalSec: router.pollIntervalSec != null ? String(router.pollIntervalSec) : '',
+    watchConfig: router.watchConfig,
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -712,6 +727,7 @@ function EditRouterForm({
         username: f.username,
         routerosVersion: f.routerosVersion,
         pollIntervalSec: f.pollIntervalSec ? Number(f.pollIntervalSec) : null,
+        watchConfig: f.watchConfig,
         ...(f.password ? { password: f.password } : {}),
       });
     } catch (e) {
@@ -742,10 +758,16 @@ function EditRouterForm({
         </Field>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <label className="flex items-center gap-2 text-sm text-slate-300">
-          <input type="checkbox" checked={f.useTls} onChange={(e) => setF({ ...f, useTls: e.target.checked })} />
-          Use TLS (api-ssl)
-        </label>
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input type="checkbox" checked={f.useTls} onChange={(e) => setF({ ...f, useTls: e.target.checked })} />
+            Use TLS (api-ssl)
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input type="checkbox" checked={f.watchConfig} onChange={(e) => setF({ ...f, watchConfig: e.target.checked })} />
+            Pantau perubahan konfig firewall (drift alert)
+          </label>
+        </div>
         <div className="flex items-center gap-2">
           {err && <span className="text-xs text-red-400">{err}</span>}
           <Button variant="ghost" onClick={onCancel}>Cancel</Button>

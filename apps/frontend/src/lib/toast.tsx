@@ -22,7 +22,7 @@ import {
   type ReactNode,
 } from 'react';
 
-type ToastKind = 'ok' | 'error' | 'info';
+type ToastKind = 'ok' | 'error' | 'info' | 'warning';
 
 interface Toast {
   id: number;
@@ -30,10 +30,11 @@ interface Toast {
   message: string;
 }
 
-interface ToastApi {
+export interface ToastApi {
   ok: (msg: string) => void;
   error: (msg: string) => void;
   info: (msg: string) => void;
+  warning: (msg: string) => void;
 }
 
 interface ConfirmOptions {
@@ -99,6 +100,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       ok: (m) => push('ok', m),
       error: (m) => push('error', m),
       info: (m) => push('info', m),
+      warning: (m) => push('warning', m),
     }),
     [push],
   );
@@ -148,7 +150,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   ? 'border-emerald-300 bg-emerald-50/95 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-200'
                   : t.kind === 'error'
                     ? 'border-red-300 bg-red-50/95 text-red-700 dark:border-red-800 dark:bg-red-950/80 dark:text-red-200'
-                    : 'border-surface-border bg-surface-raised/90 text-slate-600 dark:text-slate-200'
+                    : t.kind === 'warning'
+                      ? 'border-amber-300 bg-amber-50/95 text-amber-700 dark:border-amber-800 dark:bg-amber-950/80 dark:text-amber-200'
+                      : 'border-surface-border bg-surface-raised/90 text-slate-600 dark:text-slate-200'
               }`}
             >
               <span className="flex-1 whitespace-pre-wrap">{t.message}</span>

@@ -109,6 +109,9 @@ model RouterMikrotik {
   status            String   @default("unknown") // online | offline | unknown
   lastSeenAt        DateTime?
   resourceCache     Json?
+  // Firewall drift watch: the worker snapshots nat/filter/mangle each poll
+  // and alerts on any change (incl. manual disable — the 18:39 NAT incident).
+  watchConfig       Boolean  @default(true)
 
   createdAt DateTime @default(now())
 
@@ -159,6 +162,11 @@ model Device {
   // watchInterface = interface name on `router`; watchAlertWindow = optional
   // per-device AlertWindow JSON overriding the global uplinkAlert* settings.
   watchInterface   String?
+  // TCP port watch: status = TCP connect from the NOC server to
+  // ipAddress:watchPort — catches "host up, service dead" (e.g. a killed
+  // dst-nat forward) that ICMP Netwatch can never see. Probe-only devices are
+  // excluded from Netwatch status reconciliation (their probe owns the verdict).
+  watchPort        Int?
   watchAlertWindow Json?
 
   createdAt DateTime @default(now())

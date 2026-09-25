@@ -22,7 +22,7 @@ export const ROUTEROS_VERSIONS = ['v6', 'v7'] as const;
 export type RouterOsVersion = (typeof ROUTEROS_VERSIONS)[number];
 
 /** Where a status change came from. */
-export const STATUS_SOURCES = ['webhook', 'polling', 'manual', 'interface'] as const;
+export const STATUS_SOURCES = ['webhook', 'polling', 'manual', 'interface', 'tcp'] as const;
 export type StatusSource = (typeof STATUS_SOURCES)[number];
 
 /** Manual override flags a device so it does not raise alarms (e.g. maintenance). */
@@ -200,6 +200,8 @@ export interface RouterPublic {
   status: RouterStatus;
   lastSeenAt: string | null;
   resourceCache: RouterResource | null;
+  /** Firewall drift watch (nat/filter/mangle diff → alert + audit). */
+  watchConfig: boolean;
   hasWebhookToken: boolean;
   createdAt: string;
 }
@@ -285,6 +287,9 @@ export interface Device {
   /** Interface-watch: RouterOS interface name (e.g. ether2) driving status, or
    *  null for a plain Netwatch device. */
   watchInterface: string | null;
+  /** TCP-port watch: the server probes ipAddress:watchPort — catches "host up,
+   *  service dead" (a killed dst-nat forward) that ping never sees. */
+  watchPort: number | null;
   /** Per-device alert-window override; null = use the global Setting default. */
   watchAlertWindow: AlertWindow | null;
   createdAt: string;

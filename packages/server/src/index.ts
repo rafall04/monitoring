@@ -14,3 +14,4 @@ export * from './wa';
 export * from './member-service';
 export * from './ticket-service';
 export * from './uplink';
+export * from './config-watch';

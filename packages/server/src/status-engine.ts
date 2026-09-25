@@ -89,7 +89,14 @@ export async function applyDeviceStatusesByHost(
   if (updates.length === 0) return { matched: 0, changed: 0 };
 
   const devices = await deps.prisma.device.findMany({
-    where: { routerId, ipAddress: { in: updates.map((u) => u.host) } },
+    where: {
+      routerId,
+      ipAddress: { in: updates.map((u) => u.host) },
+      // Probe-owned devices (interface/TCP watch) get their verdict from their
+      // own probe — a Netwatch entry on the same IP must not overwrite it.
+      watchInterface: null,
+      watchPort: null,
+    },
   });
   const byIp = new Map(devices.map((d) => [d.ipAddress as string, d]));
 

@@ -745,6 +745,10 @@ export class RouterOsV6Client implements MikrotikClient {
   }
 
   /** Remove a single filter rule by raw RouterOS .id (legacy /blocks cleanup). */
+  async listFirewallRaw(menu: 'nat' | 'filter' | 'mangle'): Promise<Record<string, unknown>[]> {
+    return this.write(`/ip/firewall/${menu}/print`);
+  }
+
   async removeFilterRule(id: string): Promise<void> {
     await this.write('/ip/firewall/filter/remove', [`=.id=${id}`]);
   }

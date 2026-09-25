@@ -82,7 +82,7 @@ export default function SiteMapPage() {
 
   const live = useSiteSocket(
     siteId,
-    useCallback((ev) => applyWsEvent(qc, ev), [qc]),
+    useCallback((ev) => applyWsEvent(qc, ev, toast), [qc, toast]),
   );
 
   const move = useMoveDevice(siteId);

@@ -96,6 +96,7 @@ export async function routerRoutes(app: FastifyInstance) {
         passwordEncrypted: encryptSecret(body.password),
         routerosVersion: body.routerosVersion,
         pollIntervalSec: body.pollIntervalSec ?? null,
+        watchConfig: body.watchConfig,
         webhookToken: generateToken(),
       },
     });

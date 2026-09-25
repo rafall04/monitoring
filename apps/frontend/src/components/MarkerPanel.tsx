@@ -28,6 +28,10 @@ const timeToMin = (t: string) => {
   return (h || 0) * 60 + (m || 0);
 };
 
+/** Probe mode — the backend treats watchInterface/watchPort as mutually
+ *  exclusive (setting one clears the other); 'netwatch' = plain ping watch. */
+type WatchMode = 'netwatch' | 'interface' | 'tcp';
+
 interface MarkerPanelProps {
   site: Site;
   mode: 'edit' | 'add';
@@ -67,10 +71,16 @@ export default function MarkerPanel(props: MarkerPanelProps) {
   const [areaId, setAreaId] = useState<string>(device?.areaId ?? '');
   const [lineId, setLineId] = useState<string>(device?.lineId ?? '');
 
-  // Interface watch ("uplink"): status follows a RouterOS interface's running
-  // flag; alerts are gated by a work-hours window (per-device override or the
-  // global Settings default).
+  // Advanced watch: instead of plain Netwatch ping the status can follow a
+  // RouterOS interface's running flag ("uplink") or a TCP connect to
+  // ipAddress:watchPort from the NOC server. Alerts for probe devices are
+  // gated by a work-hours window (per-device override or the global Settings
+  // default).
+  const [watchMode, setWatchMode] = useState<WatchMode>(
+    device?.watchPort ? 'tcp' : device?.watchInterface ? 'interface' : 'netwatch',
+  );
   const [watchInterface, setWatchInterface] = useState(device?.watchInterface ?? '');
+  const [watchPort, setWatchPort] = useState(device?.watchPort ? String(device.watchPort) : '');
   const [winOverride, setWinOverride] = useState(Boolean(device?.watchAlertWindow));
   const [winStart, setWinStart] = useState(
     minToTime(device?.watchAlertWindow?.startMin ?? 360),
@@ -79,24 +89,27 @@ export default function MarkerPanel(props: MarkerPanelProps) {
   const [winDays, setWinDays] = useState<number[]>(
     device?.watchAlertWindow?.days ?? [1, 2, 3, 4, 5, 6, 7],
   );
-  const [uplinkOpen, setUplinkOpen] = useState(Boolean(device?.watchInterface));
+  const [uplinkOpen, setUplinkOpen] = useState(
+    Boolean(device?.watchInterface || device?.watchPort),
+  );
   const [ifaces, setIfaces] = useState<RouterInterface[] | null>(null);
   const [ifacesErr, setIfacesErr] = useState('');
 
   const editable = mode === 'add' ? props.canCreate : props.canEditAttributes;
   const selectedArea = areas.find((a) => a.id === areaId);
 
-  // Pull the live interface list only when the section is actually open — the
-  // pick-list needs a router round-trip, don't pay it for every panel open.
+  // Pull the live interface list only when the section is actually open and in
+  // interface mode — the pick-list needs a router round-trip, don't pay it for
+  // every panel open (or for netwatch/tcp probes that never show it).
   useEffect(() => {
-    if (!uplinkOpen || !routerId) return;
+    if (!uplinkOpen || !routerId || watchMode !== 'interface') return;
     setIfaces(null);
     setIfacesErr('');
     api
       .get<RouterInterface[]>(`/routers/${routerId}/interfaces`)
       .then(setIfaces)
       .catch((e) => setIfacesErr((e as Error)?.message ?? 'Gagal membaca interface'));
-  }, [uplinkOpen, routerId]);
+  }, [uplinkOpen, routerId, watchMode]);
 
   const uploadIcon = async (file: File) => {
     setIconBusy(true);
@@ -117,6 +130,18 @@ export default function MarkerPanel(props: MarkerPanelProps) {
   };
 
   const save = () => {
+    // Mutually exclusive watch fields — the backend clears the sibling anyway,
+    // but sending both nulls keeps intent obvious in the request log.
+    const watchFields =
+      watchMode === 'interface'
+        ? { watchInterface: watchInterface || null, watchPort: null }
+        : watchMode === 'tcp'
+          ? { watchInterface: null, watchPort: watchPort ? Number(watchPort) : null }
+          : { watchInterface: null, watchPort: null };
+    const watchWindow =
+      watchMode !== 'netwatch' && winOverride
+        ? { startMin: timeToMin(winStart), endMin: timeToMin(winEnd), days: winDays }
+        : null;
     if (mode === 'add') {
       // Used to silently return — the operator got no hint why nothing happened.
       if (!routerId) {
@@ -136,11 +161,8 @@ export default function MarkerPanel(props: MarkerPanelProps) {
         lineId: lineId || null,
         isCritical,
         note: note || null,
-        watchInterface: watchInterface || null,
-        watchAlertWindow:
-          watchInterface && winOverride
-            ? { startMin: timeToMin(winStart), endMin: timeToMin(winEnd), days: winDays }
-            : null,
+        ...watchFields,
+        watchAlertWindow: watchWindow,
         ...addPos,
       } as CreateDeviceInput;
       props.onCreate(body);
@@ -156,11 +178,8 @@ export default function MarkerPanel(props: MarkerPanelProps) {
         isCritical,
         note: note || null,
         manualOverride: override === '' ? null : override,
-        watchInterface: watchInterface || null,
-        watchAlertWindow:
-          watchInterface && winOverride
-            ? { startMin: timeToMin(winStart), endMin: timeToMin(winEnd), days: winDays }
-            : null,
+        ...watchFields,
+        watchAlertWindow: watchWindow,
         ...(syncNetwatch && ipAddress ? { syncNetwatch: true } : {}),
       };
       props.onSave(device.id, patch);
@@ -222,49 +241,100 @@ export default function MarkerPanel(props: MarkerPanelProps) {
           onToggle={(e) => setUplinkOpen((e.target as HTMLDetailsElement).open)}
         >
           <summary className="cursor-pointer select-none text-slate-300">
-            Pantau interface uplink
+            Pantauan lanjutan
           </summary>
-          <p className="mt-2">
-            Status device mengikuti flag <code>running</code> interface di router (mis.{' '}
-            <code>ether2</code> = jalur ke 001) — bukan Netwatch. Alert hanya dikirim dalam
-            jam kerja; status peta tetap diperbarui 24 jam.
-          </p>
-          {ifaces === null && !ifacesErr ? (
-            <p className="mt-2 text-slate-500">Membaca daftar interface dari router…</p>
-          ) : ifacesErr ? (
-            <>
-              <TextInput
-                value={watchInterface}
-                onChange={(e) => setWatchInterface(e.target.value)}
-                placeholder="nama interface, mis. ether2"
-                disabled={!editable}
-              />
-              <p className="mt-1 text-amber-400/80">
-                Router tidak bisa dihubungi — isi nama interface manual. ({ifacesErr})
-              </p>
-            </>
-          ) : (
-            <Select
-              value={watchInterface}
-              onChange={(e) => {
-                setWatchInterface(e.target.value);
-                if (e.target.value && type === 'other') setType('uplink');
-              }}
-              disabled={!editable}
-            >
-              <option value="">— tidak dipantau —</option>
-              {ifaces!.map((i) => (
-                <option key={i.name} value={i.name}>
-                  {i.name} ({i.type}){i.disabled ? ' — disabled' : i.running ? ' — running' : ' — off'}
-                </option>
-              ))}
-              {watchInterface && !ifaces!.some((i) => i.name === watchInterface) && (
-                <option value={watchInterface}>{watchInterface} (tidak ada di router)</option>
-              )}
-            </Select>
+
+          <Select
+            className="mt-2"
+            value={watchMode}
+            onChange={(e) => setWatchMode(e.target.value as WatchMode)}
+            disabled={!editable}
+          >
+            <option value="netwatch">Netwatch (ping)</option>
+            <option value="interface">Interface router</option>
+            <option value="tcp">Port TCP</option>
+          </Select>
+
+          {watchMode === 'netwatch' && (
+            <p className="mt-2">
+              Default — status diukur dari ping Netwatch yang dipasang di router.
+            </p>
           )}
 
-          {watchInterface && (
+          {watchMode === 'interface' && (
+            <>
+              <p className="mt-2">
+                Status device mengikuti flag <code>running</code> interface di router (mis.{' '}
+                <code>ether2</code> = jalur ke 001) — bukan Netwatch. Alert hanya dikirim dalam
+                jam kerja; status peta tetap diperbarui 24 jam.
+              </p>
+              {ifaces === null && !ifacesErr ? (
+                <p className="mt-2 text-slate-500">Membaca daftar interface dari router…</p>
+              ) : ifacesErr ? (
+                <>
+                  <TextInput
+                    value={watchInterface}
+                    onChange={(e) => setWatchInterface(e.target.value)}
+                    placeholder="nama interface, mis. ether2"
+                    disabled={!editable}
+                  />
+                  <p className="mt-1 text-amber-400/80">
+                    Router tidak bisa dihubungi — isi nama interface manual. ({ifacesErr})
+                  </p>
+                </>
+              ) : (
+                <Select
+                  value={watchInterface}
+                  onChange={(e) => {
+                    setWatchInterface(e.target.value);
+                    if (e.target.value && type === 'other') setType('uplink');
+                  }}
+                  disabled={!editable}
+                >
+                  <option value="">— tidak dipantau —</option>
+                  {ifaces!.map((i) => (
+                    <option key={i.name} value={i.name}>
+                      {i.name} ({i.type}){i.disabled ? ' — disabled' : i.running ? ' — running' : ' — off'}
+                    </option>
+                  ))}
+                  {watchInterface && !ifaces!.some((i) => i.name === watchInterface) && (
+                    <option value={watchInterface}>{watchInterface} (tidak ada di router)</option>
+                  )}
+                </Select>
+              )}
+            </>
+          )}
+
+          {watchMode === 'tcp' && (
+            <div className="mt-2 space-y-1">
+              <span className="block text-2xs font-medium uppercase tracking-wide text-slate-500">
+                Port TCP
+              </span>
+              <TextInput
+                type="number"
+                min={1}
+                max={65535}
+                value={watchPort}
+                onChange={(e) => setWatchPort(e.target.value)}
+                placeholder="1433"
+                disabled={!editable}
+              />
+              <p>
+                Status diukur dari koneksi TCP server NOC ke{' '}
+                <code>
+                  {ipAddress || 'ip'}:{watchPort || 'port'}
+                </code>{' '}
+                — mendeteksi &quot;host up tapi service mati&quot;.
+              </p>
+              {!ipAddress && (
+                <p className="text-amber-400/80">
+                  Isi IP address dulu — probe TCP butuh target; tanpa IP status tetap unknown.
+                </p>
+              )}
+            </div>
+          )}
+
+          {watchMode !== 'netwatch' && (
             <div className="mt-2 space-y-2">
               <label className="flex items-center gap-2 text-slate-300">
                 <input

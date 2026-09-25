@@ -34,6 +34,14 @@ export type WsServerEvent =
       lastSeenAt: string | null;
       resource: RouterResource | null;
     }
+  | {
+      type: 'router.config';
+      siteId: string;
+      routerId: string;
+      routerName: string;
+      /** Human-readable diff lines, e.g. "nat *14 dstnat tcp dpt=21433→1433: disabled=false→true". */
+      changes: string[];
+    }
   | { type: 'site.summary'; siteId: string; summary: SiteSummary }
   | { type: 'subscribed'; siteId: string }
   | { type: 'pong' }
@@ -59,6 +67,9 @@ export const REDIS_CHANNELS = {
 export const REDIS_KEYS = {
   deviceStatus: (deviceId: string) => `noc:device:${deviceId}:status`,
   routerStatus: (routerId: string) => `noc:router:${routerId}:status`,
+  /** Firewall drift watch: canonical snapshot (per-menu id → row JSON) the
+   *  worker diffs each poll. Redis-only — a wipe just re-baselines silently. */
+  routerCfgSnapshot: (routerId: string) => `noc:router:${routerId}:cfgsnap`,
   /** Per-site device→WiFi correlation, refreshed by the worker's WiFi enricher. */
   siteWifi: (siteId: string) => `noc:site:${siteId}:wifi`,
   /** Idempotency guard for webhook dedup (value = last event hash). */

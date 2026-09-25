@@ -144,6 +144,8 @@ export const createRouterSchema = z.object({
   password: z.string().min(0).max(255),
   routerosVersion: zEnum(ROUTEROS_VERSIONS).default('v6'),
   pollIntervalSec: z.number().int().min(5).max(3600).nullable().optional(),
+  // Firewall drift watch (nat/filter/mangle snapshot+diff → alert+audit).
+  watchConfig: z.boolean().default(true),
 });
 export type CreateRouterInput = z.infer<typeof createRouterSchema>;
 
@@ -204,6 +206,9 @@ export const createDeviceSchema = z.object({
   // Interface watch ("uplink"): status follows the named interface's running
   // flag instead of Netwatch. Optional per-device alert-window override.
   watchInterface: z.string().max(64).nullable().optional(),
+  // TCP port watch: status = TCP connect from the NOC server to
+  // ipAddress:watchPort — detects "host up, service dead" that ping can't.
+  watchPort: z.number().int().min(1).max(65535).nullable().optional(),
   watchAlertWindow: alertWindowSchema.nullable().optional(),
   // Auto-create the matching /tool/netwatch entry on the router after save.
   // Defaults to TRUE — operators only enter name + IP; Netwatch is wired up
@@ -227,6 +232,8 @@ export const updateDeviceSchema = z.object({
   manualOverride: zEnum(MANUAL_OVERRIDES).nullable().optional(),
   // Interface watch — null clears the watch (device becomes plain Netwatch).
   watchInterface: z.string().max(64).nullable().optional(),
+  // TCP port watch — null clears it. Mutually exclusive with watchInterface.
+  watchPort: z.number().int().min(1).max(65535).nullable().optional(),
   watchAlertWindow: alertWindowSchema.nullable().optional(),
   // when true the backend (re)installs the matching /tool/netwatch entry on the
   // router — e.g. after the IP address changed. Not a stored column.

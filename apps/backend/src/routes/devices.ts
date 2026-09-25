@@ -120,7 +120,10 @@ export async function deviceRoutes(app: FastifyInstance) {
             mapY: body.mapY ?? null,
             isCritical: body.isCritical,
             note: body.note ?? null,
-            watchInterface: body.watchInterface ?? null,
+            // watch modes are mutually exclusive — a TCP probe wins if both
+            // are somehow supplied (defence in depth; the UI only sends one).
+            watchInterface: body.watchPort ? null : (body.watchInterface ?? null),
+            watchPort: body.watchPort ?? null,
             watchAlertWindow: body.watchAlertWindow ?? Prisma.JsonNull,
           },
         });
@@ -235,6 +238,9 @@ export async function deviceRoutes(app: FastifyInstance) {
         ...(areaId !== undefined ? { areaId } : {}),
         ...(lineId !== undefined ? { lineId } : {}),
       };
+      // Watch modes are mutually exclusive: setting one clears the other.
+      if (patch.watchPort) data.watchInterface = null;
+      if (patch.watchInterface) data.watchPort = null;
       if (watchAlertWindow !== undefined) {
         data.watchAlertWindow = watchAlertWindow === null ? Prisma.JsonNull : watchAlertWindow;
       }

@@ -1,6 +1,9 @@
+import net from 'node:net';
+
 import {
   applyDeviceStatus,
   applyDeviceStatusesByHost,
+  checkConfigDrift,
   clientForRouter,
   getSettings,
   updateRouterStatus,
@@ -55,6 +58,24 @@ export async function pollRouter(
 
     await pollUplinkInterfaces(deps, router.id, client);
 
+    // Config drift watch (opt-out via `router.watchConfig`): snapshot the
+    // firewall menus and diff them against the last snapshot in Redis. Ping
+    // and netwatch stay green while a hand-edited — or killed — dst-nat
+    // quietly leaves the monitored service dead; this watch is how we see it.
+    // .catch-wrapped like every auxiliary watch: a drift-check bug must NEVER
+    // fail the poll, or the scheduler's circuit breaker would mark a healthy
+    // router offline and take monitoring down with it.
+    if (router.watchConfig) {
+      await checkConfigDrift(deps, router, client).catch((e) =>
+        deps.logger.warn({ e, routerId: router.id }, 'config drift check failed'),
+      );
+    }
+    // TCP port watches — the "host up, service dead" probe. Same rule: an
+    // auxiliary watch failure must not take the poll down.
+    await pollTcpDevices(deps, router.id).catch((e) =>
+      deps.logger.warn({ e, routerId: router.id }, 'tcp watch probe failed'),
+    );
+
     return { devicesSeen: entries.length };
   } finally {
     await client.close();
@@ -104,6 +125,71 @@ async function pollUplinkInterfaces(
   if (stillDown.length > 0) {
     await uplinkWindowCatchUp(deps, stillDown, await getSettings());
   }
+}
+
+/**
+ * Reconcile TCP-port-watch devices: `Device.watchPort` marks a service probe —
+ * Netwatch only pings the host, and a killed dst-nat leaves ping green while
+ * the service behind it is dead. The probe owns this device's status (the
+ * status engine skips watchPort rows in netwatch reconciliation, and the
+ * work-hours gating + catch-up treat it exactly like an uplink device).
+ *
+ * Same three-state discipline as the interface watch: a device with no IP is
+ * 'unknown' (config gap on our side — show it on the map without crying
+ * outage); a refused or timed-out connect is 'down'; connected is 'up'.
+ */
+async function pollTcpDevices(
+  deps: StatusEngineDeps,
+  routerId: string,
+): Promise<void> {
+  const devices = await deps.prisma.device.findMany({
+    where: { routerId, watchPort: { not: null } },
+  });
+  if (devices.length === 0) return;
+
+  const stillDown: Device[] = [];
+  for (const d of devices) {
+    const next: DeviceStatus = !d.ipAddress
+      ? 'unknown' // nothing to aim the probe at — mirrors the missing-interface case
+      : (await probeTcp(d.ipAddress, d.watchPort!, 4000))
+        ? 'up'
+        : 'down';
+    await applyDeviceStatus(deps, d, next, 'tcp');
+    // The fetched row's `status` is stale after apply — carry the verdict we
+    // just wrote so the catch-up sees "down now", not "down before".
+    if (next === 'down') stillDown.push({ ...d, status: next });
+  }
+
+  if (stillDown.length > 0) {
+    await uplinkWindowCatchUp(deps, stillDown, await getSettings());
+  }
+}
+
+/**
+ * One-shot TCP connect probe. Resolves `true` only when the handshake
+ * completes within `timeoutMs`; refusal, reset, DNS failure and timeout all
+ * resolve `false` — a probe reports a verdict, it must never throw one into
+ * the poll path.
+ */
+function probeTcp(host: string, port: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let socket: net.Socket;
+    try {
+      socket = net.connect({ host, port });
+    } catch {
+      // e.g. an out-of-range port throws synchronously — still just 'down'.
+      resolve(false);
+      return;
+    }
+    const done = (up: boolean) => {
+      socket.destroy();
+      resolve(up); // resolves once — a late event after a verdict is a no-op
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => done(true));
+    socket.once('timeout', () => done(false));
+    socket.once('error', () => done(false));
+  });
 }
 
 /**

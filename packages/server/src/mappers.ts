@@ -123,6 +123,7 @@ export function toRouterPublic(r: RouterMikrotik): RouterPublic {
     status: r.status as RouterStatus,
     lastSeenAt: r.lastSeenAt ? r.lastSeenAt.toISOString() : null,
     resourceCache: (r.resourceCache as RouterResource | null) ?? null,
+    watchConfig: r.watchConfig,
     hasWebhookToken: Boolean(r.webhookToken),
     createdAt: r.createdAt.toISOString(),
   };
@@ -155,6 +156,7 @@ export function toDeviceDto(d: Device): DeviceDTO {
     silencedUntil: d.silencedUntil ? d.silencedUntil.toISOString() : null,
     note: d.note,
     watchInterface: d.watchInterface,
+    watchPort: d.watchPort,
     watchAlertWindow: (d.watchAlertWindow as DeviceDTO['watchAlertWindow']) ?? null,
     createdAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),

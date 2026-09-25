@@ -172,6 +172,10 @@ export interface MikrotikClient {
   optimizeBlockLayout(): Promise<{ moved: number; patched: number }>;
   /** Remove a single filter rule by raw RouterOS .id (legacy /blocks cleanup). */
   removeFilterRule(id: string): Promise<void>;
+  /** Raw `/ip/firewall/<menu>/print` rows (`.id` included) for the worker's
+   *  config-drift watch. Returns the untouched attribute map per rule — the
+   *  caller decides which fields belong in a diff. */
+  listFirewallRaw(menu: 'nat' | 'filter' | 'mangle'): Promise<Record<string, unknown>[]>;
 
   // Access profiles: a hotspot user-profile bound to address-list noc-grp-<name>,
   // whose blocklist policy is enforced by the per-group block engine above. Members

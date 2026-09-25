@@ -78,9 +78,10 @@ export async function maybeNotifyTelegram(
     if (!isDown && !isRecovery) return;
 
     const settings = await getSettings();
-    // Uplink devices alert only inside their work-hours window — the status
-    // itself still updates 24/7, this gate suppresses the notification only.
-    const uplinkWindow: AlertWindow | null = device.watchInterface
+    // Probe-watch devices (interface or TCP port) alert only inside their
+    // work-hours window — the status itself still updates 24/7, this gate
+    // suppresses the notification only.
+    const uplinkWindow: AlertWindow | null = device.watchInterface || device.watchPort
       ? resolveUplinkWindow(device, settings)
       : null;
     if (uplinkWindow && !withinAlertWindow(uplinkWindow, new Date())) return;
@@ -131,8 +132,8 @@ export async function maybeNotifyWhatsApp(
     if (!isDown && !isRecovery) return;
 
     const settings = await getSettings();
-    // Same work-hours gate as Telegram for uplink devices.
-    const uplinkWindow: AlertWindow | null = device.watchInterface
+    // Same work-hours gate as Telegram for probe-watch devices.
+    const uplinkWindow: AlertWindow | null = device.watchInterface || device.watchPort
       ? resolveUplinkWindow(device, settings)
       : null;
     if (uplinkWindow && !withinAlertWindow(uplinkWindow, new Date())) return;
