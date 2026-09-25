@@ -22,7 +22,7 @@ export const ROUTEROS_VERSIONS = ['v6', 'v7'] as const;
 export type RouterOsVersion = (typeof ROUTEROS_VERSIONS)[number];
 
 /** Where a status change came from. */
-export const STATUS_SOURCES = ['webhook', 'polling', 'manual'] as const;
+export const STATUS_SOURCES = ['webhook', 'polling', 'manual', 'interface'] as const;
 export type StatusSource = (typeof STATUS_SOURCES)[number];
 
 /** Manual override flags a device so it does not raise alarms (e.g. maintenance). */
@@ -44,6 +44,7 @@ export const DEVICE_TYPES = [
   'gtex', // production data terminal on the line
   'qcpad', // QC tablet
   'androidtv', // andon / monitoring display
+  'uplink', // interface-watch device — status follows a RouterOS port's running flag
   'other',
 ] as const;
 export type DeviceType = (typeof DEVICE_TYPES)[number];
@@ -53,6 +54,11 @@ export type AreaKind = (typeof AREA_KINDS)[number];
 
 export const TELEGRAM_MODES = ['off', 'server', 'router'] as const;
 export type TelegramMode = (typeof TELEGRAM_MODES)[number];
+
+// WhatsApp alerting per site: 'server' = the wabot process sends to the site's
+// contacts (+ optional group). No 'router' mode — RouterOS can't run WhatsApp.
+export const WHATSAPP_MODES = ['off', 'server'] as const;
+export type WhatsAppMode = (typeof WHATSAPP_MODES)[number];
 
 /** Status used for rendering markers (real status combined with overrides). */
 export type DisplayStatus = DeviceStatus | 'maintenance' | 'warning';
@@ -64,6 +70,31 @@ export const STATUS_COLORS: Record<DisplayStatus, string> = {
   maintenance: '#3b82f6', // blue
   warning: '#eab308', // yellow
 };
+
+/**
+ * "Ink" variants for status TEXT and tiny glyphs on cards — usable directly in
+ * inline styles. STATUS_COLORS are deliberately bright for fills/dots/markers,
+ * but as text on a light surface they wash out below AA contrast; the --st-*
+ * CSS vars (globals.css) hold dark shades on :root and the original brights
+ * in .dark, so dark-mode rendering is unchanged.
+ */
+const STATUS_INK_VARS: Record<DisplayStatus, string> = {
+  up: '--st-up',
+  down: '--st-down',
+  unknown: '--st-unknown',
+  maintenance: '--st-maintenance',
+  warning: '--st-warning',
+};
+export const STATUS_INK: Record<DisplayStatus, string> = {
+  up: `rgb(var(${STATUS_INK_VARS.up}))`,
+  down: `rgb(var(${STATUS_INK_VARS.down}))`,
+  unknown: `rgb(var(${STATUS_INK_VARS.unknown}))`,
+  maintenance: `rgb(var(${STATUS_INK_VARS.maintenance}))`,
+  warning: `rgb(var(${STATUS_INK_VARS.warning}))`,
+};
+/** Ink at an alpha, e.g. statusInk(s, 0.33) for a soft border. */
+export const statusInk = (s: DisplayStatus, alpha: number): string =>
+  `rgb(var(${STATUS_INK_VARS[s]}) / ${alpha})`;
 
 /** Short accessible label/abbreviation so status is not conveyed by colour alone. */
 export const STATUS_LABELS: Record<DisplayStatus, string> = {
@@ -114,6 +145,7 @@ export interface Site {
   telegramMode: TelegramMode;
   telegramChatId: string | null;
   hasTelegramToken: boolean;
+  whatsappMode: WhatsAppMode;
   createdAt: string;
 }
 
@@ -145,6 +177,15 @@ export interface RouterResource {
   boardName?: string;
 }
 
+/** One row of `/interface/print` — used by the interface-watch pick-list and
+ * by the worker's uplink poll (status follows `running`). */
+export interface RouterInterface {
+  name: string;
+  type: string; // ether | sfp | wlan | bridge | vlan | …
+  running: boolean;
+  disabled: boolean;
+}
+
 /** Router as exposed to clients. The encrypted password is NEVER included. */
 export interface RouterPublic {
   id: string;
@@ -162,6 +203,57 @@ export interface RouterPublic {
   hasWebhookToken: boolean;
   createdAt: string;
 }
+
+/**
+ * Alert window ("jam kerja") for interface-watch devices: notifications fire
+ * only inside the window, while the status itself keeps tracking 24/7. A
+ * device's own window overrides the global Setting.uplinkAlert* defaults.
+ */
+export interface AlertWindow {
+  /** Minutes after midnight (0-1439), local server time. */
+  startMin: number;
+  endMin: number;
+  /** ISO weekday numbers — 1=Mon … 7=Sun. */
+  days: number[];
+}
+
+/**
+ * The moment the currently-open window instance started (epoch ms), or null
+ * when `at` is outside the window. Overnight windows (e.g. 18:00→06:00) are
+ * supported: the part after midnight belongs to yesterday's instance, the
+ * part before midnight to today's — which is also why the day-membership test
+ * uses the instance's start date, not the clock date.
+ */
+export function alertWindowInstanceStart(w: AlertWindow, at: Date): number | null {
+  if (w.startMin === w.endMin) return null;
+  const day = at.getDay() === 0 ? 7 : at.getDay(); // JS Sun=0 → ISO 7
+  const mins = at.getHours() * 60 + at.getMinutes();
+  const midnight = new Date(at);
+  midnight.setHours(0, 0, 0, 0);
+
+  if (w.startMin < w.endMin) {
+    if (mins < w.startMin || mins >= w.endMin) return null;
+    return w.days.includes(day) ? midnight.getTime() + w.startMin * 60_000 : null;
+  }
+  // Overnight window.
+  if (mins >= w.startMin) {
+    return w.days.includes(day) ? midnight.getTime() + w.startMin * 60_000 : null;
+  }
+  if (mins < w.endMin) {
+    const prevDay = day === 1 ? 7 : day - 1;
+    return w.days.includes(prevDay)
+      ? midnight.getTime() - 24 * 3600_000 + w.startMin * 60_000
+      : null;
+  }
+  return null;
+}
+
+export function withinAlertWindow(w: AlertWindow, at: Date): boolean {
+  return alertWindowInstanceStart(w, at) !== null;
+}
+
+/** ISO weekday labels for schedule UIs, index-aligned to days[1..7]. */
+export const ALERT_DAY_LABELS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'] as const;
 
 export interface Device {
   id: string;
@@ -190,6 +282,11 @@ export interface Device {
   /** Alerts suppressed until this moment (ISO). */
   silencedUntil: string | null;
   note: string | null;
+  /** Interface-watch: RouterOS interface name (e.g. ether2) driving status, or
+   *  null for a plain Netwatch device. */
+  watchInterface: string | null;
+  /** Per-device alert-window override; null = use the global Setting default. */
+  watchAlertWindow: AlertWindow | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -204,7 +301,7 @@ export interface StatusEventRow {
   isCritical: boolean;
   oldStatus: DeviceStatus;
   newStatus: DeviceStatus;
-  source: 'webhook' | 'polling' | 'manual';
+  source: StatusSource;
   occurredAt: string;
 }
 
@@ -261,6 +358,12 @@ export interface AppUserPublic {
   isActive: boolean;
   /** member role: the hotspot username this account self-manages (null for staff). */
   hotspotUsername: string | null;
+  /** WhatsApp number (E.164 digits) once linked — null when never set. */
+  phone: string | null;
+  /** The number passed bot-side verification (LINK code), not merely stored. */
+  phoneVerified: boolean;
+  /** Org unit — free text; shown on the member's complaint tickets. */
+  department: string | null;
   createdAt: string;
 }
 
@@ -300,6 +403,18 @@ export interface Settings extends BrandingPublic {
   // Telegram message templates with {device} {ip} {site} {status} {when}
   telegramDownTemplate: string;
   telegramUpTemplate: string;
+  // WhatsApp bot: alert templates (same placeholders) + complaint intake toggle.
+  waDownTemplate: string;
+  waUpTemplate: string;
+  waBotName: string;
+  waComplaintEnabled: boolean;
+  waTicketEscalateMin: number;
+  // Global alert window for interface-watch ("uplink") devices — minutes after
+  // midnight + ISO weekday numbers (1=Mon..7=Sun). Per-device override lives on
+  // Device.watchAlertWindow.
+  uplinkAlertStartMin: number;
+  uplinkAlertEndMin: number;
+  uplinkAlertDays: number[];
   updatedAt: string;
 }
 

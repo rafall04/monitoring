@@ -41,9 +41,11 @@ import type {
   WsServerEvent,
 } from '@noc/shared';
 import { api } from './api';
+import { liteInterval } from './lite';
 
 export const qk = {
   sites: ['sites'] as const,
+  siteSummaries: ['site-summaries'] as const,
   site: (id: string) => ['site', id] as const,
   siteDevices: (id: string) => ['site', id, 'devices'] as const,
   siteSummary: (id: string) => ['site', id, 'summary'] as const,
@@ -70,7 +72,7 @@ export function useFirewallBlocks(routerId: string | null) {
     queryKey: qk.firewallBlocks(routerId ?? ''),
     queryFn: () => api.get<FirewallBlockRule[]>(`/firewall/${routerId}/blocks`),
     enabled: Boolean(routerId),
-    refetchInterval: 30_000,
+    refetchInterval: liteInterval(30_000),
   });
 }
 export function useToggleBlock(routerId: string) {
@@ -101,7 +103,7 @@ export function useAddressList(routerId: string | null, list: string | null) {
         `/firewall/${routerId}/address-list${list ? `?list=${encodeURIComponent(list)}` : ''}`,
       ),
     enabled: Boolean(routerId),
-    refetchInterval: 30_000,
+    refetchInterval: liteInterval(30_000),
   });
 }
 export function useAddAddressEntry(routerId: string) {
@@ -127,7 +129,7 @@ export function useBlockIntents(routerId: string | null) {
     queryKey: ['firewall', routerId, 'intents'],
     queryFn: () => api.get<BlockIntent[]>(`/firewall/${routerId}/intents`),
     enabled: Boolean(routerId),
-    refetchInterval: 30_000,
+    refetchInterval: liteInterval(30_000),
   });
 }
 export function useCreateIntent(routerId: string) {
@@ -163,7 +165,7 @@ export function useAccessProfiles(routerId: string | null) {
     queryKey: ['firewall', routerId, 'profiles'],
     queryFn: () => api.get<AccessProfile[]>(`/firewall/${routerId}/profiles`),
     enabled: Boolean(routerId),
-    refetchInterval: 30_000,
+    refetchInterval: liteInterval(30_000),
   });
 }
 export function useCreateAccessProfile(routerId: string) {
@@ -245,7 +247,7 @@ export function useSimpleQueues(routerId: string | null) {
     queryKey: ['bandwidth', routerId, 'queues'],
     queryFn: () => api.get<SimpleQueueDTO[]>(`/bandwidth/${routerId}/queues`),
     enabled: Boolean(routerId),
-    refetchInterval: 15_000,
+    refetchInterval: liteInterval(15_000),
   });
 }
 export function useDhcpLeases(routerId: string | null) {
@@ -253,7 +255,7 @@ export function useDhcpLeases(routerId: string | null) {
     queryKey: ['bandwidth', routerId, 'leases'],
     queryFn: () => api.get<DhcpLeaseDTO[]>(`/bandwidth/${routerId}/leases`),
     enabled: Boolean(routerId),
-    refetchInterval: 30_000,
+    refetchInterval: liteInterval(30_000),
   });
 }
 export function useAddQueue(routerId: string) {
@@ -347,6 +349,16 @@ export function useSiteSummary(id: string | undefined) {
     enabled: Boolean(id),
   });
 }
+/** All sites' summaries in ONE request — powers the overview dashboard (was
+ *  one request per site; expensive on weak networks / low-end devices). */
+export function useSiteSummaries(enabled = true) {
+  return useQuery({
+    queryKey: qk.siteSummaries,
+    queryFn: () => api.get<SiteSummary[]>('/sites/summaries'),
+    enabled,
+    refetchInterval: liteInterval(20_000),
+  });
+}
 export function useSiteWifi(id: string | undefined, enabled = true) {
   return useQuery({
     queryKey: qk.siteWifi(id ?? ''),
@@ -354,7 +366,7 @@ export function useSiteWifi(id: string | undefined, enabled = true) {
     enabled: Boolean(id) && enabled,
     // Worker refreshes the cache every ~5 min; poll a bit faster so the drawer/map
     // reflect roaming without a manual reload.
-    refetchInterval: 120_000,
+    refetchInterval: liteInterval(120_000),
   });
 }
 export function useRouters(siteId?: string) {
@@ -375,7 +387,7 @@ export function useRuijieRouters(enabled = true) {
   return useQuery({
     queryKey: qk.ruijieRouters,
     queryFn: () => api.get<RuijieRouterPublic[]>('/ruijie/routers'),
-    refetchInterval: 30_000,
+    refetchInterval: liteInterval(30_000),
     enabled,
   });
 }
@@ -427,7 +439,7 @@ export function useRuijiePortHealth() {
   return useQuery({
     queryKey: qk.ruijiePortHealth,
     queryFn: () => api.get<RuijiePortHealth>('/ruijie/ports/health'),
-    refetchInterval: 60_000,
+    refetchInterval: liteInterval(60_000),
   });
 }
 /** Per-router port event timeline (degraded/recovered/flap). Our DB; on-demand. */

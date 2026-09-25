@@ -10,6 +10,8 @@ dist
 !README.md
 .env
 .env.*
+**/.env
+**/.env.*
 uploads
 logs
 caddy_data

@@ -2,11 +2,18 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { ALERT_PLACEHOLDERS, type Settings } from '@noc/shared';
+import { ALERT_DAY_LABELS, ALERT_PLACEHOLDERS, type Settings } from '@noc/shared';
 import { api } from '@/lib/api';
 import { Button, Card, Field, Loading, Page, PageBody, PageHeader, Select, Textarea, TextInput } from '@/components/ui';
 
 // Sensible accent presets so admins do not need to think in RGB triplets.
+const minToTime = (m: number) =>
+  `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+const timeToMin = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
 const ACCENT_PRESETS: Array<{ name: string; rgb: string; hex: string }> = [
   { name: 'Blue',   rgb: '59 130 246',  hex: '#3B82F6' },
   { name: 'Indigo', rgb: '99 102 241',  hex: '#6366F1' },
@@ -51,6 +58,9 @@ export default function AdminSettingsPage() {
         netwatchExtraDown: form.netwatchExtraDown,
         telegramDownTemplate: form.telegramDownTemplate,
         telegramUpTemplate: form.telegramUpTemplate,
+        uplinkAlertStartMin: Number(form.uplinkAlertStartMin),
+        uplinkAlertEndMin: Number(form.uplinkAlertEndMin),
+        uplinkAlertDays: form.uplinkAlertDays,
       });
     },
     onSuccess: (s) => {
@@ -250,6 +260,58 @@ export default function AdminSettingsPage() {
               onChange={(e) => setForm({ ...form, netwatchTimeoutMs: Number(e.target.value) })}
             />
           </Field>
+        </div>
+
+        <div>
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+            Jam alert uplink (jam kerja)
+          </span>
+          <p className="mb-2 text-2xs text-slate-500">
+            Default untuk semua device bertipe "pantau interface uplink": alert down/recover hanya
+            dikirim di dalam window ini — status peta tetap diperbarui 24 jam, dan device yang masih
+            down saat jam buka dikirimi alert satu kali. Tiap device bisa override di form editnya.
+            Mendukung window lintas tengah malam (mis. 18:00 → 06:00).
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <TextInput
+              type="time"
+              value={minToTime(form.uplinkAlertStartMin)}
+              onChange={(e) => setForm({ ...form, uplinkAlertStartMin: timeToMin(e.target.value) })}
+            />
+            <span className="text-xs text-slate-500">s.d.</span>
+            <TextInput
+              type="time"
+              value={minToTime(form.uplinkAlertEndMin)}
+              onChange={(e) => setForm({ ...form, uplinkAlertEndMin: timeToMin(e.target.value) })}
+            />
+            <div className="flex flex-wrap gap-1">
+              {ALERT_DAY_LABELS.map((label, i) => {
+                const day = i + 1;
+                const on = form.uplinkAlertDays.includes(day);
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        uplinkAlertDays: on
+                          ? form.uplinkAlertDays.filter((d) => d !== day)
+                          : [...form.uplinkAlertDays, day].sort(),
+                      })
+                    }
+                    className={`rounded border px-2 py-0.5 text-xs ${
+                      on
+                        ? 'border-accent bg-accent/10 text-accent'
+                        : 'border-surface-border text-slate-400'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         <div>

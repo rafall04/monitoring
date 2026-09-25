@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import {
   STATUS_COLORS,
+  STATUS_INK,
   STATUS_LABELS,
   effectiveStatus,
   type Device,
@@ -133,7 +134,7 @@ export default function WifiView({ devices, wifiLinks, updatedAt, onSelect }: Wi
                   className="flex items-center gap-1.5 rounded border border-surface-border bg-surface/60 px-2 py-1 text-left text-xs text-slate-300 hover:border-slate-500"
                   style={{ borderLeftWidth: 3, borderLeftColor: STATUS_COLORS[s] }}
                 >
-                  <span style={{ color: STATUS_COLORS[s] }} dangerouslySetInnerHTML={{ __html: glyph(d) }} />
+                  <span style={{ color: STATUS_INK[s] }} dangerouslySetInnerHTML={{ __html: glyph(d) }} />
                   <span className="max-w-[7rem] truncate">{d.name}</span>
                 </button>
               );
@@ -163,7 +164,7 @@ function DeviceRow({
       className="flex w-full items-center gap-2 rounded-md border border-surface-border bg-surface-raised px-2 py-1.5 text-left hover:border-slate-500"
       style={{ borderLeftWidth: 3, borderLeftColor: color }}
     >
-      <span className="shrink-0" style={{ color }} dangerouslySetInnerHTML={{ __html: glyph(device) }} />
+      <span className="shrink-0" style={{ color: STATUS_INK[s] }} dangerouslySetInnerHTML={{ __html: glyph(device) }} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium text-slate-200">{device.name}</span>
         <span className="block truncate text-micro text-slate-500">

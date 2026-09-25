@@ -9,8 +9,11 @@ import { diagnosticsRoutes } from './diagnostics';
 import { firewallRoutes } from './firewall';
 import { hotspotRoutes } from './hotspot';
 import { meHotspotRoutes } from './me-hotspot';
+import { meRoutes } from './me';
+import { siteContactRoutes } from './site-contacts';
 import { reportRoutes } from './reports';
 import { routerRoutes } from './routers';
+import { ticketRoutes } from './tickets';
 import { ruijieRoutes } from './ruijie';
 import { settingsRoutes } from './settings';
 import { siteRoutes } from './sites';
@@ -18,11 +21,15 @@ import { topologyRoutes } from './topology';
 import { uploadRoutes } from './uploads';
 import { userRoutes } from './users';
 import { webhookRoutes } from './webhook';
+import { whatsappRoutes } from './whatsapp';
 
 export async function apiRoutes(app: FastifyInstance) {
   await app.register(authRoutes, { prefix: '/auth' });
   await app.register(companyRoutes, { prefix: '/companies' });
   await app.register(siteRoutes, { prefix: '/sites' });
+  await app.register(siteContactRoutes, { prefix: '/sites' });
+  await app.register(ticketRoutes, { prefix: '/tickets' });
+  await app.register(meRoutes, { prefix: '/me' });
   await app.register(routerRoutes, { prefix: '/routers' });
   await app.register(deviceRoutes, { prefix: '/devices' });
   await app.register(topologyRoutes);
@@ -39,4 +46,5 @@ export async function apiRoutes(app: FastifyInstance) {
   await app.register(ruijieRoutes, { prefix: '/ruijie' });
   await app.register(uploadRoutes, { prefix: '/uploads' });
   await app.register(webhookRoutes, { prefix: '/webhook' });
+  await app.register(whatsappRoutes, { prefix: '/whatsapp' });
 }

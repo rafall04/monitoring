@@ -82,15 +82,21 @@ export async function authRoutes(app: FastifyInstance) {
     return toAppUserPublic(u);
   });
 
-  // Self-service profile edit (name only). Email + role + scope are managed via
-  // the admin user endpoints to prevent privilege/lockout abuse.
+  // Self-service profile edit (name + department). Email + role + scope are
+  // managed via the admin user endpoints to prevent privilege/lockout abuse.
   app.patch('/me', { onRequest: [authenticate] }, async (req) => {
     const body = updateProfileSchema.parse(req.body);
     const u = await prisma.appUser.update({
       where: { id: req.appUser.id },
-      data: { name: body.name },
+      data: {
+        name: body.name,
+        // undefined = leave as-is; ''/null = clear; string = set.
+        ...(body.department !== undefined
+          ? { department: body.department?.trim() || null }
+          : {}),
+      },
     });
-    await writeAudit(req, { action: 'profile-update', entity: 'app_user', entityId: u.id, after: { name: u.name } });
+    await writeAudit(req, { action: 'profile-update', entity: 'app_user', entityId: u.id, after: { name: u.name, department: u.department } });
     return toAppUserPublic(u);
   });
 

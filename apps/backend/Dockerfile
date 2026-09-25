@@ -5,7 +5,11 @@ WORKDIR /app
 
 # Prisma's engines need OpenSSL; Alpine doesn't ship it by default (without this
 # `prisma migrate deploy` fails with "Could not parse schema engine response").
-RUN apk add --no-cache openssl
+# `git` is required because a wabot dep (libsignal) resolves to a git URL and the
+# root npm install resolves the whole workspace graph.
+# tzdata: named timezones for the uplink work-hours alert window (the container
+# clock is UTC; TZ=Asia/Jakarta makes "jam kerja" mean WIB).
+RUN apk add --no-cache openssl git tzdata
 
 # Install all workspace dependencies (tsx + prisma live at the root).
 COPY package.json ./
@@ -14,6 +18,7 @@ COPY packages ./packages
 COPY apps/backend ./apps/backend
 # Minimal stubs so npm workspaces resolves every declared workspace.
 COPY apps/worker/package.json ./apps/worker/package.json
+COPY apps/wabot/package.json ./apps/wabot/package.json
 COPY apps/frontend/package.json ./apps/frontend/package.json
 
 RUN npm install

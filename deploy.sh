@@ -231,6 +231,12 @@ WEBHOOK_IP_ALLOWLIST=
 UPLOAD_DIR=./uploads
 MAX_UPLOAD_MB=8
 
+# ---- WhatsApp bot (apps/wabot) ----
+# WA_DRIVER=mock logs instead of sending — for staging/dev without a number.
+WA_ENABLED=true
+WA_DRIVER=baileys
+WABOT_HEALTH_PORT=4200
+
 # ---- First super admin (change the password after first login!) ----
 SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL}
 SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD}

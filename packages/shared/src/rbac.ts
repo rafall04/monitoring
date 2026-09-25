@@ -35,6 +35,9 @@ export const PERMISSIONS = [
   'bandwidth:manage', // create/edit queues + set DHCP lease rate-limit
   'device:diagnose', // run read-only diagnostics on the router (ping/traceroute/log/net-info)
   'device:remediate', // PoE power-cycle a port (writes to the router)
+  'tickets:view', // see complaint tickets (from the WhatsApp bot intake)
+  'tickets:manage', // ack/resolve tickets
+  'whatsapp:manage', // WhatsApp console: session, recipients, broadcast (super_admin)
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -62,6 +65,8 @@ const OPERATOR_PERMISSIONS: Permission[] = [
   'bandwidth:manage', // set queues + DHCP lease rate-limit
   'device:diagnose', // ping/traceroute/log from the router (IT technician job)
   'device:remediate', // PoE power-cycle a frozen device
+  'tickets:view', // complaint inbox
+  'tickets:manage', // work the complaint queue
 ];
 
 // Viewer = read-only monitor: the map + device detail, Ruijie WiFi monitoring,

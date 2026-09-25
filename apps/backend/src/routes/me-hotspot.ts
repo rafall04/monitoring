@@ -1,11 +1,15 @@
 import bcrypt from 'bcryptjs';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { clientForRouter, prisma } from '@noc/server';
 import {
-  BLOCK_SERVICES,
+  clientForRouter,
+  getMemberStatus,
+  kickMemberSessions,
+  prisma,
+  setMemberPassword,
+} from '@noc/server';
+import {
   hotspotKickSchema,
   hotspotSelfPasswordSchema,
-  type MemberHotspotStatus,
 } from '@noc/shared';
 import { writeAudit } from '../lib/audit';
 import { badGateway, badRequest, notFound } from '../lib/errors';
@@ -41,38 +45,8 @@ export async function meHotspotRoutes(app: FastifyInstance) {
     const { me, router } = await linkedAccount(req);
     const c = clientForRouter(router);
     try {
-      const u = await c.getHotspotUserByName(me.hotspotUsername!);
-      if (!u) throw notFound('User hotspot tidak ditemukan di router');
-      const [profs, active, intents] = await Promise.all([
-        c.listHotspotProfiles(),
-        c.listHotspotActive(),
-        c.listBlockIntents(),
-      ]);
-      // Device limit comes from the user-PROFILE (variant-aware); blocked apps
-      // follow the BASE profile's group since -ND variants share its noc-grp.
-      const base = (u.profile || 'default').replace(/-\d+D$/, '');
-      const devices = Number(
-        profs.find((p) => p.name === u.profile)?.['shared-users'] ?? 1,
-      );
-      const blockedServices = intents
-        .filter((i) => i.group === base && i.active)
-        .map((i) => ({
-          key: i.service,
-          label: BLOCK_SERVICES.find((s) => s.key === i.service)?.label ?? i.service,
-        }));
-      const out: MemberHotspotStatus = {
-        username: u.name,
-        profile: u.profile ?? 'default',
-        devices: Number.isFinite(devices) ? devices : 1,
-        disabled: u.disabled === 'true',
-        uptime: u.uptime ?? null,
-        bytesIn: u['bytes-in'] ?? null,
-        bytesOut: u['bytes-out'] ?? null,
-        limitUptime: u['limit-uptime'] ?? null,
-        limitBytesTotal: u['limit-bytes-total'] ?? null,
-        blockedServices,
-        sessions: active.filter((s) => s.user === u.name),
-      };
+      const out = await getMemberStatus(c, me.hotspotUsername!);
+      if (!out) throw notFound('User hotspot tidak ditemukan di router');
       return out;
     } catch (err) {
       if (err && typeof err === 'object' && 'statusCode' in err) throw err;
@@ -97,12 +71,14 @@ export async function meHotspotRoutes(app: FastifyInstance) {
       const { me, router } = await linkedAccount(req);
       const c = clientForRouter(router);
       try {
-        const u = await c.getHotspotUserByName(me.hotspotUsername!);
-        if (!u?.['.id']) throw notFound('User hotspot tidak ditemukan di router');
-        if ((u.password ?? '') !== body.currentPassword) {
-          throw badRequest('Password lama salah');
-        }
-        await c.updateHotspotUser(u['.id'], { password: body.newPassword });
+        const res = await setMemberPassword(
+          c,
+          me.hotspotUsername!,
+          body.currentPassword,
+          body.newPassword,
+        );
+        if (res === 'not-found') throw notFound('User hotspot tidak ditemukan di router');
+        if (res === 'wrong-password') throw badRequest('Password lama salah');
       } catch (err) {
         if (err && typeof err === 'object' && 'statusCode' in err) throw err;
         throw badGateway(`MikroTik error: ${(err as Error)?.message ?? err}`);
@@ -134,20 +110,15 @@ export async function meHotspotRoutes(app: FastifyInstance) {
     const { me, router } = await linkedAccount(req);
     const c = clientForRouter(router);
     try {
-      const active = await c.listHotspotActive();
-      const mine = active.filter((s) => s.user === me.hotspotUsername);
-      const targets = body.id ? mine.filter((s) => s['.id'] === body.id) : mine;
-      if (body.id && targets.length === 0) throw notFound('Sesi tidak ditemukan');
-      for (const s of targets) {
-        if (s['.id']) await c.disconnectHotspotActive(s['.id']);
-      }
+      const { kicked } = await kickMemberSessions(c, me.hotspotUsername!, body.id);
+      if (body.id && kicked === 0) throw notFound('Sesi tidak ditemukan');
       await writeAudit(req, {
         action: 'hotspot-self-kick',
         entity: 'app_user',
         entityId: me.id,
-        after: { kicked: targets.length },
+        after: { kicked },
       });
-      return { kicked: targets.length };
+      return { kicked };
     } catch (err) {
       if (err && typeof err === 'object' && 'statusCode' in err) throw err;
       throw badGateway(`MikroTik error: ${(err as Error)?.message ?? err}`);

@@ -1,0 +1,500 @@
+{
+  "areas": [
+    {
+      "name": "Produksi",
+      "kind": "room",
+      "lines": [],
+      "devices": [
+        {
+          "name": "Cutting Out",
+          "ip": "192.168.101.1",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 0
+        },
+        {
+          "name": "WH Upper In",
+          "ip": "192.168.101.2",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 1
+        },
+        {
+          "name": "WH Upper Out",
+          "ip": "192.168.101.3",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 2
+        },
+        {
+          "name": "WH Outsole In",
+          "ip": "192.168.101.4",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 3
+        },
+        {
+          "name": "WH Outsole Out",
+          "ip": "192.168.101.5",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 4
+        },
+        {
+          "name": "WH Midsole In",
+          "ip": "192.168.101.6",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 5
+        },
+        {
+          "name": "WH Midsole Out",
+          "ip": "192.168.101.7",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 6
+        },
+        {
+          "name": "Stitching In A",
+          "ip": "192.168.101.8",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 7
+        },
+        {
+          "name": "Stitching Out A",
+          "ip": "192.168.101.9",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 8
+        },
+        {
+          "name": "Stitching In B",
+          "ip": "192.168.101.31",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 9
+        },
+        {
+          "name": "Stitching Out B",
+          "ip": "192.168.101.32",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 10
+        },
+        {
+          "name": "UV In",
+          "ip": "192.168.101.10",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 11
+        },
+        {
+          "name": "UV Out",
+          "ip": "192.168.101.11",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 12
+        },
+        {
+          "name": "Buffing In",
+          "ip": "192.168.101.12",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 13
+        },
+        {
+          "name": "Buffing Out",
+          "ip": "192.168.101.13",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 14
+        },
+        {
+          "name": "Supermarket In",
+          "ip": "192.168.101.14",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 15
+        },
+        {
+          "name": "Supermarket Out",
+          "ip": "192.168.101.15",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 16
+        }
+      ]
+    },
+    {
+      "name": "Lini Produksi",
+      "kind": "lines",
+      "lines": [
+        "Line A",
+        "Line B",
+        "Line C",
+        "Line D",
+        "Line E"
+      ],
+      "devices": [
+        {
+          "name": "Assembling In",
+          "ip": "192.168.101.16",
+          "type": "gtex",
+          "line": "Line A",
+          "orderIndex": 0
+        },
+        {
+          "name": "Splitting In",
+          "ip": "192.168.101.17",
+          "type": "gtex",
+          "line": "Line A",
+          "orderIndex": 1
+        },
+        {
+          "name": "Assembling Out",
+          "ip": "192.168.101.18",
+          "type": "gtex",
+          "line": "Line A",
+          "orderIndex": 2
+        },
+        {
+          "name": "QC 1",
+          "ip": "192.168.101.201",
+          "type": "qcpad",
+          "line": "Line A",
+          "orderIndex": 3
+        },
+        {
+          "name": "QC 1 (Display)",
+          "ip": "192.168.101.232",
+          "type": "androidtv",
+          "line": "Line A",
+          "orderIndex": 4
+        },
+        {
+          "name": "QC 2",
+          "ip": "192.168.101.202",
+          "type": "qcpad",
+          "line": "Line A",
+          "orderIndex": 5
+        },
+        {
+          "name": "QC 3",
+          "ip": "192.168.101.203",
+          "type": "qcpad",
+          "line": "Line A",
+          "orderIndex": 6
+        },
+        {
+          "name": "QC 3 (Display)",
+          "ip": "192.168.101.199",
+          "type": "androidtv",
+          "line": "Line A",
+          "orderIndex": 7
+        },
+        {
+          "name": "RQC",
+          "ip": "192.168.101.200",
+          "type": "qcpad",
+          "line": "Line A",
+          "orderIndex": 8
+        },
+        {
+          "name": "TV",
+          "ip": "192.168.101.170",
+          "type": "androidtv",
+          "line": "Line A",
+          "orderIndex": 9
+        },
+        {
+          "name": "Assembling In",
+          "ip": "192.168.101.19",
+          "type": "gtex",
+          "line": "Line B",
+          "orderIndex": 0
+        },
+        {
+          "name": "Splitting In",
+          "ip": "192.168.101.20",
+          "type": "gtex",
+          "line": "Line B",
+          "orderIndex": 1
+        },
+        {
+          "name": "Assembling Out",
+          "ip": "192.168.101.21",
+          "type": "gtex",
+          "line": "Line B",
+          "orderIndex": 2
+        },
+        {
+          "name": "QC 1",
+          "ip": "192.168.101.204",
+          "type": "qcpad",
+          "line": "Line B",
+          "orderIndex": 3
+        },
+        {
+          "name": "QC 1 (Display)",
+          "ip": "192.168.101.233",
+          "type": "androidtv",
+          "line": "Line B",
+          "orderIndex": 4
+        },
+        {
+          "name": "QC 2",
+          "ip": "192.168.101.205",
+          "type": "qcpad",
+          "line": "Line B",
+          "orderIndex": 5
+        },
+        {
+          "name": "QC 3",
+          "ip": "192.168.101.206",
+          "type": "qcpad",
+          "line": "Line B",
+          "orderIndex": 6
+        },
+        {
+          "name": "QC 3 (Display)",
+          "ip": "192.168.101.198",
+          "type": "androidtv",
+          "line": "Line B",
+          "orderIndex": 7
+        },
+        {
+          "name": "RQC",
+          "ip": "192.168.101.248",
+          "type": "qcpad",
+          "line": "Line B",
+          "orderIndex": 8
+        },
+        {
+          "name": "TV",
+          "ip": "192.168.101.171",
+          "type": "androidtv",
+          "line": "Line B",
+          "orderIndex": 9
+        },
+        {
+          "name": "Assembling In",
+          "ip": "192.168.101.22",
+          "type": "gtex",
+          "line": "Line C",
+          "orderIndex": 0
+        },
+        {
+          "name": "Splitting In",
+          "ip": "192.168.101.23",
+          "type": "gtex",
+          "line": "Line C",
+          "orderIndex": 1
+        },
+        {
+          "name": "Assembling Out",
+          "ip": "192.168.101.24",
+          "type": "gtex",
+          "line": "Line C",
+          "orderIndex": 2
+        },
+        {
+          "name": "QC 1",
+          "ip": "192.168.101.207",
+          "type": "qcpad",
+          "line": "Line C",
+          "orderIndex": 3
+        },
+        {
+          "name": "QC 2",
+          "ip": "192.168.101.208",
+          "type": "qcpad",
+          "line": "Line C",
+          "orderIndex": 4
+        },
+        {
+          "name": "QC 3",
+          "ip": "192.168.101.209",
+          "type": "qcpad",
+          "line": "Line C",
+          "orderIndex": 5
+        },
+        {
+          "name": "RQC",
+          "ip": "192.168.101.249",
+          "type": "qcpad",
+          "line": "Line C",
+          "orderIndex": 6
+        },
+        {
+          "name": "TV",
+          "ip": "192.168.101.172",
+          "type": "androidtv",
+          "line": "Line C",
+          "orderIndex": 7
+        },
+        {
+          "name": "Assembling In",
+          "ip": "192.168.101.25",
+          "type": "gtex",
+          "line": "Line D",
+          "orderIndex": 0
+        },
+        {
+          "name": "Splitting In",
+          "ip": "192.168.101.26",
+          "type": "gtex",
+          "line": "Line D",
+          "orderIndex": 1
+        },
+        {
+          "name": "Assembling Out",
+          "ip": "192.168.101.27",
+          "type": "gtex",
+          "line": "Line D",
+          "orderIndex": 2
+        },
+        {
+          "name": "QC 1",
+          "ip": "192.168.101.210",
+          "type": "qcpad",
+          "line": "Line D",
+          "orderIndex": 3
+        },
+        {
+          "name": "QC 1 (Display)",
+          "ip": "192.168.101.234",
+          "type": "androidtv",
+          "line": "Line D",
+          "orderIndex": 4
+        },
+        {
+          "name": "QC 2",
+          "ip": "192.168.101.211",
+          "type": "qcpad",
+          "line": "Line D",
+          "orderIndex": 5
+        },
+        {
+          "name": "QC 3",
+          "ip": "192.168.101.212",
+          "type": "qcpad",
+          "line": "Line D",
+          "orderIndex": 6
+        },
+        {
+          "name": "RQC",
+          "ip": "192.168.101.250",
+          "type": "qcpad",
+          "line": "Line D",
+          "orderIndex": 7
+        },
+        {
+          "name": "TV",
+          "ip": "192.168.101.173",
+          "type": "androidtv",
+          "line": "Line D",
+          "orderIndex": 8
+        },
+        {
+          "name": "Assembling In",
+          "ip": "192.168.101.28",
+          "type": "gtex",
+          "line": "Line E",
+          "orderIndex": 0
+        },
+        {
+          "name": "Splitting In",
+          "ip": "192.168.101.29",
+          "type": "gtex",
+          "line": "Line E",
+          "orderIndex": 1
+        },
+        {
+          "name": "Assembling Out",
+          "ip": "192.168.101.30",
+          "type": "gtex",
+          "line": "Line E",
+          "orderIndex": 2
+        },
+        {
+          "name": "QC 1",
+          "ip": "192.168.101.213",
+          "type": "qcpad",
+          "line": "Line E",
+          "orderIndex": 3
+        },
+        {
+          "name": "QC 1 (Display)",
+          "ip": "192.168.101.236",
+          "type": "androidtv",
+          "line": "Line E",
+          "orderIndex": 4
+        },
+        {
+          "name": "QC 2",
+          "ip": "192.168.101.214",
+          "type": "qcpad",
+          "line": "Line E",
+          "orderIndex": 5
+        },
+        {
+          "name": "QC 3",
+          "ip": "192.168.101.215",
+          "type": "qcpad",
+          "line": "Line E",
+          "orderIndex": 6
+        },
+        {
+          "name": "QC 3 (Display)",
+          "ip": "192.168.101.197",
+          "type": "androidtv",
+          "line": "Line E",
+          "orderIndex": 7
+        },
+        {
+          "name": "RQC",
+          "ip": "192.168.101.251",
+          "type": "qcpad",
+          "line": "Line E",
+          "orderIndex": 8
+        },
+        {
+          "name": "TV",
+          "ip": "192.168.101.174",
+          "type": "androidtv",
+          "line": "Line E",
+          "orderIndex": 9
+        }
+      ]
+    },
+    {
+      "name": "GD. Baru",
+      "kind": "room",
+      "lines": [],
+      "devices": [
+        {
+          "name": "Stockfit In 1",
+          "ip": "192.168.101.68",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 0
+        },
+        {
+          "name": "qc stockfit sf 1",
+          "ip": "192.168.101.246",
+          "type": "qcpad",
+          "line": null,
+          "orderIndex": 1
+        },
+        {
+          "name": "Stockfit Out 1",
+          "ip": "192.168.101.69",
+          "type": "gtex",
+          "line": null,
+          "orderIndex": 2
+        }
+      ]
+    }
+  ]
+}

@@ -16,7 +16,7 @@ import {
   type StatusSource,
 } from '@noc/shared';
 import { toDeviceDto } from './mappers';
-import { maybeNotifyTelegram } from './notify';
+import { maybeNotifyTelegram, maybeNotifyWhatsApp } from './notify';
 import { publishSiteEvent, type Redis } from './redis';
 
 export interface StatusEngineDeps {
@@ -178,8 +178,10 @@ export async function applyDeviceStatus(
     summary,
   });
 
-  // Fire-and-forget Telegram alert for critical devices (server mode).
+  // Fire-and-forget alerts for critical devices (server modes): Telegram +
+  // WhatsApp are independent channels, each gated per-site with its own cooldown.
   await maybeNotifyTelegram(deps, device, oldStatus, newStatus);
+  await maybeNotifyWhatsApp(deps, device, oldStatus, newStatus);
 
   deps.logger.info(
     { deviceId: device.id, name: updated.name, oldStatus, newStatus, source },
@@ -270,6 +272,66 @@ export async function computeSiteSummary(
     availabilityPct,
     currentlyDown,
   };
+}
+
+/**
+ * Bulk variant of computeSiteSummary — ONE device query for many sites, folded
+ * in JS. Powers the overview dashboard so N sites cost 1 request, not N.
+ */
+export async function computeSiteSummaries(
+  prisma: PrismaClient,
+  siteIds: string[],
+): Promise<SiteSummary[]> {
+  const devices = await prisma.device.findMany({
+    where: { siteId: { in: siteIds } },
+    select: {
+      id: true,
+      siteId: true,
+      name: true,
+      status: true,
+      statusSince: true,
+      manualOverride: true,
+    },
+  });
+
+  const bySite = new Map<string, typeof devices>();
+  for (const d of devices) {
+    const list = bySite.get(d.siteId) ?? [];
+    list.push(d);
+    bySite.set(d.siteId, list);
+  }
+
+  return siteIds.map((siteId) => {
+    const list = bySite.get(siteId) ?? [];
+    let up = 0, down = 0, unknown = 0, maintenance = 0;
+    const currentlyDown: SiteSummary['currentlyDown'] = [];
+    for (const d of list) {
+      if (d.manualOverride === 'maintenance') {
+        maintenance++;
+        continue;
+      }
+      if (d.status === 'up') up++;
+      else if (d.status === 'down') {
+        down++;
+        currentlyDown.push({
+          deviceId: d.id,
+          name: d.name,
+          since: d.statusSince ? d.statusSince.toISOString() : null,
+        });
+      } else unknown++;
+    }
+    const monitored = up + down;
+    return {
+      siteId,
+      total: list.length,
+      up,
+      down,
+      unknown,
+      maintenance,
+      availabilityPct: monitored > 0 ? Math.round((up / monitored) * 1000) / 10 : 100,
+      currentlyDown,
+    };
+  });
 }
 
 export { toDeviceDto };

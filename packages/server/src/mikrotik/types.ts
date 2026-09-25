@@ -10,6 +10,7 @@ import type {
   HotspotProfile,
   HotspotUser,
   PingResult,
+  RouterInterface,
   RouterLogEntry,
   RouterOsVersion,
   RouterResource,
@@ -95,6 +96,10 @@ export interface MikrotikClient {
   getResource(): Promise<RouterResource>;
 
   listNetwatch(): Promise<NetwatchEntry[]>;
+
+  /** `/interface/print` — every interface; `running` drives uplink-watch
+   *  device status in the worker, and this list powers the admin pick-list. */
+  listInterfaces(): Promise<RouterInterface[]>;
   addNetwatch(input: AddNetwatchInput): Promise<void>;
   removeNetwatchByHost(host: string): Promise<void>;
   /**

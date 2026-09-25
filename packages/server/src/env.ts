@@ -61,6 +61,14 @@ const EnvSchema = z.object({
 
   UPLOAD_DIR: z.string().default('./uploads'),
   MAX_UPLOAD_MB: z.coerce.number().int().default(8),
+
+  // WhatsApp bot (apps/wabot). 'mock' driver = no real WA connection (dev).
+  WA_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v !== 'false' && v !== '0'),
+  WA_DRIVER: z.enum(['baileys', 'mock']).default('baileys'),
+  WABOT_HEALTH_PORT: z.coerce.number().int().default(4200),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

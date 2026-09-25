@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  computeSiteSummaries,
   computeSiteSummary,
   decryptSecret,
   encryptSecret,
@@ -39,6 +40,17 @@ export async function siteRoutes(app: FastifyInstance) {
       orderBy: { name: 'asc' },
     });
     return rows.map(toSiteDto);
+  });
+
+  // Bulk per-site summaries — one request for the whole overview dashboard
+  // (was N requests of /:id/summary; matters on low-end devices/weak networks).
+  app.get('/summaries', view, async (req) => {
+    const where = siteScopeWhere(req.appUser);
+    const sites = await prisma.site.findMany({
+      where: where.siteId ? { id: where.siteId } : {},
+      select: { id: true },
+    });
+    return computeSiteSummaries(prisma, sites.map((s) => s.id));
   });
 
   app.get('/:id', view, async (req) => {
@@ -109,6 +121,7 @@ export async function siteRoutes(app: FastifyInstance) {
         floorplanHeight: body.floorplanHeight ?? null,
         telegramMode: body.telegramMode ?? 'off',
         telegramChatId: body.telegramChatId ?? null,
+        whatsappMode: body.whatsappMode ?? 'off',
         ...(telegramBotToken ? { telegramBotEncrypted: encryptSecret(telegramBotToken) } : {}),
       },
     });

@@ -8,6 +8,7 @@ import {
 } from '@noc/server';
 import { startHealthServer } from './health';
 import { RetentionSweeper } from './retention';
+import { TicketEscalator } from './ticket-escalator';
 import { RuijiePoller } from './ruijie-poller';
 import { RuijiePortPoller } from './ruijie-port-poller';
 import { PollScheduler } from './scheduler';
@@ -49,18 +50,22 @@ async function main() {
   const ruijiePorts = primary ? new RuijiePortPoller(redisPub, logger, ruijieBudget) : null;
   // Device⇄WiFi correlation (heavier per-group API calls) also primary-shard only.
   const wifi = primary ? new WifiEnricher(redisPub, logger, ruijieBudget) : null;
+  // Stale open tickets → ping site manager contacts. Singleton duty → primary.
+  const tickets = primary ? new TicketEscalator(redisPub, logger) : null;
   const health = startHealthServer(env.WORKER_HEALTH_PORT, () => ({
     scheduler: scheduler.stats,
     retention: retention.stats,
     ruijie: ruijie?.stats ?? 'disabled (non-primary shard)',
     ruijiePorts: ruijiePorts?.stats ?? 'disabled (non-primary shard)',
     wifi: wifi?.stats ?? 'disabled (non-primary shard)',
+    tickets: tickets?.stats ?? 'disabled (non-primary shard)',
   }));
   scheduler.start();
   retention.start();
   ruijie?.start();
   ruijiePorts?.start();
   wifi?.start();
+  tickets?.start();
 
   logger.info(
     {
@@ -78,6 +83,7 @@ async function main() {
     ruijie?.stop();
     ruijiePorts?.stop();
     wifi?.stop();
+    tickets?.stop();
     health.close();
     await redisPub.quit().catch(() => undefined);
     await prisma.$disconnect().catch(() => undefined);

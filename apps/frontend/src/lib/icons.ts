@@ -32,6 +32,8 @@ export const DEVICE_ICONS: Record<DeviceType, string> = {
     '<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M9.4 11.6l1.8 1.8 3.4-3.8"/><path d="M11 18.5h2"/>',
   androidtv:
     '<rect x="2.5" y="4" width="19" height="12" rx="1.5"/><path d="M10 19h4"/><path d="M10.5 8.6l4 1.4-4 1.4z"/>',
+  uplink:
+    '<path d="M4 17h6l2-5h8"/><path d="M17 9l3 3-3 3"/><path d="M4 21h16"/>',
   other: '<circle cx="12" cy="12" r="7"/><path d="M12 9v4M12 16h.01"/>',
 };
 

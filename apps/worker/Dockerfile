@@ -4,7 +4,10 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Prisma's query engine needs OpenSSL (Alpine doesn't ship it by default).
-RUN apk add --no-cache openssl
+# `git` is required because a wabot dep (libsignal) resolves to a git URL and the
+# root npm install resolves the whole workspace graph.
+# tzdata: named timezones for the uplink work-hours alert window (TZ=Asia/Jakarta).
+RUN apk add --no-cache openssl git tzdata
 
 COPY package.json ./
 COPY tsconfig.base.json ./
@@ -12,6 +15,7 @@ COPY packages ./packages
 COPY apps/worker ./apps/worker
 # Minimal stubs so npm workspaces resolves every declared workspace.
 COPY apps/backend/package.json ./apps/backend/package.json
+COPY apps/wabot/package.json ./apps/wabot/package.json
 COPY apps/frontend/package.json ./apps/frontend/package.json
 
 RUN npm install

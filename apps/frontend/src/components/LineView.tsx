@@ -3,11 +3,14 @@
 import { useState } from 'react';
 import {
   STATUS_COLORS,
+  STATUS_INK,
   STATUS_LABELS,
   effectiveStatus,
+  statusInk,
   type Area,
   type Device,
   type DeviceType,
+  type DisplayStatus,
   type Line,
   type Site,
 } from '@noc/shared';
@@ -43,19 +46,20 @@ function rollup(devs: Device[]) {
   return { up, down, unknown, maint, total: devs.length };
 }
 
-function rollColor(r: ReturnType<typeof rollup>): string {
-  if (r.down > 0) return STATUS_COLORS.down;
-  if (r.unknown > 0) return STATUS_COLORS.unknown;
-  if (r.total > 0) return STATUS_COLORS.up;
-  return '#64748b';
+function rollStatus(r: ReturnType<typeof rollup>): DisplayStatus {
+  if (r.down > 0) return 'down';
+  if (r.unknown > 0) return 'unknown';
+  if (r.total > 0) return 'up';
+  return 'unknown';
 }
 
 function Rollup({ devs }: { devs: Device[] }) {
   const r = rollup(devs);
+  const st = rollStatus(r);
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold"
-      style={{ color: rollColor(r), border: `1px solid ${rollColor(r)}55` }}
+      style={{ color: STATUS_INK[st], border: `1px solid ${statusInk(st, 0.33)}` }}
       title={`${r.up} up · ${r.down} down · ${r.unknown} unknown · ${r.maint} maintenance`}
     >
       {r.up}/{r.total} up{r.down > 0 ? ` · ${r.down}↓` : ''}
@@ -94,10 +98,10 @@ function DeviceChip({
         className="flex w-40 items-center gap-2 rounded-md border border-surface-border bg-surface-raised px-2.5 py-1.5 text-left hover:border-slate-500"
         style={{ borderLeftWidth: 3, borderLeftColor: color }}
       >
-        <span className="shrink-0" style={{ color }} dangerouslySetInnerHTML={{ __html: glyph(device) }} />
+        <span className="shrink-0" style={{ color: STATUS_INK[s] }} dangerouslySetInnerHTML={{ __html: glyph(device) }} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-xs font-medium text-slate-200">{device.name}</span>
-          <span className="block text-micro" style={{ color }}>
+          <span className="block text-micro" style={{ color: STATUS_INK[s] }}>
             {STATUS_LABELS[s]}
             {device.isCritical ? ' ★' : ''}
           </span>

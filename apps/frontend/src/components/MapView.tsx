@@ -20,6 +20,7 @@ import {
   type Site,
 } from '@noc/shared';
 import { markerHtml } from '@/lib/icons';
+import { useLiteMode } from '@/lib/lite';
 import { rssiQuality } from '@/lib/wifi';
 
 interface MapViewProps {
@@ -151,6 +152,9 @@ export default function MapView({
   onMove,
   onMapAdd,
 }: MapViewProps) {
+  // Lite mode: canvas renderer + no zoom/fade animation — much cheaper for
+  // weak GPUs than Leaflet's default DOM markers.
+  const [lite] = useLiteMode();
   const markers = devices.map((d) => (
     <DeviceMarker
       key={d.id}
@@ -171,6 +175,9 @@ export default function MapView({
         center={center}
         zoom={site.defaultZoom}
         scrollWheelZoom
+        preferCanvas={lite}
+        zoomAnimation={!lite}
+        fadeAnimation={!lite}
         style={{ height: '100%', width: '100%' }}
       >
         <TileLayer
@@ -196,6 +203,9 @@ export default function MapView({
       bounds={bounds}
       minZoom={-3}
       maxZoom={4}
+      preferCanvas={lite}
+      zoomAnimation={!lite}
+      fadeAnimation={!lite}
       style={{ height: '100%', width: '100%' }}
     >
       {site.floorplanImageUrl && <ImageOverlay url={site.floorplanImageUrl} bounds={bounds} />}

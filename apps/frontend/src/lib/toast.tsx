@@ -141,11 +141,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <div
               key={t.id}
               className={`pointer-events-auto flex items-start gap-2 rounded border px-3 py-2 text-sm shadow-lg backdrop-blur ${
+                // Explicit light/dark pairs — the globals.css light re-tone only
+                // remaps text-* shades 200–400, so a fixed dark bg-* paired with
+                // a re-toned dark text-* would collapse to dark-on-dark.
                 t.kind === 'ok'
-                  ? 'border-emerald-800 bg-emerald-950/80 text-emerald-200'
+                  ? 'border-emerald-300 bg-emerald-50/95 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-200'
                   : t.kind === 'error'
-                    ? 'border-red-800 bg-red-950/80 text-red-200'
-                    : 'border-slate-700 bg-surface-raised/90 text-slate-200'
+                    ? 'border-red-300 bg-red-50/95 text-red-700 dark:border-red-800 dark:bg-red-950/80 dark:text-red-200'
+                    : 'border-surface-border bg-surface-raised/90 text-slate-600 dark:text-slate-200'
               }`}
             >
               <span className="flex-1 whitespace-pre-wrap">{t.message}</span>
@@ -169,7 +172,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               )}
               <div className="mt-5 flex justify-end gap-2">
                 <button
-                  className="rounded px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+                  className="rounded px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
                   onClick={() => close(false)}
                 >
                   {confirm.cancelLabel ?? 'Cancel'}
@@ -212,7 +215,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <div className="mt-4 flex justify-end gap-2">
                 <button
                   type="button"
-                  className="rounded px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+                  className="rounded px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
                   onClick={() => closePrompt(null)}
                 >
                   Cancel
