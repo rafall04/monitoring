@@ -30,6 +30,13 @@ import { enqueueWaMessage } from './wa';
 const MENUS = ['nat', 'filter', 'mangle'] as const;
 type Menu = (typeof MENUS)[number];
 
+// RouterOS `print` embeds LIVE traffic counters on every rule — bytes/packets
+// tick upward with normal traffic, so including them makes every poll produce
+// a phantom diff (and an alert/audit storm). `last-seen`-style hit fields are
+// volatile for the same reason. These fields are excluded from snapshots and
+// diffs; real config fields are all that matter.
+const VOLATILE_FIELDS = new Set(['bytes', 'packets', 'last-seen', 'last-hit-time']);
+
 /** Rules the NOC itself manages — never alert on our own writes. */
 function isNocManaged(row: Record<string, unknown>): boolean {
   const comment = String(row.comment ?? '');
@@ -42,10 +49,10 @@ function isNocManaged(row: Record<string, unknown>): boolean {
   );
 }
 
-/** Canonical per-rule string: every attribute sorted — order-insensitive. */
+/** Canonical per-rule string: stable attributes sorted — order-insensitive. */
 function canonical(row: Record<string, unknown>): string {
   return Object.keys(row)
-    .filter((k) => k !== '.id')
+    .filter((k) => k !== '.id' && !VOLATILE_FIELDS.has(k))
     .sort()
     .map((k) => `${k}=${String(row[k])}`)
     .join('|');
@@ -83,6 +90,7 @@ function fieldChanges(
   const keys = new Set([...Object.keys(oldRow), ...Object.keys(newRow)]);
   keys.delete('.id');
   for (const k of keys) {
+    if (VOLATILE_FIELDS.has(k)) continue;
     const a = oldRow[k];
     const b = newRow[k];
     const sa = a === undefined ? '—' : String(a);
@@ -214,6 +222,7 @@ function fieldChangesFromCanonical(oldC: string, newC: string): string {
   const b = toMap(newC);
   const out: string[] = [];
   for (const k of new Set([...a.keys(), ...b.keys()])) {
+    if (VOLATILE_FIELDS.has(k)) continue;
     const va = a.get(k) ?? '—';
     const vb = b.get(k) ?? '—';
     if (va !== vb) out.push(`${k}=${va}→${vb}`);
