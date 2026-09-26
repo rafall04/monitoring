@@ -2,15 +2,20 @@
 // Inbound command router. Dispatches private-chat text commands:
 //
 //   universal : LINK <kode> · PROSES/SELESAI <kode> · KOMPLAIN [teks]
-//               (plus the multi-step anonymous complaint intake)
-//   member    : STATUS · LOGOUT · INFO        (verified member numbers)
-//   staff     : SITES · DOWN · ACK · PING · TIKET · LAPORAN
+//               (plus the multi-step anonymous complaint intake) · INFO
+//   member    : STATUS · LOGOUT · TIKET · INFO  (verified member numbers)
+//   staff     : SITES · DOWN · CEK · ACK/UNACK · MAINT/AKTIF · SILENT/BUNYI ·
+//               PING · TIKET · LAPORAN · BOTSTATUS
+//   recipient : WaRecipient numbers (no account) — read ops scoped to their
+//               recipient sites (TIKET/DOWN/CEK/SITES/LAPORAN)
+//   group     : PROSES/SELESAI (ticket replies) + staff read commands
 //   fallback  : MENU / unknown-number hint
 //
 // Security model: commands are gated by the sender's phone → verified AppUser
 // (phone + phoneVerifiedAt). Unknown numbers only get the complaint intake and
 // public replies — never staff/member data. Members only touch their OWN
-// linked hotspot account. Staff reuse the shared RBAC site scope.
+// linked hotspot account. Staff reuse the shared RBAC site scope. Groups see
+// nothing personal — replies go back to the group JID.
 // =============================================================================
 
 import type { PrismaClient } from '@prisma/client';
@@ -21,6 +26,7 @@ import {
   normalizePhone,
   type Permission,
   type Role,
+  type ScopedUser,
   type WaInboundMessage,
 } from '@noc/shared';
 import { consumeWaLinkCode, getSettings, type Redis } from '@noc/server';
@@ -30,16 +36,13 @@ import { BOT_TITLE, DIV, card, cmd, greetingFor } from './fmt';
 import { MEMBER_MENU, memberInfo, memberKick, memberStatus, memberTickets } from './commands/member';
 import {
   STAFF_MENU,
+  scoped,
   staffAck,
   staffBotStatus,
-  staffCek,
-  staffDown,
   staffMaint,
   staffPing,
-  staffReport,
+  staffRead,
   staffSilent,
-  staffSites,
-  staffTickets,
   staffUnack,
 } from './commands/staff';
 
@@ -59,8 +62,12 @@ export class InboundRouter {
   constructor(private deps: RouterDeps) {}
 
   async handle(msg: WaInboundMessage): Promise<void> {
-    // Commands are private-chat only — group messages are never acted on.
-    if (msg.isGroup) return;
+    // Groups get a narrow surface (ticket ops + staff read commands) — the
+    // full dispatch is private-chat only.
+    if (msg.isGroup) {
+      await this.handleGroup(msg);
+      return;
+    }
 
     // WA occasionally re-delivers; one reply per message id.
     if (msg.messageId) {
@@ -133,6 +140,7 @@ export class InboundRouter {
       await handleTicketCommand(
         ctx,
         phone,
+        phone,
         ticketM[1]!.toLowerCase() as 'proses' | 'selesai',
         ticketM[2]!,
       );
@@ -198,6 +206,23 @@ export class InboundRouter {
       if (intent) {
         await ctx.reply(phone, intent);
         return;
+      }
+      // A registered WaRecipient number (technician without an account) gets a
+      // read-only ops view scoped to its recipient sites.
+      const recipSites = await ctx.prisma.waRecipient.findMany({
+        where: { target: phone, kind: 'number', isActive: true },
+        select: { siteId: true },
+        distinct: ['siteId'],
+      });
+      if (recipSites.length) {
+        const rm = /^(sites|status|down|cek|tiket|tickets|laporan)\b[ \t]*(.*)$/i.exec(text);
+        if (rm) {
+          const pseudo: ScopedUser = {
+            role: 'viewer',
+            scopeSiteIds: recipSites.map((r) => r.siteId),
+          };
+          if (await staffRead(ctx, phone, pseudo, rm[1]!.toLowerCase(), (rm[2] ?? '').trim())) return;
+        }
       }
       if (/^tiket\b/i.test(text)) {
         const rows = await ctx.prisma.ticket.findMany({
@@ -265,25 +290,15 @@ export class InboundRouter {
         );
         return;
       }
+      // Read commands share one dispatch with the group/recipient surfaces.
+      if (await staffRead(ctx, phone, scoped(user), cmd, arg)) return;
       switch (cmd) {
-        case 'sites':
-        case 'status':
-          return staffSites(ctx, phone, user);
-        case 'down':
-          return staffDown(ctx, phone, user, arg);
-        case 'cek':
-          return staffCek(ctx, phone, user, arg);
         case 'ack':
           return staffAck(ctx, phone, user, arg);
         case 'unack':
           return staffUnack(ctx, phone, user, arg);
         case 'ping':
           return staffPing(ctx, phone, user, arg);
-        case 'tiket':
-        case 'tickets':
-          return staffTickets(ctx, phone, user, arg);
-        case 'laporan':
-          return staffReport(ctx, phone, user, arg);
         case 'maint':
         case 'maintenance':
           return staffMaint(ctx, phone, user, arg, true);
@@ -351,6 +366,62 @@ export class InboundRouter {
       '_Bisa juga: LAPOR / KELUHAN / GANGGUAN <keluhan>_',
       '_Nomor Anda hanya dipakai untuk update layanan NOC_',
     ].join('\n');
+  }
+
+  /**
+   * Group chats get a deliberately narrow surface: ticket-workflow replies
+   * (PROSES/SELESAI — ticket forwards to groups literally say "Balas PROSES")
+   * plus read-only ops for verified staff. Member/public flows stay private —
+   * answers would broadcast personal data to the whole group. Unrecognized or
+   * unprivileged commands are ignored silently (no probing replies).
+   */
+  private async handleGroup(msg: WaInboundMessage): Promise<void> {
+    const actor = msg.sender ? normalizePhone(msg.sender) : '';
+    if (!actor) return;
+    const text = msg.text.trim();
+    if (!text) return;
+
+    if (msg.messageId) {
+      const fresh = await this.deps.redis
+        .set(REDIS_KEYS.waSeen(msg.messageId), '1', 'EX', 300, 'NX')
+        .catch(() => 'OK');
+      if (fresh !== 'OK') return;
+    }
+    if (!(await this.allowed(actor))) return;
+
+    const ctx: BotCtx = { ...this.deps };
+    const groupJid = msg.from;
+    try {
+      const tm = /^(proses|selesai)\s+([a-z0-9]{4,12})$/i.exec(text);
+      if (tm) {
+        await handleTicketCommand(
+          ctx,
+          actor,
+          groupJid,
+          tm[1]!.toLowerCase() as 'proses' | 'selesai',
+          tm[2]!,
+        );
+        return;
+      }
+
+      const user = await ctx.prisma.appUser.findFirst({
+        where: { phone: actor, phoneVerifiedAt: { not: null }, isActive: true },
+      });
+      if (!user || user.role === 'member') return;
+
+      const gm = /^(sites|status|down|cek|tiket|tickets|laporan)\b[ \t]*(.*)$/i.exec(text);
+      if (!gm) return;
+      const cmd = gm[1]!.toLowerCase();
+      const need: Record<string, Permission> = {
+        sites: 'map:view', status: 'map:view', down: 'device:view', cek: 'device:view',
+        tiket: 'tickets:view', tickets: 'tickets:view', laporan: 'reports:view',
+      };
+      const perm = need[cmd];
+      if (perm && !hasPermission(user.role as Role, perm)) return;
+      await staffRead(ctx, groupJid, scoped(user), cmd, (gm[2] ?? '').trim());
+    } catch (err) {
+      this.deps.logger.warn({ err, group: groupJid }, 'wa group command failed');
+    }
   }
 
   private async allowed(phone: string): Promise<boolean> {

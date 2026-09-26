@@ -32,12 +32,13 @@ apps/wabot ── sender WhatsAppSender ──▶ WhatsApp
 - **Single instance SAJA** — sesi WA tidak bisa di-shard. Jangan pernah menambah replica.
 - **3 koneksi Redis** di `src/index.ts`: `redisPub` (publish/session/rate), `redisOutbox` (BLPOP), `redisControl` (BLPOP). Dua BLPOP **wajib** `commandTimeout: 30_000`.
 - **`WhatsAppSender`** interface di `@noc/shared` (`wa.ts`). 3 implementasi: `BaileysSender` (`src/baileys.ts`), `MockWaSender` (`@noc/server` — `WA_DRIVER=mock`), `OfflineWaSender` (index.ts — `WA_ENABLED=false`, outbox → `dead`).
-- **File map**: `index.ts` bootstrap+health · `baileys.ts` socket lifecycle · `session.ts` auth state ke tabel `wa_auth_key` (AES-256-GCM) · `outbox.ts` konsumen outbox · `control.ts` konsumen `noc:wa:control` · `router.ts` dispatch perintah · `intake.ts` wizard multi-langkah · `tickets.ts` PROSES/SELESAI + `BotCtx` · `commands/member.ts`, `commands/staff.ts` · `fmt.ts` `card()`/`DIV`/`cmd()`.
+- **File map**: `index.ts` bootstrap+health · `baileys.ts` socket lifecycle + normalisasi inbound (`remoteJidAlt`/`participantAlt` untuk @lid) · `session.ts` auth state ke tabel `wa_auth_key` (AES-256-GCM) · `outbox.ts` konsumen outbox · `control.ts` konsumen `noc:wa:control` · `router.ts` dispatch perintah (private `handle()` + grup `handleGroup()`) · `intake.ts` wizard multi-langkah · `tickets.ts` PROSES/SELESAI (`from` otorisasi, `replyTo` tujuan) + `BotCtx` · `commands/member.ts`, `commands/staff.ts` · `fmt.ts` `card()`/`DIV`/`cmd()`.
 - Referensi desain lengkap: `docs/whatsapp-bot-plan.md`.
 
 ## Urutan dispatch di router.ts (PENTING — urutan berpengaruh)
 
-1. Pesan grup → drop. Dedup `waSeen(messageId)` EX 300 NX. Rate limit 30/menit/nomor (`waRate`).
+0. **Pesan grup** → `handleGroup`: surface sempit — `PROSES|SELESAI <kode>` (otorisasi nomor pengirim `msg.sender` = WaRecipient site tiket / staff scope) + read commands `sites|status|down|cek|tiket|laporan` (verified staff saja, silent bila gagal). Balasan ke JID grup. Member/publik tidak pernah lewat grup. Identitas pengirim grup = `participant` JID (`participantAlt` untuk @lid).
+1. Dedup `waSeen(messageId)` EX 300 NX. Rate limit 30/menit/nomor (`waRate`).
 2. `LINK <kode>` → `consumeWaLinkCode` (kode dari portal `/me`) — satu nomor = satu identitas (nomor dilepas dari akun lain).
 3. `PROSES|SELESAI <kode>` → `handleTicketCommand` (teknisi).
 4. **Percakapan pending** `waConv(phone)` → `continueIntake` (menelan teks bebas — selalu cek sebelum identitas).
@@ -45,13 +46,14 @@ apps/wabot ── sender WhatsAppSender ──▶ WhatsApp
 6. `KOMPLAIN|LAPOR|KELUHAN|PENGADUAN|GANGGUAN [teks]` → `startComplaint` (butuh `Setting.waComplaintEnabled`; member → jalur member, staff → wizard anon pre-fill nama/dept dari akun).
 7. `DAFTAR` → `startRegister`.
 8. `ping` (non-staff), greeting `menu|help|bantuan|...` → menu per role; `INFO` universal (kartu portal/kontak, tanpa akun pun bisa).
-9. Belum ter-link → `publicIntent()` (kata kunci gangguan/voucher/akun) → `TIKET` (tiket anon per `reporterPhone`) → menu publik.
+9. Belum ter-link → `publicIntent()` (kata kunci gangguan/voucher/akun) → **WaRecipient scope** (nomor terdaftar di `wa_recipient` tanpa akun → read ops `sites|down|cek|tiket|laporan` terbatas site-nya via pseudo `ScopedUser{role:'viewer'}`) → `TIKET` (tiket anon per `reporterPhone`) → menu publik.
 10. Member → `status|akun|kuota|profil`, `logout|kick|keluar`, `tiket`, `info` di `commands/member.ts`.
 11. Staff → regex `(sites|status|down|ack|unack|cek|ping|tiket|tickets|laporan|maint|maintenance|aktif|silent|unsilent|bunyi|bot|botstatus|wastatus)` → cek `need[cmd]` permission via `hasPermission` → `commands/staff.ts`.
     - `MAINT|AKTIF` = `manualOverride` maintenance + `publishSiteEvent`/`publishSiteSummary` (mirror PATCH /devices) — perm `device:edit-attributes`.
     - `SILENT <nama> [menit]`/`BUNYI` = `silencedUntil` (mirror /incidents/:id/silence) — perm `alerts:manage`.
     - `UNACK` lepas ack — perm `alerts:manage`. `TIKET <kode>` = detail tiket — perm `tickets:view`.
     - `BOTSTATUS` = sesi WA + kedalaman outbox + statistik `wa_message` 24j + wizard aktif — perm `whatsapp:manage`.
+    - Handler baca (`staffSites/Down/Cek/Tickets/Report`) menerima `ScopedUser` (bukan AppUser) agar dipakai ulang surface grup/recipient — dispatch bersama lewat `staffRead()`. Handler tulis (`Ack/Unack/Maint/Silent/Ping`) tetap `AppUser` (butuh id/nama untuk audit) dan private-only.
 
 ## Security model (jangan dilanggar)
 

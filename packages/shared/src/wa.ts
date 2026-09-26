@@ -106,6 +106,9 @@ export function jidToPhone(jid: string): string {
 export interface WaInboundMessage {
   /** Sender phone digits (private chat) or the group JID. */
   from: string;
+  /** Group messages only: the sender participant's phone digits — the real
+   *  identity to authorize against (`from` stays the group JID for replies). */
+  sender?: string;
   text: string;
   isGroup: boolean;
   messageId: string;

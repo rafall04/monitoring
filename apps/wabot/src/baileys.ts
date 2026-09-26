@@ -352,8 +352,14 @@ export class BaileysSender implements WhatsAppSender {
         const remoteJid = rawJid.endsWith('@lid')
           ? (m.key.remoteJidAlt ?? rawJid)
           : rawJid;
+        // Group sender identity lives in participant (same LID→alt fix).
+        const rawPart = m.key.participant ?? undefined;
+        const participant = rawPart?.endsWith('@lid')
+          ? (m.key.participantAlt ?? rawPart)
+          : rawPart;
         const inbound: WaInboundMessage = {
           from: isGroupJid(remoteJid) ? remoteJid : jidToPhone(remoteJid),
+          ...(participant ? { sender: jidToPhone(participant) } : {}),
           text: text.trim(),
           isGroup: isGroupJid(remoteJid),
           messageId: m.key.id ?? '',

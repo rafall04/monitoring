@@ -27,11 +27,13 @@ export interface BotCtx {
 /**
  * `PROSES <code>` / `SELESAI <code>` from a technician. Authorization: the
  * sender's number is a WaRecipient (kind='number') of the ticket's site, or a
- * verified staff AppUser whose scope covers it.
+ * verified staff AppUser whose scope covers it. `replyTo` differs from `from`
+ * only for group commands (reply goes back to the group JID).
  */
 export async function handleTicketCommand(
   ctx: BotCtx,
   from: string,
+  replyTo: string,
   action: 'proses' | 'selesai',
   code: string,
 ): Promise<void> {
@@ -40,11 +42,11 @@ export async function handleTicketCommand(
     take: 5,
   });
   if (matches.length === 0) {
-    await ctx.reply(from, card('❓ *Tiket tidak ada*', `Tiket *#${code.toUpperCase()}* tidak ditemukan atau sudah selesai.`));
+    await ctx.reply(replyTo, card('❓ *Tiket tidak ada*', `Tiket *#${code.toUpperCase()}* tidak ditemukan atau sudah selesai.`));
     return;
   }
   if (matches.length > 1) {
-    await ctx.reply(from, card('🔍 *Kode ambigu*', `Kode *${code.toUpperCase()}* cocok dengan beberapa tiket.\nPakai kode lebih panjang.`));
+    await ctx.reply(replyTo, card('🔍 *Kode ambigu*', `Kode *${code.toUpperCase()}* cocok dengan beberapa tiket.\nPakai kode lebih panjang.`));
     return;
   }
   const t = matches[0]!;
@@ -63,7 +65,7 @@ export async function handleTicketCommand(
       t.siteId,
     );
   if (!contact && !staffAllowed) {
-    await ctx.reply(from, card('⛔ *Bukan teknisi*', 'Nomor Anda tidak terdaftar sebagai teknisi untuk site tiket ini.'));
+    await ctx.reply(replyTo, card('⛔ *Bukan teknisi*', 'Nomor Anda tidak terdaftar sebagai teknisi untuk site tiket ini.'));
     return;
   }
 
@@ -90,7 +92,7 @@ export async function handleTicketCommand(
     .catch(() => undefined);
 
   await ctx.reply(
-    from,
+    replyTo,
     card(
       action === 'proses' ? '🔧 *Tiket Diproses*' : '✅ *Tiket Selesai*',
       `*#${ticketCode(u)}* ${action === 'proses' ? 'ditandai DIPROSES' : 'SELESAI'} oleh ${actor}.`,

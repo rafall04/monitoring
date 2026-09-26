@@ -354,6 +354,8 @@ commands; unknown numbers can only file a complaint.
 | staff | `PING <ip|device>`, `LAPORAN [site]`, `TIKET [kode]` | diagnostics + digest + ticket queue/detail |
 | super_admin | `BOTSTATUS` | WA session + outbox/queue health from chat |
 | technician | `PROSES <kode>` / `SELESAI <kode>` | work a ticket; reporter gets notified |
+| WaRecipient (no account) | `TIKET`/`DOWN`/`CEK`/`SITES`/`LAPORAN` | read-only ops scoped to its recipient sites |
+| group chat | `PROSES`/`SELESAI` (+ staff read cmds) | ticket replies work in recipient groups; member/public flows stay private |
 
 Tickets land on the web at **/tickets** (filterable, `tickets:view`/`manage`
 permissions); members file and track their own at **/akun** (`/me/tickets`,

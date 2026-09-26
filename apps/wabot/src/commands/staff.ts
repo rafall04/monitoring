@@ -23,7 +23,7 @@ import {
 import type { BotCtx } from '../tickets';
 import { DIV, card, cmd } from '../fmt';
 
-const scoped = (u: AppUser): ScopedUser => ({
+export const scoped = (u: AppUser): ScopedUser => ({
   role: u.role as Role,
   scopeSiteIds: (u.scopeSiteIds as string[]) ?? [],
 });
@@ -40,11 +40,11 @@ const siteWhere = (u: ScopedUser) => {
 async function pickDevice(
   ctx: BotCtx,
   phone: string,
-  user: AppUser,
+  u: ScopedUser,
   arg: string,
   extraWhere: { status?: string } = {},
 ) {
-  const scope = siteScopeFor(scoped(user));
+  const scope = siteScopeFor(u);
   const hits = await ctx.prisma.device.findMany({
     where: {
       name: { contains: arg, mode: 'insensitive' },
@@ -76,9 +76,9 @@ const ago = (iso: string | null): string => {
 };
 
 /** `sites` / `status` — one-line health summary per accessible site. */
-export async function staffSites(ctx: BotCtx, phone: string, user: AppUser) {
+export async function staffSites(ctx: BotCtx, phone: string, u: ScopedUser) {
   const sites = await ctx.prisma.site.findMany({
-    where: siteWhere(scoped(user)),
+    where: siteWhere(u),
     orderBy: { name: 'asc' },
   });
   if (sites.length === 0) {
@@ -98,8 +98,7 @@ export async function staffSites(ctx: BotCtx, phone: string, user: AppUser) {
 }
 
 /** `down [site]` — devices currently down, optionally narrowed to one site. */
-export async function staffDown(ctx: BotCtx, phone: string, user: AppUser, arg: string) {
-  const u = scoped(user);
+export async function staffDown(ctx: BotCtx, phone: string, u: ScopedUser, arg: string) {
   const scope = siteScopeFor(u);
   let siteIds = scope;
   if (arg) {
@@ -140,12 +139,12 @@ export async function staffDown(ctx: BotCtx, phone: string, user: AppUser, arg: 
 }
 
 /** `cek <nama>` — ask the current status of one device (down OR unknown OR up). */
-export async function staffCek(ctx: BotCtx, phone: string, user: AppUser, arg: string) {
+export async function staffCek(ctx: BotCtx, phone: string, u: ScopedUser, arg: string) {
   if (!arg) {
     await ctx.reply(phone, card('ℹ️ *Cara pakai*', '*CEK* <nama-perangkat>', 'Contoh: CEK QC 3'));
     return;
   }
-  const scope = siteScopeFor(scoped(user));
+  const scope = siteScopeFor(u);
   const hits = await ctx.prisma.device.findMany({
     where: {
       name: { contains: arg, mode: 'insensitive' },
@@ -191,7 +190,7 @@ export async function staffAck(ctx: BotCtx, phone: string, user: AppUser, arg: s
     await ctx.reply(phone, card('ℹ️ *Cara pakai*', '*ACK* <nama-perangkat>', 'Contoh: ACK QC 3'));
     return;
   }
-  const d = await pickDevice(ctx, phone, user, arg, { status: 'down' });
+  const d = await pickDevice(ctx, phone, scoped(user), arg, { status: 'down' });
   if (!d) return;
   const actor = user.name || user.email;
   await ctx.prisma.device.update({
@@ -218,7 +217,7 @@ export async function staffUnack(ctx: BotCtx, phone: string, user: AppUser, arg:
     await ctx.reply(phone, card('ℹ️ *Cara pakai*', '*UNACK* <nama-perangkat>', 'Contoh: UNACK QC 3'));
     return;
   }
-  const d = await pickDevice(ctx, phone, user, arg);
+  const d = await pickDevice(ctx, phone, scoped(user), arg);
   if (!d) return;
   if (!d.ackBy) {
     await ctx.reply(phone, card('ℹ️ *Tanpa ack*', `*${d.name}* memang belum di-ack siapa pun.`));
@@ -258,7 +257,7 @@ export async function staffMaint(
     );
     return;
   }
-  const d = await pickDevice(ctx, phone, user, arg);
+  const d = await pickDevice(ctx, phone, scoped(user), arg);
   if (!d) return;
   if ((d.manualOverride === 'maintenance') === on) {
     await ctx.reply(phone, card('ℹ️ *Tidak berubah*', `*${d.name}* sudah ${on ? 'maintenance' : 'aktif'}.`));
@@ -337,7 +336,7 @@ export async function staffSilent(
       }
     }
   }
-  const d = await pickDevice(ctx, phone, user, name);
+  const d = await pickDevice(ctx, phone, scoped(user), name);
   if (!d) return;
   const silencedUntil = on ? new Date(Date.now() + minutes * 60_000) : null;
   await ctx.prisma.device.update({ where: { id: d.id }, data: { silencedUntil } });
@@ -450,8 +449,8 @@ export async function staffPing(ctx: BotCtx, phone: string, user: AppUser, arg: 
 }
 
 /** `tiket [kode]` — open tickets in scope, or one ticket's full detail. */
-export async function staffTickets(ctx: BotCtx, phone: string, user: AppUser, arg: string) {
-  const scope = siteScopeFor(scoped(user));
+export async function staffTickets(ctx: BotCtx, phone: string, u: ScopedUser, arg: string) {
+  const scope = siteScopeFor(u);
   if (arg) {
     const t = await ctx.prisma.ticket.findFirst({
       where: {
@@ -525,8 +524,7 @@ export async function staffTickets(ctx: BotCtx, phone: string, user: AppUser, ar
 }
 
 /** `laporan [site]` — 24h digest: site health + insiden + tiket in scope. */
-export async function staffReport(ctx: BotCtx, phone: string, user: AppUser, arg: string) {
-  const u = scoped(user);
+export async function staffReport(ctx: BotCtx, phone: string, u: ScopedUser, arg: string) {
   const scope = siteScopeFor(u);
   let sites = await ctx.prisma.site.findMany({
     where: siteWhere(u),
@@ -574,6 +572,42 @@ export async function staffReport(ctx: BotCtx, phone: string, user: AppUser, arg
       `✅ Tiket selesai 24 jam : *${resolvedToday}*`,
     ]),
   );
+}
+
+/**
+ * Read-only staff commands shared by every trusted surface — verified staff
+ * in private chat, WaRecipient numbers (pseudo-scope) and group chats. Write
+ * commands (ack/silent/maint) stay private-staff-only. Returns false when the
+ * command isn't in the read set.
+ */
+export async function staffRead(
+  ctx: BotCtx,
+  to: string,
+  u: ScopedUser,
+  cmd: string,
+  arg: string,
+): Promise<boolean> {
+  switch (cmd) {
+    case 'sites':
+    case 'status':
+      await staffSites(ctx, to, u);
+      return true;
+    case 'down':
+      await staffDown(ctx, to, u, arg);
+      return true;
+    case 'cek':
+      await staffCek(ctx, to, u, arg);
+      return true;
+    case 'tiket':
+    case 'tickets':
+      await staffTickets(ctx, to, u, arg);
+      return true;
+    case 'laporan':
+      await staffReport(ctx, to, u, arg);
+      return true;
+    default:
+      return false;
+  }
 }
 
 export const STAFF_MENU = [
