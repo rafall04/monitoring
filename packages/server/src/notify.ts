@@ -113,6 +113,89 @@ export async function maybeNotifyTelegram(
 }
 
 /**
+ * Site-outage alert — fired by the status engine when a ROUTER's reachability
+ * flips (poller reconcile, test-connection, etc.). A site going dark means
+ * every device goes `unknown`, which per-device gates can never express, so
+ * this alerts at the site level: Telegram mode='server' gets a message, and
+ * the site's `alerts:true` WaRecipients get a card via the outbox. Recovery
+ * (offline→online) notifies too — silence after an outage reads as "still
+ * down". Per-channel cooldown (EX 300 NX) caps a flapping link.
+ */
+export async function notifyRouterStatus(
+  deps: TelegramDeps,
+  router: { id: string; name: string; host: string; siteId: string },
+  status: 'online' | 'offline',
+): Promise<void> {
+  try {
+    const site = await deps.prisma.site.findUnique({
+      where: { id: router.siteId },
+      include: { waRecipients: { where: { isActive: true, alerts: true } } },
+    });
+    if (!site) return;
+    const deviceCount = await deps.prisma.device.count({ where: { routerId: router.id } });
+    const down = status === 'offline';
+    const text = down
+      ? [
+          `🔴 *SITE OFFLINE — ${site.name}*`,
+          `Router *${router.name}* (${router.host}) tidak terjangkau.`,
+          `${deviceCount} perangkat ditandai *UNKNOWN* sampai router kembali.`,
+        ].join('\n')
+      : [
+          `🟢 *SITE ONLINE — ${site.name}*`,
+          `Router *${router.name}* (${router.host}) kembali terjangkau.`,
+          `Pemantauan ${deviceCount} perangkat dilanjutkan.`,
+        ].join('\n');
+
+    if (
+      site.telegramMode === 'server' &&
+      site.telegramBotEncrypted &&
+      site.telegramChatId
+    ) {
+      // Router shares the per-channel anti-flap pattern, in its own namespace.
+      const fresh = await deps.redisPub.set(
+        `noc:tgcooldown:router:${router.id}:${status}`,
+        '1',
+        'EX',
+        300,
+        'NX',
+      );
+      if (fresh === 'OK') {
+        const ok = await sendTelegram(
+          decryptSecret(site.telegramBotEncrypted),
+          site.telegramChatId,
+          text,
+        );
+        deps.logger.info({ routerId: router.id, status, ok }, 'telegram router alert sent');
+      }
+    }
+
+    if (site.whatsappMode === 'server' && site.waRecipients.length > 0) {
+      const fresh = await deps.redisPub.set(
+        REDIS_KEYS.waCooldown(`router:${router.id}`, status),
+        '1',
+        'EX',
+        300,
+        'NX',
+      );
+      if (fresh === 'OK') {
+        for (const c of site.waRecipients) {
+          await enqueueWaMessage(
+            { prisma: deps.prisma, redis: deps.redisPub },
+            { to: c.target, text, kind: 'alert', siteId: site.id },
+          );
+        }
+        deps.logger.info(
+          { routerId: router.id, status, targets: site.waRecipients.length },
+          'whatsapp router alert queued',
+        );
+      }
+    }
+  } catch (err) {
+    deps.logger.warn({ err }, 'router status notify failed');
+  }
+}
+
+/**
  * WhatsApp side of the same alert (docs/whatsapp-bot-plan.md). Identical gates
  * to Telegram — critical only, no maintenance, honor silence, down + recovery —
  * then a per-site switch (whatsappMode='server') and its own flap cooldown.

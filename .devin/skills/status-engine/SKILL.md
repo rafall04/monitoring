@@ -38,6 +38,12 @@ Alert hanya keluar bila SEMUA terpenuhi:
 6. Cooldown anti-flap per channel: `noc:tgcooldown:` / `noc:wacooldown:` `<device>:<status>` EX 90 NX
 7. **Jam kerja** untuk probe-watch: `Setting.uplinkAlert{Start,End}Min/Days` global atau `Device.watchAlertWindow` per-device (`AlertWindow`, mendukung window lintas tengah malam). Status tetap update 24/7 — hanya notifikasi yang ditekan; `uplinkWindowCatchUp` kirim satu "masih down saat jam buka" (dedup flag Redis per-window). Kontainer `TZ=Asia/Jakarta` — window evaluasi wall-clock.
 
+## Alert level SITE (router reachability)
+
+- `updateRouterStatus` juga men-fire `notifyRouterStatus` pada transisi nyata (prev-read dedup): `→offline` = `🔴 SITE OFFLINE` (N perangkat → UNKNOWN), `offline→online` = `🟢 SITE ONLINE`. Gate: `telegramMode`/`whatsappMode='server'` + `WaRecipient{alerts:true}`; cooldown per-channel `noc:tgcooldown:router:`/`noc:wacooldown:router:<id>:<st>` EX 300 NX.
+- Caller-nya SEMUA jalur status router: poller/shard, reconcile circuit-breaker, DAN tombol test-connection backend — jangan pindahkan notif ke caller (transisi tombol-test juga outage nyata).
+- Router status jangan digate jam-kerja/isCritical — site gelap itu page 24/7.
+
 ## Probe-watch devices (tiga mode saling eksklusif — set satu membersihkan yang lain)
 
 - `watchInterface` — status ikuti flag `running` interface RouterOS (`disabled`/not-running → `down`, absent → `unknown`; `source='interface'`).

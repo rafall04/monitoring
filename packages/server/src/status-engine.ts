@@ -16,7 +16,7 @@ import {
   type StatusSource,
 } from '@noc/shared';
 import { toDeviceDto } from './mappers';
-import { maybeNotifyTelegram, maybeNotifyWhatsApp } from './notify';
+import { maybeNotifyTelegram, maybeNotifyWhatsApp, notifyRouterStatus } from './notify';
 import { publishSiteEvent, type Redis } from './redis';
 
 export interface StatusEngineDeps {
@@ -268,7 +268,7 @@ export async function applyDeviceStatus(
 /** Update a router's reachability + resource cache and broadcast it. */
 export async function updateRouterStatus(
   deps: StatusEngineDeps,
-  router: Pick<RouterMikrotik, 'id' | 'siteId'>,
+  router: Pick<RouterMikrotik, 'id' | 'siteId' | 'name' | 'host'>,
   status: RouterStatus,
   resource: RouterResource | null,
 ): Promise<void> {
@@ -304,6 +304,11 @@ export async function updateRouterStatus(
     lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : null,
     resource,
   });
+  // A real reachability flip = a site-level outage (or its recovery) — tell
+  // the site's alert subscribers, not just the open dashboards.
+  if (status === 'offline' || (status === 'online' && prev?.status === 'offline')) {
+    await notifyRouterStatus(deps, router, status).catch(() => undefined);
+  }
 }
 
 /**
