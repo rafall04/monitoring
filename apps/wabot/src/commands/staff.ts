@@ -67,7 +67,9 @@ export async function staffDown(ctx: BotCtx, phone: string, user: AppUser, arg: 
   const devices = await ctx.prisma.device.findMany({
     where: {
       status: 'down',
-      manualOverride: { not: 'maintenance' },
+      // `!= 'maintenance'` excludes NULL rows in SQL — most devices have no
+      // override, so the OR is required or DOWN always reports empty.
+      OR: [{ manualOverride: null }, { manualOverride: { not: 'maintenance' } }],
       ...(siteIds ? { siteId: { in: siteIds } } : {}),
     },
     include: { site: { select: { name: true } } },
