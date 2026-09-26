@@ -88,6 +88,27 @@ export class TicketEscalator {
             { to, text, kind: 'ticket-forward', siteId: t.siteId },
           );
         }
+        // Tell the reporter too — an escalation should feel like the ticket is
+        // being prioritized, not ignored (skipped for web reports w/o a number).
+        if (t.reporterPhone) {
+          await enqueueWaMessage(
+            { prisma, redis: this.redis },
+            {
+              to: t.reporterPhone,
+              kind: 'reply',
+              siteId: t.siteId,
+              text: [
+                '⏫ *Tiket Anda Dieskalasi*',
+                '──────────────────',
+                `Tiket   : *#${code}*`,
+                `Keluhan : "${t.message.slice(0, 200)}"`,
+                `Status  : diteruskan ke supervisor — > ${s.waTicketEscalateMin} mnt tanpa respons`,
+                '──────────────────',
+                '_Kami prioritaskan penanganannya_',
+              ].join('\n'),
+            },
+          );
+        }
         escalated++;
       }
       this.stats = { lastRunAt: Date.now(), escalated };
