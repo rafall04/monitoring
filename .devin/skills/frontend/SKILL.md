@@ -34,6 +34,15 @@ Next.js App Router + Tailwind + TanStack Query + Leaflet. Copy UI **Bahasa Indon
 
 Di browser base API = `''` (kosong). `next.config.mjs` me-rewrite `/api/*` dan `/uploads/*` ke `BACKEND_ORIGIN` di jaringan internal → browser hanya bicara satu origin (tanpa CORS/domain API terpisah). Jangan menulis URL absolut backend di komponen; selalu lewat `api`/path relatif.
 
+## Idiom UI yang sudah ada (pakai ulang, jangan bikin pola baru)
+
+- **`components/ui.tsx`** = satu-satunya sumber primitives: `Page/PageHeader/PageBody`, `Toolbar`, `FilterBar`, `DataTable` (kolom `hideBelow` + stack `r-table` di HP), `MetricCard`, `IconTile`, `Badge`, `Tabs`, `StatusPill`, `EmptyState/ErrorState`, `Skeleton` (`noc-skeleton` shimmer — gating `prefers-reduced-motion` di CSS).
+- **`CommandPalette`** (Ctrl+K / `/`) di Shell — cari halaman (perm-filtered), site, perangkat (`/devices?search=` debounce 250ms, `?device=<id>` deep-link ke inspect panel site page). Tambah halaman baru → daftar di `PAGES`.
+- **`LiveBadge`** di footer sidebar — dot live/terputus dari status `useSites()` (zero request ekstra); jangan bikin probe koneksi baru.
+- **PWA**: `app/manifest.ts` + `public/icon.svg` + `app/icon.svg`; `viewport.viewportFit='cover'` + `noc-safe-top` untuk notch iOS.
+- Transisi halaman: wrapper `key={pathname} .noc-fade` (180ms, reduced-motion aware). Focus keyboard: `:focus-visible` accent ring global (input `noc-focus` punya ring sendiri).
+- Touch: `noc-tap` = 44px di bawah lg/coarse-pointer; jangan kurangi.
+
 ## Gotcha build & preview
 
 - `npm run build` = `next build` — SATU-SATUNYA workspace yang dibuild. Node service lain jalan lewat tsx (tanpa dist).

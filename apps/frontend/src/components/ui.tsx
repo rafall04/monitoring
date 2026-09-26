@@ -88,6 +88,15 @@ export function Spinner({ label }: { label?: string }) {
   );
 }
 
+/**
+ * Content-shaped loading placeholder — a shimmering block. Compose a few of
+ * these where a bare <Spinner> used to sit and the page reads as "arrived"
+ * while data lands. The shimmer is gated by prefers-reduced-motion in CSS.
+ */
+export function Skeleton({ className = '' }: { className?: string }) {
+  return <div aria-hidden className={`noc-skeleton ${className}`} />;
+}
+
 export function StatusPill({ status }: { status: DisplayStatus }) {
   const c = STATUS_COLORS[status];
   return (
@@ -568,8 +577,17 @@ export function DataTable<T>({
     );
   if (loading)
     return (
-      <Card className={className}>
-        <Loading />
+      <Card className={`${className} p-4`}>
+        {/* Row-shaped skeletons — the eye lands on structure, not a spinner. */}
+        <div className="space-y-2.5" role="status" aria-label="Memuat data">
+          {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <Skeleton className="h-4 flex-1" />
+              <Skeleton className="h-4 w-1/5" />
+              <Skeleton className="h-4 w-12" />
+            </div>
+          ))}
+        </div>
       </Card>
     );
   if (rows.length === 0)

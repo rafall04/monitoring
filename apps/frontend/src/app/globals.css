@@ -300,3 +300,69 @@ html:not(.dark) ::-webkit-scrollbar-thumb {
     min-height: 44px;
   }
 }
+
+/* ===== Keyboard focus + skeleton + safe-area ============================ */
+
+/* Keyboard navigation should be visible without punishing mouse users —
+   :focus-visible only fires for keyboard-ish focus, so clicks stay clean. */
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* The text inputs/buttons already draw their own accent ring on :focus;
+   doubling it with the outline looks muddy — suppress the generic rule on
+   elements that carry noc-focus. */
+.noc-focus:focus-visible {
+  outline: none;
+}
+
+/* Skeleton shimmer — replaces bare spinners with content-shaped placeholders
+   so a loading page reads as "already arrived". Motion disabled for users who
+   asked for it (and lite mode lowers opacity instead of animating — cheap). */
+@keyframes noc-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.noc-skeleton {
+  border-radius: 6px;
+  background-color: rgb(var(--surface-border) / 0.45);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .noc-skeleton {
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgb(var(--text) / 0.06),
+      transparent
+    );
+    background-size: 200% 100%;
+    animation: noc-shimmer 1.6s ease-in-out infinite;
+  }
+}
+
+/* iOS notch/punch-hole: pad the fixed mobile header so the hamburger isn't
+   under the camera cutout when viewport-fit=cover is active. */
+.noc-safe-top {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+
+/* Gentle content fade on route change — a 180ms settle reads as polish, not
+   lag. Off for reduced-motion users. */
+@keyframes noc-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .noc-fade {
+    animation: noc-fade 0.18s ease-out;
+  }
+}

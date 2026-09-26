@@ -10,13 +10,12 @@ import {
   Badge,
   ErrorState,
   IconTile,
-  Loading,
   MetricCard,
   Page,
   PageBody,
   PageHeader,
   SectionHeader,
-  Spinner,
+  Skeleton,
   StatusCounts,
 } from '@/components/ui';
 
@@ -130,12 +129,53 @@ function SiteCard({
             )}
           </>
         ) : (
-          <div className="mt-3">
-            <Spinner />
+          <div className="mt-3 space-y-2" role="status" aria-label="Memuat ringkasan">
+            <Skeleton className="h-4 w-4/5" />
+            <Skeleton className="h-1.5 w-full rounded-full" />
+            <Skeleton className="h-3 w-2/5" />
           </div>
         )}
       </div>
     </Link>
+  );
+}
+
+/** Content-shaped placeholders — same grid rhythm as the real cards. */
+function OverviewSkeleton() {
+  return (
+    <div role="status" aria-label="Memuat overview">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {Array.from({ length: 6 }, (_, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-3 rounded-xl border border-surface-border bg-surface-raised p-3.5"
+          >
+            <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
+            <div className="flex-1 space-y-1.5">
+              <Skeleton className="h-3 w-3/5" />
+              <Skeleton className="h-5 w-2/5" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className={`${SITE_GRID} mt-5`}>
+        {Array.from({ length: 6 }, (_, i) => (
+          <div
+            key={i}
+            className="rounded-xl border border-surface-border bg-surface-raised p-4"
+          >
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
+              <Skeleton className="h-4 w-1/2" />
+            </div>
+            <div className="mt-4 space-y-2">
+              <Skeleton className="h-4 w-4/5" />
+              <Skeleton className="h-1.5 w-full rounded-full" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -203,7 +243,7 @@ export default function OverviewPage() {
     <Page>
       <PageHeader title="Overview" subtitle="Ringkasan kesehatan seluruh site yang bisa kamu akses." />
       <PageBody>
-        {sites.isLoading && <Loading />}
+        {sites.isLoading && <OverviewSkeleton />}
         {sites.isError && (
           <ErrorState onRetry={() => void sites.refetch()}>Gagal memuat daftar site.</ErrorState>
         )}

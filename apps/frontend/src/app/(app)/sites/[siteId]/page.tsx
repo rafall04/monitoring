@@ -3,8 +3,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useCallback, useState } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
 import type { Device, PatchDevicePositionInput } from '@noc/shared';
 import { useAuth } from '@/lib/auth';
 import {
@@ -75,6 +75,14 @@ export default function SiteMapPage() {
   const [tab, setTab] = useState<ViewTab>('line');
   const [editMode, setEditMode] = useState(false);
   const [selected, setSelected] = useState<Device | null>(null);
+  // Deep link: ?device=<id> (e.g. from the Ctrl+K palette) opens that device's
+  // inspect panel once the device list lands.
+  const wantDevice = useSearchParams().get('device');
+  useEffect(() => {
+    if (!wantDevice || !devices.data) return;
+    const d = devices.data.find((x) => x.id === wantDevice);
+    if (d) setSelected(d);
+  }, [wantDevice, devices.data]);
   // 'manual' = add from a button (no map coords yet); object = placed on the map.
   const [adding, setAdding] = useState<PatchDevicePositionInput | 'manual' | null>(null);
   const toast = useToast();

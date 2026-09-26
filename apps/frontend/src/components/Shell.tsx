@@ -8,6 +8,7 @@ import { useBranding } from '@/lib/branding';
 import { useLiteMode } from '@/lib/lite';
 import { useTheme } from '@/lib/theme';
 import { useSites } from '@/lib/queries';
+import { CommandPalette, usePaletteKeys } from './CommandPalette';
 import { Spinner } from './ui';
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -19,6 +20,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const sites = useSites();
   const [navOpen, setNavOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  usePaletteKeys(paletteOpen, setPaletteOpen);
 
   useEffect(() => {
     if (ready && !user) router.replace('/login');
@@ -51,6 +54,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <Link
         key={href}
         href={href}
+        aria-current={active ? 'page' : undefined}
         onClick={() => setNavOpen(false)}
         className={`group flex items-center gap-2.5 truncate rounded-lg px-3 py-2 text-sm transition ${
           active
@@ -98,6 +102,20 @@ export function Shell({ children }: { children: ReactNode }) {
           </button>
         </div>
 
+        {/* Palette trigger — looks like a search box, opens Ctrl+K. */}
+        <button
+          type="button"
+          onClick={() => {
+            setNavOpen(false);
+            setPaletteOpen(true);
+          }}
+          className="mx-2 mb-2 flex items-center gap-2 rounded-lg border border-surface-border bg-surface/60 px-2.5 py-1.5 text-xs text-slate-500 transition hover:border-accent/50 hover:text-slate-300"
+        >
+          <SearchIcon />
+          <span className="flex-1 text-left">Lompat ke…</span>
+          <kbd className="rounded border border-surface-border px-1 text-micro">Ctrl K</kbd>
+        </button>
+
         <nav className="flex-1 space-y-1 overflow-y-auto px-2">
           {user.role === 'member' ? (
             // Members are hotspot end-users — the only screen that exists for
@@ -139,6 +157,10 @@ export function Shell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="border-t border-surface-border p-3 text-xs text-slate-400">
+          {/* Connectivity dot — the sites query polls constantly, so its error
+              state is a free "backend reachable?" probe. A NOC that renders
+              stale data without flagging it is worse than one that's down. */}
+          <LiveBadge offline={!sites.isLoading && sites.isError} />
           <div className="mb-2 flex items-center justify-between gap-2">
             <Link
               href="/profile"
@@ -184,7 +206,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-surface-border bg-surface-raised px-4 py-3 lg:hidden">
+        <header className="noc-safe-top flex items-center gap-3 border-b border-surface-border bg-surface-raised px-4 pb-3 lg:hidden">
           <button
             onClick={() => setNavOpen(true)}
             aria-label="Open menu"
@@ -193,9 +215,23 @@ export function Shell({ children }: { children: ReactNode }) {
             <MenuIcon />
           </button>
           <Brand orgName={branding.orgName} logoUrl={branding.logoUrl} />
+          <button
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Cari"
+            className="ml-auto rounded p-1.5 text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"
+          >
+            <SearchIcon />
+          </button>
         </header>
-        <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
+        <main className="min-h-0 flex-1 overflow-hidden">
+          {/* key remounts per route so the fade replays on navigation. */}
+          <div key={pathname} className="noc-fade h-full">
+            {children}
+          </div>
+        </main>
       </div>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );
 }
@@ -219,6 +255,46 @@ function MenuIcon() {
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <path d="M4 6h16M4 12h16M4 18h16" />
     </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  );
+}
+
+/**
+ * Tiny live/offline status — emerald pulse while the API answers, red + label
+ * once a poll fails. `offline` comes from the Shell's own sites query, so this
+ * costs zero extra requests.
+ */
+function LiveBadge({ offline }: { offline: boolean }) {
+  return (
+    <div
+      className={`mb-2 flex items-center gap-1.5 rounded-lg px-2 py-1 text-2xs font-medium ${
+        offline ? 'bg-red-500/10 text-red-400' : 'text-slate-500'
+      }`}
+      role="status"
+      title={
+        offline
+          ? 'Koneksi ke server terputus — data mungkin kedaluwarsa'
+          : 'Terhubung — data diperbarui otomatis'
+      }
+    >
+      <span className="relative flex h-2 w-2">
+        {!offline && (
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60 motion-reduce:hidden" />
+        )}
+        <span
+          className={`relative inline-flex h-2 w-2 rounded-full ${offline ? 'bg-red-500' : 'bg-emerald-500'}`}
+        />
+      </span>
+      {offline ? 'Terputus — mencoba ulang…' : 'Live'}
+    </div>
   );
 }
 function SunIcon() {
