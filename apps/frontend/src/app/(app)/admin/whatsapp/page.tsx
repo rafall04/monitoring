@@ -56,7 +56,9 @@ function useWaSession() {
   return useQuery({
     queryKey: ['wa-session'],
     queryFn: () => api.get<WaSessionState>('/whatsapp/session'),
-    refetchInterval: liteInterval(4000),
+    // Always 4s — NOT liteInterval. Pairing QRs rotate server-side every ~20s;
+    // lite mode's 60s+ poll would render dead refs the phone can't complete.
+    refetchInterval: 4000,
   });
 }
 

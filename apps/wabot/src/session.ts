@@ -15,9 +15,15 @@ import {
 import { decryptSecret, encryptSecret, prisma } from '@noc/server';
 
 async function read(key: string): Promise<unknown> {
-  const row = await prisma.waAuthKey.findUnique({ where: { key } });
-  if (!row) return null;
-  return JSON.parse(decryptSecret(row.valueEnc), BufferJSON.reviver);
+  try {
+    const row = await prisma.waAuthKey.findUnique({ where: { key } });
+    if (!row) return null;
+    return JSON.parse(decryptSecret(row.valueEnc), BufferJSON.reviver);
+  } catch {
+    // Reference parity: a corrupt/undecryptable row is treated as absent —
+    // propagating here would poison every socket connect into a stall.
+    return null;
+  }
 }
 
 async function write(key: string, value: unknown): Promise<void> {

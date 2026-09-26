@@ -9,6 +9,7 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
   makeCacheableSignalKeyStore,
   type WASocket,
 } from '@whiskeysockets/baileys';
@@ -37,6 +38,16 @@ export class BaileysSender implements WhatsAppSender {
   private retries = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private groupsTimer: NodeJS.Timeout | null = null;
+  /** Single-flight: concurrent callers share the in-flight connect instead of
+   *  spawning parallel sockets (which race creds + show an orphaned QR). */
+  private connecting: Promise<void> | null = null;
+  /** The in-flight creds flush — the post-pairing restart must wait for it or
+   *  the next socket can come up without `creds.me` and re-register → 401. */
+  private credsSave: Promise<void> | null = null;
+  /** When the last 515 (restartRequired) arrived — a 401 shortly after it is
+   *  usually WA cleaning up the old session slot, not a real logout. */
+  private lastPairRestartAt = 0;
+  private retriedPostPair401 = false;
   private state: WaSessionState = {
     status: 'offline',
     qr: null,
@@ -125,13 +136,30 @@ export class BaileysSender implements WhatsAppSender {
    */
   async logout(): Promise<void> {
     if (this.closed) return;
+    const sock = this.sock;
+    this.sock = null;
+    this.retries = 0;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     try {
-      if (this.sock && this.state.status === 'connected') {
-        await this.sock.logout();
-        return; // close handler finishes the wipe + re-pair
+      if (sock && this.state.status === 'connected') {
+        await sock.logout(); // close handler finishes the wipe + re-pair
+        return;
       }
     } catch (err) {
       this.deps.logger.warn({ err }, 'wa logout failed — wiping keys anyway');
+    }
+    // Dead/stale socket: end it FIRST (its close handler may be gone), then
+    // wipe, then connect explicitly — never rely on a close event that may
+    // have already fired.
+    if (sock) {
+      try {
+        sock.end(undefined);
+      } catch {
+        /* socket already gone */
+      }
     }
     await clearDbAuthState().catch((err) =>
       this.deps.logger.warn({ err }, 'wa auth wipe failed'),
@@ -139,21 +167,7 @@ export class BaileysSender implements WhatsAppSender {
     // A different number pairs next — its group list is unrelated, so don't
     // let the old account's groups linger in the pick-list.
     await publishWaGroups(this.deps.redis, []).catch(() => undefined);
-    this.retries = 0;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    if (this.sock) {
-      try {
-        this.sock.end(undefined);
-      } catch {
-        /* socket already gone */
-      }
-      // close handler schedules the reconnect (keys already wiped → fresh QR)
-    } else {
-      await this.connect();
-    }
+    await this.connect();
   }
 
   async close(): Promise<void> {
@@ -174,9 +188,9 @@ export class BaileysSender implements WhatsAppSender {
     );
   }
 
-  private scheduleReconnect(): void {
+  private scheduleReconnect(delayOverride?: number): void {
     if (this.closed) return;
-    const delay = Math.min(3000 * 2 ** this.retries, 60_000);
+    const delay = delayOverride ?? Math.min(3000 * 2 ** this.retries, 60_000);
     this.retries += 1;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => void this.connect(), delay);
@@ -184,17 +198,37 @@ export class BaileysSender implements WhatsAppSender {
     this.deps.logger.info({ delayMs: delay, retries: this.retries }, 'wa reconnect scheduled');
   }
 
-  private async connect(): Promise<void> {
+  private connect(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    if (this.connecting) return this.connecting;
+    const p = this.doConnect()
+      .catch((err) => {
+        this.deps.logger.warn({ err }, 'wa connect failed — retrying');
+        this.scheduleReconnect();
+      })
+      .finally(() => {
+        if (this.connecting === p) this.connecting = null;
+      });
+    this.connecting = p;
+    return p;
+  }
+
+  private async doConnect(): Promise<void> {
     if (this.closed) return;
     await this.setState({ status: 'connecting', qr: null });
 
     const { state, saveCreds } = await useDbAuthState();
     // Pin the WA-web protocol version — a stale default is a common cause of
-    // mysterious 405/connection failures. Fall back to the bundled default if
-    // the version lookup itself is unreachable.
-    const version = await fetchLatestBaileysVersion()
-      .then((r) => r.version)
-      .catch(() => undefined);
+    // mysterious 405/connection failures. `fetchLatestWaWebVersion` scrapes the
+    // version WA's edge actually serves (fetchLatestBaileysVersion's GitHub
+    // scrape can lag and has shipped stale-"latest" versions — issue #2679).
+    // Bounded so a hung fetch can't stall the connect pipeline forever.
+    const version = await Promise.race([
+      fetchLatestWaWebVersion()
+        .then((r) => r.version)
+        .catch(() => fetchLatestBaileysVersion().then((r) => r.version).catch(() => undefined)),
+      new Promise<undefined>((r) => setTimeout(() => r(undefined), 10_000)),
+    ]);
 
     // Baileys is chatty at info/debug — cap its logger at warn.
     const waLogger = this.deps.logger.child({ module: 'baileys' });
@@ -211,17 +245,32 @@ export class BaileysSender implements WhatsAppSender {
       printQRInTerminal: false, // QR goes to the admin UI instead
       markOnlineOnConnect: false,
       syncFullHistory: false,
+      // Each QR ref stays valid 60s instead of the 20s default — the admin UI
+      // polls the session snapshot, so longer-lived refs cut the stale-QR
+      // window where a phone scans a ref WA already rotated away.
+      qrTimeout: 60_000,
       shouldIgnoreJid: (jid) => jid === 'status@broadcast' || jid.endsWith('@newsletter'),
     });
     this.sock = sock;
 
-    sock.ev.on('creds.update', () => void saveCreds());
+    // Track the flush — a 515 restart must wait for pair creds to hit the DB
+    // before the next socket reads them.
+    sock.ev.on('creds.update', () => {
+      this.credsSave = saveCreds().catch((err) =>
+        this.deps.logger.warn({ err }, 'wa creds save failed'),
+      );
+    });
 
     sock.ev.on('connection.update', (u) => {
       const { connection, lastDisconnect, qr } = u;
-      if (qr) void this.setState({ status: 'qr', qr, error: null });
+      if (qr) {
+        this.deps.logger.info('wa qr emitted');
+        void this.setState({ status: 'qr', qr, error: null });
+      }
       if (connection === 'open') {
         this.retries = 0;
+        this.retriedPostPair401 = false;
+        this.lastPairRestartAt = 0;
         void this.setState({
           status: 'connected',
           qr: null,
@@ -237,8 +286,33 @@ export class BaileysSender implements WhatsAppSender {
         const reason = String(code ?? lastDisconnect?.error?.message ?? 'closed');
         void this.setState({ status: 'offline', qr: null, error: reason });
         this.deps.logger.warn({ code, reason }, 'whatsapp connection closed');
+        if (this.sock === sock) this.sock = null;
         if (this.closed) return;
+        if (code === DisconnectReason.restartRequired) {
+          // 515 is EXPECTED, not an error: pair-success committed and WA asks
+          // us to restart with the fresh credentials. Flush the pending creds
+          // write FIRST — reconnecting without `creds.me` makes the login look
+          // like a duplicate registration and WA answers 401. This is the
+          // documented 515 → 401 pairing-death loop.
+          this.lastPairRestartAt = Date.now();
+          this.retriedPostPair401 = false;
+          this.retries = 0;
+          this.deps.logger.info('pair-success → restarting with fresh creds');
+          void (this.credsSave ?? Promise.resolve())
+            .catch(() => undefined)
+            .then(() => this.scheduleReconnect(1500));
+          return;
+        }
         if (code === DisconnectReason.loggedOut) {
+          const postPair = Date.now() - this.lastPairRestartAt < 120_000;
+          if (postPair && !this.retriedPostPair401) {
+            // Known WA quirk: right after pair+restart the server 401s the OLD
+            // session slot — wiping here destroys the just-paired session.
+            this.retriedPostPair401 = true;
+            this.deps.logger.warn('post-pair 401 — treating as slot cleanup, retrying with creds');
+            this.scheduleReconnect(3000);
+            return;
+          }
           // Paired session revoked — wipe keys so the next socket emits a
           // fresh QR instead of retrying dead credentials forever. The group
           // list belongs to the revoked account — drop it too.
