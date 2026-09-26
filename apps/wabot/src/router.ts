@@ -40,6 +40,7 @@ import {
   staffAck,
   staffBotStatus,
   staffMaint,
+  staffPickResolve,
   staffPing,
   staffRead,
   staffSilent,
@@ -77,15 +78,15 @@ export class InboundRouter {
       if (fresh !== 'OK') return;
     }
 
-    if (!(await this.allowed(msg.from))) return;
+    const phone = normalizePhone(msg.from);
+    if (!(await this.allowed(phone, phone))) return;
 
     const text = msg.text.trim();
     if (!text) return;
-    const phone = normalizePhone(msg.from);
     const ctx: BotCtx = { ...this.deps };
 
     try {
-      await this.dispatch(ctx, phone, text);
+      await this.dispatch(ctx, phone, msg);
     } catch (err) {
       this.deps.logger.error({ err, phone }, 'wa command failed');
       await ctx
@@ -94,7 +95,25 @@ export class InboundRouter {
     }
   }
 
-  private async dispatch(ctx: BotCtx, phone: string, text: string): Promise<void> {
+  /**
+   * Split `PROSES|SELESAI <rest>` into code + note. Quoting a ticket card
+   * supplies the code from its #CODE — words like "udah beres" there are a
+   * NOTE (they'd otherwise pattern-match as a bogus code). A lone token that
+   * ISN'T the quoted code still counts as an explicit override.
+   */
+  private ticketCodeFrom(rest: string, msg: WaInboundMessage): { code?: string; note?: string } {
+    const quoted = /#([a-z0-9]{4,12})/i.exec(msg.quotedText ?? '')?.[1]?.toLowerCase();
+    if (quoted) {
+      const lone = /^([a-z0-9]{4,12})$/i.exec(rest)?.[1]?.toLowerCase();
+      if (lone && lone !== quoted) return { code: lone };
+      return { code: quoted, note: rest && rest.toLowerCase() !== quoted ? rest : undefined };
+    }
+    const codeM = /^([a-z0-9]{4,12})\b[ \t]*(.*)$/i.exec(rest);
+    return { code: codeM?.[1]?.toLowerCase(), note: codeM?.[2]?.trim() || undefined };
+  }
+
+  private async dispatch(ctx: BotCtx, phone: string, msg: WaInboundMessage): Promise<void> {
+    const text = msg.text.trim();
     // ---- LINK <kode>: bind this WA number to the portal account -------------
     const linkM = /^link\s+([A-Za-z0-9]{4,10})$/i.exec(text);
     if (linkM) {
@@ -134,15 +153,26 @@ export class InboundRouter {
       return;
     }
 
-    // ---- PROSES / SELESAI <kode>: technician ticket workflow ----------------
-    const ticketM = /^(proses|selesai)\s+([a-z0-9]{4,12})$/i.exec(text);
+    // ---- PROSES / SELESAI [kode] [catatan]: technician ticket workflow ------
+    // Bare `SELESAI` also works as a reply to the forwarded ticket card — the
+    // code comes from the quoted text; anything typed after counts as a note.
+    const ticketM = /^(proses|selesai)\b[ \t]*(.*)$/i.exec(text);
     if (ticketM) {
+      const { code, note } = this.ticketCodeFrom((ticketM[2] ?? '').trim(), msg);
+      if (!code) {
+        await ctx.reply(
+          phone,
+          card('ℹ️ *Cara pakai*', '*PROSES/SELESAI* <kode-tiket> [catatan]', 'Atau balas kartu tiket langsung dengan PROSES/SELESAI'),
+        );
+        return;
+      }
       await handleTicketCommand(
         ctx,
         phone,
         phone,
         ticketM[1]!.toLowerCase() as 'proses' | 'selesai',
-        ticketM[2]!,
+        code,
+        note,
       );
       return;
     }
@@ -266,13 +296,20 @@ export class InboundRouter {
     }
 
     // ---- Staff commands (viewer/operator/super_admin) ------------------------
+    // A pending numbered pick wins over new commands — "2" after the
+    // "terlalu umum" list selects candidate #2 instead of starting fresh.
+    if (await staffPickResolve(ctx, phone, user, text)) return;
     const staffM =
       /^(sites|status|down|ack|unack|cek|ping|tiket|tickets|laporan|maint|maintenance|aktif|silent|unsilent|bunyi|bot|botstatus|wastatus)\b[ \t]*(.*)$/i.exec(
         text,
       );
     if (staffM) {
       const cmd = staffM[1]!.toLowerCase();
-      const arg = (staffM[2] ?? '').trim();
+      let arg = (staffM[2] ?? '').trim();
+      // `TIKET` bare while quoting a ticket card → its #CODE is the arg.
+      if (!arg && (cmd === 'tiket' || cmd === 'tickets')) {
+        arg = /#([a-z0-9]{4,12})/i.exec(msg.quotedText ?? '')?.[1]?.toLowerCase() ?? '';
+      }
       const need: Record<string, Permission> = {
         sites: 'map:view', status: 'map:view', down: 'device:view', cek: 'device:view',
         ack: 'alerts:manage', unack: 'alerts:manage', ping: 'device:diagnose',
@@ -290,8 +327,9 @@ export class InboundRouter {
         );
         return;
       }
-      // Read commands share one dispatch with the group/recipient surfaces.
-      if (await staffRead(ctx, phone, scoped(user), cmd, arg)) return;
+      // Read commands share one dispatch with the group/recipient surfaces —
+      // private chat is the only surface that offers numbered picks.
+      if (await staffRead(ctx, phone, scoped(user), cmd, arg, { picks: true })) return;
       switch (cmd) {
         case 'ack':
           return staffAck(ctx, phone, user, arg);
@@ -387,19 +425,22 @@ export class InboundRouter {
         .catch(() => 'OK');
       if (fresh !== 'OK') return;
     }
-    if (!(await this.allowed(actor))) return;
+    if (!(await this.allowed(actor, actor))) return;
 
     const ctx: BotCtx = { ...this.deps };
     const groupJid = msg.from;
     try {
-      const tm = /^(proses|selesai)\s+([a-z0-9]{4,12})$/i.exec(text);
+      const tm = /^(proses|selesai)\b[ \t]*(.*)$/i.exec(text);
       if (tm) {
+        const { code, note } = this.ticketCodeFrom((tm[2] ?? '').trim(), msg);
+        if (!code) return;
         await handleTicketCommand(
           ctx,
           actor,
           groupJid,
           tm[1]!.toLowerCase() as 'proses' | 'selesai',
-          tm[2]!,
+          code,
+          note,
         );
         return;
       }
@@ -412,22 +453,42 @@ export class InboundRouter {
       const gm = /^(sites|status|down|cek|tiket|tickets|laporan)\b[ \t]*(.*)$/i.exec(text);
       if (!gm) return;
       const cmd = gm[1]!.toLowerCase();
+      let arg = (gm[2] ?? '').trim();
+      // `TIKET` bare as a reply to a forwarded card → detail of that ticket.
+      if (!arg && (cmd === 'tiket' || cmd === 'tickets')) {
+        arg = /#([a-z0-9]{4,12})/i.exec(msg.quotedText ?? '')?.[1]?.toLowerCase() ?? '';
+      }
       const need: Record<string, Permission> = {
         sites: 'map:view', status: 'map:view', down: 'device:view', cek: 'device:view',
         tiket: 'tickets:view', tickets: 'tickets:view', laporan: 'reports:view',
       };
       const perm = need[cmd];
       if (perm && !hasPermission(user.role as Role, perm)) return;
-      await staffRead(ctx, groupJid, scoped(user), cmd, (gm[2] ?? '').trim());
+      await staffRead(ctx, groupJid, scoped(user), cmd, arg);
     } catch (err) {
       this.deps.logger.warn({ err, group: groupJid }, 'wa group command failed');
     }
   }
 
-  private async allowed(phone: string): Promise<boolean> {
+  private async allowed(phone: string, notifyTo?: string): Promise<boolean> {
     const key = REDIS_KEYS.waRate(phone);
     const n = await this.deps.redis.incr(key).catch(() => 0);
     if (n === 1) await this.deps.redis.expire(key, 60).catch(() => undefined);
-    return n <= RATE_LIMIT_PER_MIN;
+    if (n <= RATE_LIMIT_PER_MIN) return true;
+    // Say it once a minute — total silence reads as "bot mati" to senders.
+    if (notifyTo) {
+      const noted = await this.deps.redis
+        .set(REDIS_KEYS.waRateNote(phone), '1', 'EX', 60, 'NX')
+        .catch(() => null);
+      if (noted === 'OK') {
+        await this.deps
+          .reply(
+            notifyTo,
+            card('🐢 *Terlalu cepat*', `Maks ${RATE_LIMIT_PER_MIN} pesan/menit — tunggu sebentar lalu kirim ulang.`),
+          )
+          .catch(() => undefined);
+      }
+    }
+    return false;
   }
 }

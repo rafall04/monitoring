@@ -364,16 +364,33 @@ export class BaileysSender implements WhatsAppSender {
         const participant = rawPart?.endsWith('@lid')
           ? (m.key.participantAlt ?? rawPart)
           : rawPart;
+        // Quoted-reply context — replying "SELESAI" to a ticket card should
+        // work without retyping the code.
+        const quoted =
+          m.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+        const quotedText =
+          quoted?.conversation ?? quoted?.extendedTextMessage?.text ?? undefined;
         const inbound: WaInboundMessage = {
           from: isGroupJid(remoteJid) ? remoteJid : jidToPhone(remoteJid),
           ...(participant ? { sender: jidToPhone(participant) } : {}),
+          ...(quotedText ? { quotedText } : {}),
           text: text.trim(),
           isGroup: isGroupJid(remoteJid),
           messageId: m.key.id ?? '',
         };
-        void this.deps.onMessage(inbound).catch((err) =>
-          this.deps.logger.warn({ err }, 'wa inbound handler failed'),
-        );
+        // Blue ticks + "mengetik…" — the bot should feel alive, not silent
+        // until the reply lands. readMessages needs the raw key (jid, id,
+        // participant) — all fire-and-forget.
+        void sock.readMessages([m.key]).catch(() => undefined);
+        void sock.sendPresenceUpdate('composing', remoteJid).catch(() => undefined);
+        void this.deps
+          .onMessage(inbound)
+          .catch((err) =>
+            this.deps.logger.warn({ err }, 'wa inbound handler failed'),
+          )
+          .finally(() =>
+            void sock.sendPresenceUpdate('paused', remoteJid).catch(() => undefined),
+          );
       }
     });
   }

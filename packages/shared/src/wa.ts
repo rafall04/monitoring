@@ -109,6 +109,9 @@ export interface WaInboundMessage {
   /** Group messages only: the sender participant's phone digits — the real
    *  identity to authorize against (`from` stays the group JID for replies). */
   sender?: string;
+  /** Text of the message this one quotes (replies-to), when present — lets
+   *  `SELESAI` apply to a quoted ticket card without retyping the code. */
+  quotedText?: string;
   text: string;
   isGroup: boolean;
   messageId: string;

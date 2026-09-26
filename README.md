@@ -356,6 +356,8 @@ commands; unknown numbers can only file a complaint.
 | technician | `PROSES <kode>` / `SELESAI <kode>` | work a ticket; reporter gets notified |
 | WaRecipient (no account) | `TIKET`/`DOWN`/`CEK`/`SITES`/`LAPORAN` | read-only ops scoped to its recipient sites |
 | group chat | `PROSES`/`SELESAI` (+ staff read cmds) | ticket replies work in recipient groups; member/public flows stay private |
+| any reply | `SELESAI` (quoted reply) | reply a ticket card without retyping the code; `SELESAI <kode> <catatan>` stores a resolution note |
+| staff (private) | `MAINT SITE <nama>` / `SILENT SITE <nama> [menit]` | bulk maintenance/silence for a whole site; ambiguous lookups offer a numbered pick (reply `1-9`) |
 
 Tickets land on the web at **/tickets** (filterable, `tickets:view`/`manage`
 permissions); members file and track their own at **/akun** (`/me/tickets`,

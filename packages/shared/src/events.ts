@@ -105,6 +105,11 @@ export const REDIS_KEYS = {
   waLink: (code: string) => `noc:wa:link:${code}`,
   /** Cached anonymous-reporter identity {name,dept} — skips re-asking. */
   waIdent: (phone: string) => `noc:wa:ident:${phone}`,
+  /** Pending numbered pick after an ambiguous device lookup — the next bare
+   *  digit reply selects which candidate the command applies to. */
+  waPick: (phone: string) => `noc:wa:pick:${phone}`,
+  /** "Slow down" notice throttle — tell the sender once a minute, not per msg. */
+  waRateNote: (phone: string) => `noc:wa:rate-note:${phone}`,
 } as const;
 
 /** Parse the siteId out of a `noc:site:<id>:events` channel name. */

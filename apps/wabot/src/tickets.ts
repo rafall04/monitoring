@@ -36,6 +36,7 @@ export async function handleTicketCommand(
   replyTo: string,
   action: 'proses' | 'selesai',
   code: string,
+  note?: string,
 ): Promise<void> {
   const matches = await ctx.prisma.ticket.findMany({
     where: { id: { startsWith: code.toLowerCase() }, status: { not: 'resolved' } },
@@ -86,7 +87,7 @@ export async function handleTicketCommand(
         action: `ticket-${action}`,
         entity: 'ticket',
         entityId: t.id,
-        after: { status, via: 'whatsapp', actor },
+        after: { status, via: 'whatsapp', actor, ...(note ? { note } : {}) },
       },
     })
     .catch(() => undefined);
@@ -95,10 +96,13 @@ export async function handleTicketCommand(
     replyTo,
     card(
       action === 'proses' ? '🔧 *Tiket Diproses*' : '✅ *Tiket Selesai*',
-      `*#${ticketCode(u)}* ${action === 'proses' ? 'ditandai DIPROSES' : 'SELESAI'} oleh ${actor}.`,
+      [
+        `*#${ticketCode(u)}* ${action === 'proses' ? 'ditandai DIPROSES' : 'SELESAI'} oleh ${actor}.`,
+        note ? `Catatan: ${note.slice(0, 200)}` : null,
+      ].filter(Boolean) as string[],
     ),
   );
   // Close the loop to the reporter — skipped when they reported via web
   // without a linked WA number (status then lives in their portal history).
-  await notifyReporter({ prisma: ctx.prisma, redis: ctx.redis }, u, status);
+  await notifyReporter({ prisma: ctx.prisma, redis: ctx.redis }, u, status, note);
 }

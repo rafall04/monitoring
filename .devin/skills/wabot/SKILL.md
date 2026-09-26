@@ -26,7 +26,7 @@ noc:wa:outbox (Redis LIST — bukan pub/sub; pesan antre saat bot mati)
 apps/wabot ── sender WhatsAppSender ──▶ WhatsApp
    ▲                                        │ inbound messages.upsert
    └── InboundRouter ◀──────────────────────┘
-         (private chat saja; grup diabaikan)
+         (private chat penuh; grup = surface sempit PROSES/SELESAI + staff read)
 ```
 
 - **Single instance SAJA** — sesi WA tidak bisa di-shard. Jangan pernah menambah replica.
@@ -40,7 +40,7 @@ apps/wabot ── sender WhatsAppSender ──▶ WhatsApp
 0. **Pesan grup** → `handleGroup`: surface sempit — `PROSES|SELESAI <kode>` (otorisasi nomor pengirim `msg.sender` = WaRecipient site tiket / staff scope) + read commands `sites|status|down|cek|tiket|laporan` (verified staff saja, silent bila gagal). Balasan ke JID grup. Member/publik tidak pernah lewat grup. Identitas pengirim grup = `participant` JID (`participantAlt` untuk @lid).
 1. Dedup `waSeen(messageId)` EX 300 NX. Rate limit 30/menit/nomor (`waRate`).
 2. `LINK <kode>` → `consumeWaLinkCode` (kode dari portal `/me`) — satu nomor = satu identitas (nomor dilepas dari akun lain).
-3. `PROSES|SELESAI <kode>` → `handleTicketCommand` (teknisi).
+3. `PROSES|SELESAI [kode] [catatan]` → `handleTicketCommand` (teknisi). Kode boleh kosong bila pesan me-reply kartu tiket (`quotedText` membawa `#CODE`); catatan ikut ke audit + notifikasi pelapor (`notifyReporter(note)`).
 4. **Percakapan pending** `waConv(phone)` → `continueIntake` (menelan teks bebas — selalu cek sebelum identitas).
 5. Lookup `AppUser` by `phone` + `phoneVerifiedAt != null` + `isActive`.
 6. `KOMPLAIN|LAPOR|KELUHAN|PENGADUAN|GANGGUAN [teks]` → `startComplaint` (butuh `Setting.waComplaintEnabled`; member → jalur member, staff → wizard anon pre-fill nama/dept dari akun).
@@ -49,15 +49,16 @@ apps/wabot ── sender WhatsAppSender ──▶ WhatsApp
 9. Belum ter-link → `publicIntent()` (kata kunci gangguan/voucher/akun) → **WaRecipient scope** (nomor terdaftar di `wa_recipient` tanpa akun → read ops `sites|down|cek|tiket|laporan` terbatas site-nya via pseudo `ScopedUser{role:'viewer'}`) → `TIKET` (tiket anon per `reporterPhone`) → menu publik.
 10. Member → `status|akun|kuota|profil`, `logout|kick|keluar`, `tiket`, `info` di `commands/member.ts`.
 11. Staff → regex `(sites|status|down|ack|unack|cek|ping|tiket|tickets|laporan|maint|maintenance|aktif|silent|unsilent|bunyi|bot|botstatus|wastatus)` → cek `need[cmd]` permission via `hasPermission` → `commands/staff.ts`.
-    - `MAINT|AKTIF` = `manualOverride` maintenance + `publishSiteEvent`/`publishSiteSummary` (mirror PATCH /devices) — perm `device:edit-attributes`.
-    - `SILENT <nama> [menit]`/`BUNYI` = `silencedUntil` (mirror /incidents/:id/silence) — perm `alerts:manage`.
-    - `UNACK` lepas ack — perm `alerts:manage`. `TIKET <kode>` = detail tiket — perm `tickets:view`.
+    - `MAINT|AKTIF` = `manualOverride` maintenance + `publishSiteEvent`/`publishSiteSummary` (mirror PATCH /devices) — perm `device:edit-attributes`. Prefix `SITE` = `updateMany` seluruh device site + satu summary (tanpa event per-device).
+    - `SILENT <nama> [menit]`/`BUNYI` = `silencedUntil` (mirror /incidents/:id/silence) — perm `alerts:manage`. `SILENT SITE <nama> [menit]` = versi massal.
+    - `UNACK` lepas ack — perm `alerts:manage`. `TIKET <kode>` = detail tiket — perm `tickets:view`; `TIKET` bare + quoted card = detail kartu itu.
+    - Lookup device (`pickDevice`, `CEK`) cocokkan nama **atau** `ipAddress`; hasil ambigu menawarkan numbered pick (`waPick`) — `staffPickResolve` di router menelan balasan digit (private staff saja; grup/recipient tidak menawarkan pick).
     - `BOTSTATUS` = sesi WA + kedalaman outbox + statistik `wa_message` 24j + wizard aktif — perm `whatsapp:manage`.
     - Handler baca (`staffSites/Down/Cek/Tickets/Report`) menerima `ScopedUser` (bukan AppUser) agar dipakai ulang surface grup/recipient — dispatch bersama lewat `staffRead()`. Handler tulis (`Ack/Unack/Maint/Silent/Ping`) tetap `AppUser` (butuh id/nama untuk audit) dan private-only.
 
 ## Security model (jangan dilanggar)
 
-- Perintah **hanya private chat**; grup tidak pernah dilayani.
+- Grup hanya surface sempit (`PROSES`/`SELESAI` + read ops staff terverifikasi); semua flow member/publik/pick/privasi lain **hanya private chat**. Otorisasi grup = nomor `sender` participant, bukan JID grup.
 - Nomor tak dikenal: hanya jalur komplain/register/menu publik — tidak pernah bocorkan data staff/member.
 - Member hanya menyentuh akun hotspot **miliknya** (`hotspotRouterId` + `hotspotUsername`) — pola `withMemberRouter`.
 - Staff: `siteScopeFor`/`canAccessSite` dari `@noc/shared` — permission role-level + scope site-level sama-sama dicek.
@@ -77,6 +78,8 @@ apps/wabot ── sender WhatsAppSender ──▶ WhatsApp
 | `noc:wa:rate:<phone>` | rate limit inbound |
 | `noc:wa:seen:<msgId>` | dedup re-delivery WA |
 | `noc:wacooldown:<dev>:<st>` | anti-flap alert (EX 90 NX) |
+| `noc:wa:pick:<phone>` | pending numbered pick setelah lookup ambigu (JSON `{action,deviceIds,minutes?}`, EX 120) — balasan digit memilih kandidat |
+| `noc:wa:rate-note:<phone>` | throttle notice "terlalu cepat" (NX EX 60 — kabari 1x/menit, bukan per pesan) |
 
 ## Tiket (jalur bersama web)
 
@@ -87,6 +90,8 @@ apps/wabot ── sender WhatsAppSender ──▶ WhatsApp
 
 ## Quirk Baileys yang sudah di-handle (baca sebelum mengubah baileys.ts)
 
+- **Group-refresh feedback loop**: `groupFetchAllParticipating` memicu `groups.update` lagi → debounce re-arm → loop fetch tiap ~2,3 dtk sampai `rate-overlimit`. `refreshGroups` punya floor 30 dtk untuk event-driven; control op (tombol ⟳ admin) pakai `force`.
+- **Presence & read receipts** di upsert: `readMessages` (centang biru) + `composing` sebelum dispatch, `paused` setelah — bot terasa hidup. Jangan pindahkan ke router (butuh `sock`).
 - **515 → 401 death loop**: `restartRequired` (515) itu NORMAL pasca-pairing — flush `credsSave` DULU baru reconnect, kalau tidak WA balas 401. 401 dalam 120 detik setelah 515 = pembersihan slot lama, retry sekali, JANGAN wipe keys.
 - `loggedOut` sungguhan → `clearDbAuthState` + kosongkan `waGroups` → QR baru.
 - `deadSocks` WeakSet: socket yang dibunuh `logout()`/`reconnect()` tidak boleh memicu reconnect ganda (orphan QR race).

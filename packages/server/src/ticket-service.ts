@@ -94,6 +94,7 @@ export async function notifyReporter(
   deps: { prisma: PrismaClient; redis: Redis },
   t: Ticket,
   status: 'ack' | 'resolved',
+  note?: string,
 ): Promise<void> {
   if (!t.reporterPhone) return;
   await enqueueWaMessage(deps, {
@@ -105,6 +106,7 @@ export async function notifyReporter(
       `Keluhan  : "${t.message.slice(0, 200)}"`,
       `Status   : ${status === 'resolved' ? '*SELESAI* — sudah ditangani teknisi' : '*DIPROSES* — sedang dikerjakan'}`,
       t.handledBy ? `Teknisi  : ${t.handledBy}` : null,
+      note ? `Catatan  : ${note.slice(0, 200)}` : null,
       '──────────────────',
       '_Terima kasih atas laporannya_',
     ].filter(Boolean).join('\n'),
