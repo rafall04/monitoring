@@ -58,14 +58,16 @@ export async function createAndForwardTicket(
   const code = ticketCode(t);
   const text = [
     `🎫 *TIKET BARU #${code}*`,
-    `🏭 ${site?.name ?? input.siteId}`,
-    `👤 ${input.reporterName ?? 'Anonim'}` +
-      (input.reporterDept ? ` · ${input.reporterDept}` : '') +
-      ` · ${input.reporterPhone ?? 'via web'}` +
-      (member?.hotspotUsername ? ` · akun: ${member.hotspotUsername}` : ''),
-    `💬 "${input.message.slice(0, 500)}"`,
-    '',
-    `Balas: *PROSES ${code}* (ambil alih) · *SELESAI ${code}* (tutup)`,
+    '──────────────────',
+    `🏭 Site    : *${site?.name ?? input.siteId}*`,
+    `👤 Pelapor : ${input.reporterName ?? 'Anonim'}` +
+      (input.reporterDept ? ` · ${input.reporterDept}` : ''),
+    `📱 Kontak  : ${input.reporterPhone ?? 'via web'}` +
+      (member?.hotspotUsername ? ` · akun ${member.hotspotUsername}` : ''),
+    `💬 Isi     : "${input.message.slice(0, 500)}"`,
+    '──────────────────',
+    `_Balas: *PROSES ${code}* (ambil alih)_`,
+    `_        *SELESAI ${code}* (tutup tiket)_`,
   ].join('\n');
 
   const targets = new Set<string>();
@@ -85,9 +87,13 @@ export async function notifyReporter(
   if (!t.reporterPhone) return;
   await enqueueWaMessage(deps, {
     to: t.reporterPhone,
-    text: `Tiket #${ticketCode(t)} Anda ${
-      status === 'resolved' ? 'sudah SELESAI ✅' : 'sedang DIPROSES 🔧'
-    }.\nTerima kasih atas laporannya.`,
+    text: [
+      status === 'resolved' ? '✅ *Tiket Anda SELESAI*' : '🔧 *Tiket Anda Diproses*',
+      '──────────────────',
+      `Tiket *#${ticketCode(t)}* ${status === 'resolved' ? 'sudah selesai ditangani teknisi.' : 'sedang dikerjakan teknisi.'}`,
+      '──────────────────',
+      '_Terima kasih atas laporannya_',
+    ].join('\n'),
     kind: 'reply',
     siteId: t.siteId,
   });

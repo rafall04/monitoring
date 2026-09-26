@@ -8,6 +8,7 @@ import type { AppUser } from '@prisma/client';
 import { canAccessSite, siteScopeFor, type Role, type ScopedUser } from '@noc/shared';
 import { clientForRouter, computeSiteSummary } from '@noc/server';
 import type { BotCtx } from '../tickets';
+import { DIV, card, cmd } from '../fmt';
 
 const scoped = (u: AppUser): ScopedUser => ({
   role: u.role as Role,
@@ -34,20 +35,19 @@ export async function staffSites(ctx: BotCtx, phone: string, user: AppUser) {
     orderBy: { name: 'asc' },
   });
   if (sites.length === 0) {
-    await ctx.reply(phone, 'Tidak ada site dalam scope akun Anda.');
+    await ctx.reply(phone, card('📡 *Ringkasan Site*', 'Tidak ada site dalam scope akun Anda.'));
     return;
   }
-  const lines: string[] = ['📡 *Ringkasan Site*'];
+  const lines: string[] = [];
   for (const s of sites) {
     const sum = await computeSiteSummary(ctx.prisma, s.id);
     const flag = sum.down > 0 ? '🔴' : sum.unknown > 0 ? '🟡' : '🟢';
     lines.push(
-      `${flag} ${s.name} — ${sum.up}/${sum.total} up (${sum.availabilityPct}%)` +
+      `${flag} *${s.name}* — ${sum.up}/${sum.total} up (${sum.availabilityPct}%)` +
         (sum.down ? ` · ${sum.down} DOWN` : ''),
     );
   }
-  lines.push('', 'Perintah: DOWN <site> · TIKET · LAPORAN · ACK <perangkat> · PING <ip>');
-  await ctx.reply(phone, lines.join('\n'));
+  await ctx.reply(phone, card('📡 *Ringkasan Site*', lines, 'DOWN <site> · TIKET · LAPORAN · ACK <nama> · PING <ip>'));
 }
 
 /** `down [site]` — devices currently down, optionally narrowed to one site. */
@@ -59,7 +59,7 @@ export async function staffDown(ctx: BotCtx, phone: string, user: AppUser, arg: 
     const sites = await ctx.prisma.site.findMany({ where: siteWhere(u) });
     const hit = sites.find((s) => s.name.toLowerCase().includes(arg.toLowerCase()));
     if (!hit) {
-      await ctx.reply(phone, `Site "${arg}" tidak ditemukan dalam scope Anda.`);
+      await ctx.reply(phone, card('❓ *Site tidak ditemukan*', `"${arg}" tidak ada dalam scope Anda.`));
       return;
     }
     siteIds = [hit.id];
@@ -77,25 +77,25 @@ export async function staffDown(ctx: BotCtx, phone: string, user: AppUser, arg: 
     take: 25,
   });
   if (devices.length === 0) {
-    await ctx.reply(phone, '🟢 Tidak ada perangkat DOWN dalam scope Anda.');
+    await ctx.reply(phone, card('🟢 *Semua aman*', 'Tidak ada perangkat DOWN dalam scope Anda.'));
     return;
   }
-  const lines = [
-    `🔴 *${devices.length} perangkat DOWN*`,
-    ...devices.map(
-      (d) =>
-        `· ${d.name} (${d.ipAddress}) — ${d.site.name} · ${ago(
-          d.statusSince?.toISOString() ?? null,
-        )}${d.ackBy ? ` · ack:${d.ackBy}` : ''}`,
-    ),
-  ];
-  await ctx.reply(phone, lines.join('\n'));
+  const lines = devices.map(
+    (d) =>
+      `· *${d.name}* (${d.ipAddress})\n   ${d.site.name} · down ${ago(
+        d.statusSince?.toISOString() ?? null,
+      )}${d.ackBy ? ` · _ack:${d.ackBy}_` : ''}`,
+  );
+  await ctx.reply(
+    phone,
+    card(`🔴 *Perangkat DOWN*` + (devices.length === 25 ? ' (25 terlama)' : ''), lines, 'ACK <nama> untuk tandai dikerjakan'),
+  );
 }
 
 /** `ack <nama>` — mark the matching down device as being handled. */
 export async function staffAck(ctx: BotCtx, phone: string, user: AppUser, arg: string) {
   if (!arg) {
-    await ctx.reply(phone, 'Pakai: ACK <nama-perangkat>');
+    await ctx.reply(phone, card('ℹ️ *Cara pakai*', '*ACK* <nama-perangkat>', 'Contoh: ACK QC 3'));
     return;
   }
   const u = scoped(user);
@@ -109,13 +109,13 @@ export async function staffAck(ctx: BotCtx, phone: string, user: AppUser, arg: s
     take: 10,
   });
   if (hits.length === 0) {
-    await ctx.reply(phone, `Perangkat down "${arg}" tidak ditemukan dalam scope Anda.`);
+    await ctx.reply(phone, card('❓ *Tidak ditemukan*', `Perangkat down "${arg}" tidak ada dalam scope Anda.`));
     return;
   }
   if (hits.length > 1) {
     await ctx.reply(
       phone,
-      `Ada ${hits.length} perangkat cocok:\n${hits.map((d) => `· ${d.name}`).join('\n')}\nPerjelas namanya.`,
+      card('🔍 *Terlalu umum*', `Ada *${hits.length}* perangkat cocok:\n${hits.map((d) => `· ${d.name}`).join('\n')}`, 'Perjelas namanya'),
     );
     return;
   }
@@ -136,13 +136,13 @@ export async function staffAck(ctx: BotCtx, phone: string, user: AppUser, arg: s
       },
     })
     .catch(() => undefined);
-  await ctx.reply(phone, `✅ ${d.name} ditandai dikerjakan oleh ${actor}.`);
+  await ctx.reply(phone, card('✅ *Ditandai*', `*${d.name}* sedang dikerjakan oleh ${actor}.`));
 }
 
 /** `ping <ip>` — ping from the router that owns the device (same as the UI). */
 export async function staffPing(ctx: BotCtx, phone: string, user: AppUser, ip: string) {
   if (!ip) {
-    await ctx.reply(phone, 'Pakai: PING <ip-perangkat>');
+    await ctx.reply(phone, card('ℹ️ *Cara pakai*', '*PING* <ip-perangkat>', 'Contoh: PING 192.168.101.174'));
     return;
   }
   const u = scoped(user);
@@ -151,21 +151,27 @@ export async function staffPing(ctx: BotCtx, phone: string, user: AppUser, ip: s
     include: { site: true, router: true },
   });
   if (!d || !canAccessSite(u, d.siteId)) {
-    await ctx.reply(phone, `IP ${ip} tidak terdaftar di NOC / di luar scope Anda.`);
+    await ctx.reply(phone, card('❓ *IP tidak dikenal*', `IP ${ip} tidak terdaftar di NOC / di luar scope Anda.`));
     return;
   }
   const c = clientForRouter(d.router);
   try {
     const r = await c.pingHost(ip);
+    const verdict = r.lossPct === 100 ? '🔴 100% loss' : r.lossPct! > 0 ? '🟡 loss sebagian' : '🟢 reachable';
     await ctx.reply(
       phone,
-      `📡 PING ${ip} via ${d.router.name}\n` +
-        `terkirim ${r.sent}, diterima ${r.received}, loss ${r.lossPct}%` +
-        (r.avgMs != null ? `\nmin/avg/max: ${r.minMs}/${r.avgMs}/${r.maxMs} ms` : ''),
+      card(
+        `📡 *PING ${ip}*`,
+        [
+          `Via router *${d.router.name}*`,
+          `Kirim ${r.sent} · terima ${r.received} · loss ${r.lossPct}%  →  ${verdict}`,
+          r.avgMs != null ? `min/avg/max: *${r.minMs}/${r.avgMs}/${r.maxMs} ms*` : null,
+        ].filter(Boolean) as string[],
+      ),
     );
   } catch (err) {
     ctx.logger.warn({ err }, 'wa ping failed');
-    await ctx.reply(phone, `⚠️ Router ${d.router.name} tidak bisa dihubungi.`);
+    await ctx.reply(phone, card('⚠️ *Router offline*', `Router ${d.router.name} tidak bisa dihubungi.`));
   } finally {
     await c.close();
   }
@@ -184,22 +190,21 @@ export async function staffTickets(ctx: BotCtx, phone: string, user: AppUser) {
     take: 15,
   });
   if (rows.length === 0) {
-    await ctx.reply(phone, '🟢 Tidak ada tiket terbuka.');
+    await ctx.reply(phone, card('🟢 *Tiket bersih*', 'Tidak ada tiket terbuka dalam scope Anda.'));
     return;
   }
   await ctx.reply(
     phone,
-    [
-      `🎫 *${rows.length} tiket terbuka*`,
-      ...rows.map(
+    card(
+      `🎫 *Tiket Terbuka* (${rows.length})`,
+      rows.map(
         (t) =>
-          `· #${t.id.slice(0, 6).toUpperCase()} [${t.status}] ${t.site.name} — ${
+          `*#${t.id.slice(0, 6).toUpperCase()}* ${t.status === 'ack' ? '🔧' : '🟡'} ${t.site.name}\n   ${
             t.reporterName ?? t.reporterPhone
           }: "${t.message.slice(0, 60)}"`,
       ),
-      '',
-      'Balas PROSES <kode> / SELESAI <kode>',
-    ].join('\n'),
+      'Balas PROSES <kode> · SELESAI <kode>',
+    ),
   );
 }
 
@@ -220,29 +225,33 @@ export async function staffReport(ctx: BotCtx, phone: string, user: AppUser) {
       where: { status: { in: ['open', 'ack'] }, ...(scope ? { siteId: { in: scope } } : {}) },
     }),
   ]);
-  const lines = ['📊 *Laporan 24 Jam*'];
+  const lines: string[] = [];
   for (const s of sites) {
     const sum = await computeSiteSummary(ctx.prisma, s.id);
+    const flag = sum.down > 0 ? '🔴' : sum.unknown > 0 ? '🟡' : '🟢';
     lines.push(
-      `· ${s.name}: ${sum.up}/${sum.total} up, ${sum.down} down, availability ${sum.availabilityPct}%`,
+      `${flag} *${s.name}* — ${sum.up}/${sum.total} up · availability ${sum.availabilityPct}%`,
     );
   }
-  lines.push(
-    '',
-    `Perubahan status 24j: ${events}`,
-    `Tiket terbuka: ${openTickets}`,
+  await ctx.reply(
+    phone,
+    card('📊 *Laporan 24 Jam*', [
+      ...lines,
+      DIV,
+      `🔄 Perubahan status: *${events}*`,
+      `🎫 Tiket terbuka: *${openTickets}*`,
+    ]),
   );
-  await ctx.reply(phone, lines.join('\n'));
 }
 
 export const STAFF_MENU = [
-  '*Menu Staff NOC*',
-  '• SITES — ringkasan semua site',
-  '• DOWN [site] — perangkat down',
-  '• ACK <nama> — tandai insiden dikerjakan',
-  '• PING <ip> — ping dari router site',
-  '• TIKET — tiket komplain terbuka',
-  '• PROSES/SELESAI <kode> — kerjakan tiket',
-  '• LAPORAN — digest 24 jam',
-  '• KOMPLAIN <pesan> — buat tiket',
+  '🛠️ *Menu Staff NOC*',
+  cmd('SITES', 'ringkasan semua site'),
+  cmd('DOWN [site]', 'perangkat down saat ini'),
+  cmd('ACK <nama>', 'tandai insiden dikerjakan'),
+  cmd('PING <ip>', 'ping perangkat dari router site'),
+  cmd('TIKET', 'tiket komplain terbuka'),
+  cmd('PROSES/SELESAI <kode>', 'kerjakan tiket'),
+  cmd('LAPORAN', 'digest 24 jam'),
+  cmd('KOMPLAIN <pesan>', 'buat tiket'),
 ].join('\n');

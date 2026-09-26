@@ -19,6 +19,7 @@ import { REDIS_KEYS, normalizePhone, type WaInboundMessage } from '@noc/shared';
 import { consumeWaLinkCode, getSettings, type Redis } from '@noc/server';
 import { continueIntake, getConv, startComplaint } from './intake';
 import { handleTicketCommand, type BotCtx } from './tickets';
+import { BOT_TITLE, DIV, card, cmd, greetingFor } from './fmt';
 import { MEMBER_MENU, memberInfo, memberKick, memberStatus, memberTickets } from './commands/member';
 import {
   STAFF_MENU,
@@ -69,7 +70,7 @@ export class InboundRouter {
     } catch (err) {
       this.deps.logger.error({ err, phone }, 'wa command failed');
       await ctx
-        .reply(phone, '⚠️ Terjadi kesalahan memproses perintah — coba lagi.')
+        .reply(phone, card('⚠️ *Ups, ada gangguan*', 'Perintah gagal diproses — coba lagi sebentar.'))
         .catch(() => undefined);
     }
   }
@@ -82,7 +83,10 @@ export class InboundRouter {
       if (!userId) {
         await ctx.reply(
           phone,
-          'Kode tidak valid atau sudah kedaluwarsa. Minta kode baru di portal (menu Akun).',
+          card(
+            '❌ *Kode tidak valid*',
+            'Kode sudah kedaluwarsa atau salah ketik.\nAmbil kode baru di portal → menu *Akun*.',
+          ),
         );
         return;
       }
@@ -93,7 +97,11 @@ export class InboundRouter {
       const u = await ctx.prisma.appUser.findUnique({ where: { id: userId } });
       await ctx.reply(
         phone,
-        `✅ Nomor ini tertaut ke akun *${u?.name ?? userId}*. Ketik MENU untuk perintah.`,
+        card(
+          '✅ *Nomor tertaut!*',
+          `Nomor ini sekarang terhubung ke akun *${u?.name ?? userId}*.`,
+          'Ketik MENU untuk daftar perintah',
+        ),
       );
       return;
     }
@@ -137,25 +145,17 @@ export class InboundRouter {
 
     // ---- Universal ----------------------------------------------------------
     if (text.toLowerCase() === 'ping') {
-      await ctx.reply(phone, 'pong ✅ — NOC bot aktif');
+      await ctx.reply(phone, card('✅ *Pong!*', 'NOC bot aktif dan merespons.'));
       return;
     }
     if (GREETING.test(text)) {
-      await ctx.reply(phone, this.menuText(user?.role ?? null));
+      await ctx.reply(phone, this.menuText(user?.role ?? null, user?.name));
       return;
     }
 
     // ---- Not linked → only the public menu + complaint hint -----------------
     if (!user) {
-      await ctx.reply(
-        phone,
-        [
-          '🤖 *NOC Bot*',
-          'Nomor ini belum tertaut ke akun.',
-          '• KOMPLAIN <pesan> — laporkan gangguan (tanpa akun)',
-          '• Punya akun? Minta kode di portal lalu kirim: LINK <kode>',
-        ].join('\n'),
-      );
+      await ctx.reply(phone, this.menuText(null));
       return;
     }
 
@@ -195,15 +195,19 @@ export class InboundRouter {
     return ctx.reply(phone, this.menuText('staff'));
   }
 
-  private menuText(role: string | null): string {
-    if (role === 'member') return `🤖 *NOC Bot*\n\n${MEMBER_MENU}`;
-    if (role && role !== 'member') return `🤖 *NOC Bot*\n\n${STAFF_MENU}`;
+  private menuText(role: string | null, name?: string | null): string {
+    if (role === 'member') return `${BOT_TITLE}\n${greetingFor(name)}\n${DIV}\n${MEMBER_MENU}`;
+    if (role && role !== 'member') return `${BOT_TITLE}\n${greetingFor(name)}\n${DIV}\n${STAFF_MENU}`;
     return [
-      '🤖 *NOC Bot*',
-      '',
-      '• KOMPLAIN <pesan> — laporkan gangguan',
-      '• LINK <kode> — tautkan nomor ke akun portal',
-      '• PING — cek bot aktif',
+      BOT_TITLE,
+      greetingFor(),
+      DIV,
+      'Saya bisa bantu hal berikut:',
+      cmd('KOMPLAIN <pesan>', 'laporkan gangguan ke teknisi'),
+      cmd('LINK <kode>', 'tautkan nomor ke akun portal'),
+      cmd('PING', 'cek bot aktif'),
+      DIV,
+      '_Contoh: KOMPLAIN internet mati di gudang_',
     ].join('\n');
   }
 

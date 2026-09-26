@@ -13,6 +13,7 @@ import {
 } from '@noc/server';
 import type { MikrotikClient } from '@noc/server';
 import type { BotCtx } from '../tickets';
+import { DIV, card, cmd } from '../fmt';
 
 function fmtBytes(b: string | null | undefined): string {
   const n = Number(b ?? 0);
@@ -42,7 +43,7 @@ async function withMemberRouter(
   if (!user.hotspotRouterId || !user.hotspotUsername) {
     await ctx.reply(
       phone,
-      'Nomor Anda tertaut, tapi akun ini belum punya akun hotspot — hubungi admin.',
+      card('⚠️ *Akun belum lengkap*', 'Nomor Anda tertaut, tapi belum ada akun hotspot — hubungi admin.'),
     );
     return;
   }
@@ -50,7 +51,7 @@ async function withMemberRouter(
     where: { id: user.hotspotRouterId },
   });
   if (!router) {
-    await ctx.reply(phone, 'Router hotspot Anda tidak ditemukan — hubungi admin.');
+    await ctx.reply(phone, card('⚠️ *Router tidak ditemukan*', 'Router hotspot Anda tidak terdaftar — hubungi admin.'));
     return;
   }
   const c = clientForRouter(router);
@@ -60,7 +61,7 @@ async function withMemberRouter(
     ctx.logger.warn({ err, user: user.id }, 'member router op failed');
     await ctx.reply(
       phone,
-      `⚠️ Router ${router.name} tidak bisa dihubungi saat ini. Coba lagi nanti.`,
+      card('⚠️ *Router offline*', `Router ${router.name} tidak bisa dihubungi saat ini.\nCoba lagi nanti.`),
     );
   } finally {
     await c.close();
@@ -71,24 +72,24 @@ async function withMemberRouter(
 export async function memberStatus(ctx: BotCtx, phone: string, user: AppUser) {
   await withMemberRouter(ctx, phone, user, async (c, username) => {
     const s = await getMemberStatus(c, username);
-    if (!s) return `Akun hotspot *${username}* tidak ditemukan di router.`;
+    if (!s) return card('❌ *Akun tidak ada*', `Akun hotspot *${username}* tidak ditemukan di router.`);
     const used = (Number(s.bytesIn ?? 0) + Number(s.bytesOut ?? 0)).toString();
     const lines = [
-      `📋 *Status Akun — ${s.username}*`,
-      `👤 Profil: ${s.profile} · ${s.devices} device${s.disabled ? ' · NONAKTIF' : ''}`,
-      `📶 Kuota: ${fmtQuota(used, s.limitBytesTotal)}`,
+      `👤 Profil: *${s.profile}* · ${s.devices} device${s.disabled ? ' · ⛔ NONAKTIF' : ''}`,
+      `📶 Kuota: *${fmtQuota(used, s.limitBytesTotal)}*`,
       s.limitUptime ? `⏱️ Batas waktu: ${s.limitUptime}` : null,
+      DIV,
       s.sessions.length > 0
-        ? `🔌 Sesi aktif (${s.sessions.length}):\n${s.sessions
+        ? `🔌 *Sesi aktif (${s.sessions.length}):*\n${s.sessions
             .slice(0, 5)
-            .map((x) => `  · ${x.address ?? '?'} ${x.uptime ?? ''}`)
+            .map((x) => `   · ${x.address ?? '?'} ${x.uptime ?? ''}`)
             .join('\n')}`
         : '🔌 Tidak ada sesi aktif',
       s.blockedServices.length > 0
-        ? `🚫 Diblokir: ${s.blockedServices.map((b) => b.label).join(', ')}`
+        ? `🚫 *Diblokir:* ${s.blockedServices.map((b) => b.label).join(', ')}`
         : null,
     ].filter(Boolean);
-    return lines.join('\n');
+    return card(`📋 *Status Akun — ${s.username}*`, lines.filter((l): l is string => Boolean(l)), 'Ketik MENU untuk perintah lain');
   });
 }
 
@@ -108,8 +109,8 @@ export async function memberKick(ctx: BotCtx, phone: string, user: AppUser) {
       })
       .catch(() => undefined);
     return kicked === 0
-      ? 'Tidak ada sesi aktif untuk dikeluarkan.'
-      : `✅ ${kicked} sesi Anda dikeluarkan. Anda bisa login ulang kapan saja.`;
+      ? card('ℹ️ *Tidak ada sesi*', 'Tidak ada sesi aktif untuk dikeluarkan.')
+      : card('✅ *Sesi dikeluarkan*', `*${kicked}* sesi Anda sudah diputus.\nAnda bisa login ulang kapan saja.`);
   });
 }
 
@@ -119,12 +120,14 @@ export async function memberInfo(ctx: BotCtx, phone: string) {
   const name = settings?.orgName || 'NOC';
   await ctx.reply(
     phone,
-    [
+    card(
       `ℹ️ *${name}*`,
-      `Portal pelanggan: ${env.PUBLIC_BASE_URL}`,
-      'Login portal untuk: ganti password, riwayat, dan tautkan nomor WA.',
-      'Ketik MENU untuk daftar perintah, KOMPLAIN untuk lapor gangguan.',
-    ].join('\n'),
+      [
+        `🌐 Portal: ${env.PUBLIC_BASE_URL}`,
+        '🔑 Di portal Anda bisa: ganti password, lihat riwayat, tautkan WA',
+      ],
+      'Ketik MENU untuk perintah · KOMPLAIN untuk lapor gangguan',
+    ),
   );
 }
 
@@ -137,23 +140,25 @@ export async function memberTickets(ctx: BotCtx, phone: string, user: AppUser) {
     include: { site: { select: { name: true } } },
   });
   if (rows.length === 0) {
-    await ctx.reply(phone, 'Belum ada tiket — kirim KOMPLAIN <pesan> untuk melapor.');
+    await ctx.reply(phone, card('🎫 *Tiket Anda*', 'Belum ada tiket.', 'Kirim KOMPLAIN <pesan> untuk melapor'));
     return;
   }
   const label = { open: '🟡 Open', ack: '🔧 Diproses', resolved: '✅ Selesai' } as const;
   const lines = rows.map((t) => {
     const code = t.id.slice(0, 6).toUpperCase();
     const status = label[t.status as keyof typeof label] ?? t.status;
-    return `#${code} ${status} · ${t.site.name} — "${t.message.slice(0, 60)}"`;
+    return `*#${code}* ${status}\n   ${t.site.name} — "${t.message.slice(0, 60)}"`;
   });
-  await ctx.reply(phone, `🎫 *Tiket Anda (${rows.length} terbaru)*\n${lines.join('\n')}`);
+  await ctx.reply(phone, card(`🎫 *Tiket Anda* (${rows.length} terbaru)`, lines));
 }
 
 export const MEMBER_MENU = [
-  '*Menu Member*',
-  '• STATUS — kuota, profil, sesi aktif',
-  '• LOGOUT — keluarkan semua sesi Anda',
-  '• TIKET — status komplain Anda',
-  '• KOMPLAIN <pesan> — lapor gangguan ke teknisi',
-  '• INFO — kontak & portal',
+  '👤 *Menu Member*',
+  cmd('STATUS', 'kuota, profil & sesi aktif'),
+  cmd('TIKET', 'status komplain Anda'),
+  cmd('KOMPLAIN <pesan>', 'lapor gangguan ke teknisi'),
+  cmd('LOGOUT', 'keluarkan semua sesi'),
+  cmd('INFO', 'kontak & portal'),
+  DIV,
+  '_Contoh: KOMPLAIN wifi mati di ruang packing_',
 ].join('\n');

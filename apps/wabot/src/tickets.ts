@@ -13,6 +13,7 @@ import {
   ticketCode,
   type Redis,
 } from '@noc/server';
+import { card } from './fmt';
 
 export { createAndForwardTicket, ticketCode };
 
@@ -39,11 +40,11 @@ export async function handleTicketCommand(
     take: 5,
   });
   if (matches.length === 0) {
-    await ctx.reply(from, `Tiket #${code.toUpperCase()} tidak ditemukan / sudah selesai.`);
+    await ctx.reply(from, card('❓ *Tiket tidak ada*', `Tiket *#${code.toUpperCase()}* tidak ditemukan atau sudah selesai.`));
     return;
   }
   if (matches.length > 1) {
-    await ctx.reply(from, `Kode ${code.toUpperCase()} ambigu — pakai kode tiket lebih panjang.`);
+    await ctx.reply(from, card('🔍 *Kode ambigu*', `Kode *${code.toUpperCase()}* cocok dengan beberapa tiket.\nPakai kode lebih panjang.`));
     return;
   }
   const t = matches[0]!;
@@ -62,7 +63,7 @@ export async function handleTicketCommand(
       t.siteId,
     );
   if (!contact && !staffAllowed) {
-    await ctx.reply(from, 'Nomor Anda tidak terdaftar sebagai teknisi untuk site tiket ini.');
+    await ctx.reply(from, card('⛔ *Bukan teknisi*', 'Nomor Anda tidak terdaftar sebagai teknisi untuk site tiket ini.'));
     return;
   }
 
@@ -90,7 +91,10 @@ export async function handleTicketCommand(
 
   await ctx.reply(
     from,
-    `✅ Tiket #${ticketCode(u)} ${action === 'proses' ? 'ditandai DIPROSES' : 'SELESAI'} oleh ${actor}.`,
+    card(
+      action === 'proses' ? '🔧 *Tiket Diproses*' : '✅ *Tiket Selesai*',
+      `*#${ticketCode(u)}* ${action === 'proses' ? 'ditandai DIPROSES' : 'SELESAI'} oleh ${actor}.`,
+    ),
   );
   // Close the loop to the reporter — skipped when they reported via web
   // without a linked WA number (status then lives in their portal history).

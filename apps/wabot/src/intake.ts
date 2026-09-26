@@ -11,6 +11,7 @@ import type { AppUser } from '@prisma/client';
 import { REDIS_KEYS, WA_CONV_TTL_SEC, type WaConvState } from '@noc/shared';
 import type { Redis } from '@noc/server';
 import { createAndForwardTicket, type BotCtx } from './tickets';
+import { card } from './fmt';
 
 export async function getConv(redis: Redis, phone: string): Promise<WaConvState | null> {
   const raw = await redis.get(REDIS_KEYS.waConv(phone));
@@ -44,7 +45,7 @@ export async function startComplaint(
       : null;
     const siteId = router?.siteId ?? null;
     if (!siteId) {
-      await ctx.reply(phone, 'Akun Anda belum tertaut ke site manapun — hubungi admin.');
+      await ctx.reply(phone, card('⚠️ *Akun belum lengkap*', 'Akun Anda belum tertaut ke site manapun — hubungi admin.'));
       return;
     }
     // Department is asked exactly once, then lives on the member profile.
@@ -59,7 +60,7 @@ export async function startComplaint(
       });
       await ctx.reply(
         phone,
-        'Sebelum melanjutkan — Anda dari departemen/bagian apa? (ditanya sekali saja, ketik BATAL untuk batal)',
+        card('📝 *Komplain — langkah terakhir*', 'Anda dari departemen/bagian apa?\n_(ditanya sekali saja)_', 'Ketik BATAL untuk membatalkan'),
       );
       return;
     }
@@ -72,16 +73,16 @@ export async function startComplaint(
         memberId: user.id,
         message: inlineText,
       });
-      await ctx.reply(phone, `✅ Komplain terkirim sebagai tiket #${t.id.slice(0, 6).toUpperCase()} — teknisi kami akan menindaklanjuti.`);
+      await ctx.reply(phone, card('✅ *Komplain terkirim*', `Tiket *#${t.id.slice(0, 6).toUpperCase()}* sudah diteruskan ke teknisi.\nKami kabari begitu ada update.`));
       return;
     }
     await setConv(ctx.redis, phone, { flow: 'complaint', step: 'message', memberId: user.id, siteId, dept: user.department });
-    await ctx.reply(phone, 'Silakan tulis komplain Anda (balas pesan ini). Ketik BATAL untuk membatalkan.');
+    await ctx.reply(phone, card('📝 *Tulis komplain Anda*', 'Jelaskan gangguannya — bisa panjang.', 'Ketik BATAL untuk membatalkan'));
     return;
   }
 
   await setConv(ctx.redis, phone, { flow: 'complaint', step: 'name' });
-  await ctx.reply(phone, 'Baik, kami bantu catat komplain Anda.\nSiapa nama Anda? (ketik BATAL untuk membatalkan)');
+  await ctx.reply(phone, card('📝 *Lapor Gangguan — langkah 1/4*', 'Baik, kami bantu catat.\n*Siapa nama Anda?*', 'Ketik BATAL untuk membatalkan'));
 }
 
 /** Continue a pending intake conversation. */
@@ -93,25 +94,25 @@ export async function continueIntake(
 ): Promise<void> {
   if (/^batal$/i.test(text.trim())) {
     await clearConv(ctx.redis, phone);
-    await ctx.reply(phone, 'Komplain dibatalkan.');
+    await ctx.reply(phone, card('🚫 *Dibatalkan*', 'Komplain dibatalkan — tidak ada yang tercatat.'));
     return;
   }
 
   if (conv.step === 'name') {
     const name = text.trim().slice(0, 80);
     if (name.length < 2) {
-      await ctx.reply(phone, 'Nama terlalu pendek — coba lagi.');
+      await ctx.reply(phone, card('❓ *Terlalu pendek*', 'Nama terlalu pendek — coba lagi.'));
       return;
     }
     await setConv(ctx.redis, phone, { ...conv, step: 'dept', name });
-    await ctx.reply(phone, `Halo ${name}. Departemen/bagian apa? (mis. Produksi, QC, Office)`);
+    await ctx.reply(phone, card('📝 *Lapor Gangguan — langkah 2/4*', `Halo *${name}*! 👋\nDepartemen/bagian apa? _(mis. Produksi, QC, Office)_`));
     return;
   }
 
   if (conv.step === 'dept') {
     const dept = text.trim().slice(0, 80);
     if (dept.length < 2) {
-      await ctx.reply(phone, 'Departemen terlalu pendek — coba lagi.');
+      await ctx.reply(phone, card('❓ *Terlalu pendek*', 'Departemen terlalu pendek — coba lagi.'));
       return;
     }
     // Linked member: persist once on the profile so we never ask again.
@@ -131,7 +132,7 @@ export async function continueIntake(
         memberId: conv.memberId,
         message: conv.message,
       });
-      await ctx.reply(phone, `✅ Komplain terkirim sebagai tiket #${t.id.slice(0, 6).toUpperCase()} — teknisi kami akan menindaklanjuti.`);
+      await ctx.reply(phone, card('✅ *Komplain terkirim*', `Tiket *#${t.id.slice(0, 6).toUpperCase()}* sudah diteruskan ke teknisi.\nKami kabari begitu ada update.`));
       return;
     }
     const next: WaConvState = { ...conv, step: conv.memberId ? 'message' : 'site', dept };
@@ -143,19 +144,23 @@ export async function continueIntake(
       });
       if (sites.length === 0) {
         await clearConv(ctx.redis, phone);
-        await ctx.reply(phone, 'Belum ada site terdaftar — hubungi admin.');
+        await ctx.reply(phone, card('⚠️ *Belum ada site*', 'Belum ada site terdaftar — hubungi admin.'));
         return;
       }
       next.siteIds = sites.map((s) => s.id);
       await setConv(ctx.redis, phone, next);
       await ctx.reply(
         phone,
-        `Komplain untuk site mana?\n${sites.map((s, i) => `${i + 1}. ${s.name}`).join('\n')}\n\nBalas dengan nomor.`,
+        card(
+          '📝 *Lapor Gangguan — langkah 3/4*',
+          `Komplain untuk site mana?\n${sites.map((s, i) => `*${i + 1}.* ${s.name}`).join('\n')}`,
+          'Balas dengan nomor',
+        ),
       );
       return;
     }
     await setConv(ctx.redis, phone, next);
-    await ctx.reply(phone, 'Tulis komplain Anda (bisa panjang).');
+    await ctx.reply(phone, card('📝 *Langkah terakhir*', 'Tulis komplain Anda — bisa panjang.', 'Ketik BATAL untuk membatalkan'));
     return;
   }
 
@@ -163,23 +168,23 @@ export async function continueIntake(
     const siteIds = conv.siteIds ?? [];
     const n = Number(text.trim());
     if (!Number.isInteger(n) || n < 1 || n > siteIds.length) {
-      await ctx.reply(phone, `Balas dengan nomor 1–${siteIds.length}.`);
+      await ctx.reply(phone, card('❓ *Pilihan tidak ada*', `Balas dengan nomor *1–${siteIds.length}*.`));
       return;
     }
     await setConv(ctx.redis, phone, { ...conv, step: 'message', siteId: siteIds[n - 1] });
-    await ctx.reply(phone, 'Tulis komplain Anda (bisa panjang).');
+    await ctx.reply(phone, card('📝 *Lapor Gangguan — langkah 4/4*', 'Tulis komplain Anda — bisa panjang.', 'Ketik BATAL untuk membatalkan'));
     return;
   }
 
   // step === 'message'
   if (!conv.siteId) {
     await clearConv(ctx.redis, phone);
-    await ctx.reply(phone, 'Sesi komplain kedaluwarsa — ketik KOMPLAIN untuk mulai ulang.');
+    await ctx.reply(phone, card('⏰ *Sesi kedaluwarsa*', 'Sesi komplain kedaluwarsa.\nKetik *KOMPLAIN* untuk mulai ulang.'));
     return;
   }
   const message = text.trim().slice(0, 1000);
   if (message.length < 5) {
-    await ctx.reply(phone, 'Komplain terlalu pendek — jelaskan sedikit lebih detail.');
+    await ctx.reply(phone, card('❓ *Terlalu pendek*', 'Jelaskan sedikit lebih detail agar teknisi paham.'));
     return;
   }
   await clearConv(ctx.redis, phone);
@@ -193,8 +198,10 @@ export async function continueIntake(
   });
   await ctx.reply(
     phone,
-    `✅ Terima kasih ${conv.name ?? ''} — komplain Anda tercatat sebagai tiket #${t.id
-      .slice(0, 6)
-      .toUpperCase()} dan sudah diteruskan ke teknisi.`,
+    card(
+      '✅ *Komplain terkirim*',
+      `Terima kasih, *${conv.name ?? 'Anda'}*!\nTiket *#${t.id.slice(0, 6).toUpperCase()}* sudah diteruskan ke teknisi.`,
+      'Kami kabari begitu ada update',
+    ),
   );
 }
