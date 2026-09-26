@@ -42,6 +42,9 @@ Di browser base API = `''` (kosong). `next.config.mjs` me-rewrite `/api/*` dan `
 - **PWA**: `app/manifest.ts` + `public/icon.svg` + `app/icon.svg`; `viewport.viewportFit='cover'` + `noc-safe-top` untuk notch iOS.
 - Transisi halaman: wrapper `key={pathname} .noc-fade` (180ms, reduced-motion aware). Focus keyboard: `:focus-visible` accent ring global (input `noc-focus` punya ring sendiri).
 - Touch: `noc-tap` = 44px di bawah lg/coarse-pointer; jangan kurangi.
+- Kontrak tata letak (anatomi Page/PageHeader/PageBody, grid responsif, 4-state
+  loading/error/empty/success, role-aware layout member vs staff, copy ID) →
+  skill **`/ui-layout`**.
 
 ## Gotcha build & preview
 

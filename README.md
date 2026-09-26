@@ -236,7 +236,8 @@ Domain playbooks checked into the repo — agent sessions auto-load the matching
 one: `wabot` (WhatsApp bot architecture/commands/quirks), `poller`
 (worker/probe-watch/Ruijie budget), `status-engine` (status & alert rules),
 `route-guard` (new endpoint/command recipe), `realtime` (Redis→WS→cache chain),
-`frontend` (query/auth/preview conventions), `mikrotik` (RouterOS client rules),
+`frontend` (query/auth/preview conventions), `ui-layout` (page anatomy,
+responsive/state/a11y copy contract), `mikrotik` (RouterOS client rules),
 `prisma` (schema/migration/secret rules), `verify` (the CI gate), `deploy`
 (production deploy via systemd-run), `ops` (production diagnosis runbook).
 
