@@ -91,6 +91,7 @@ export default function AdminWhatsappPage() {
       <PageBody>
         <SessionCard session={session.data} />
         <RecipientsCard />
+        <MessageLogCard />
         <BotSettingsCard />
         <TestBroadcastCard />
       </PageBody>
@@ -534,6 +535,167 @@ function SiteRecipients({
         role <em>manager</em> = target eskalasi tiket.
       </p>
     </div>
+  );
+}
+
+// ---- Log pengiriman ----------------------------------------------------------
+
+interface WaMessageRow {
+  id: string;
+  to: string;
+  kind: string;
+  status: 'queued' | 'sent' | 'failed' | 'dead';
+  attempts: number;
+  body: string;
+  siteName: string | null;
+  createdAt: string;
+}
+
+const MSG_STATUS_TONE: Record<WaMessageRow['status'], Tone> = {
+  queued: 'slate',
+  sent: 'emerald',
+  failed: 'amber',
+  dead: 'red',
+};
+const MSG_STATUS_LABEL: Record<WaMessageRow['status'], string> = {
+  queued: 'antre',
+  sent: 'terkirim',
+  failed: 'retry',
+  dead: 'dead',
+};
+
+/**
+ * Delivery log + dead-letter recovery — the web twin of the bot's
+ * WADEAD/KIRIMULANG commands. "Alert tidak sampai" is diagnosable here without
+ * SSH: status + attempts + the message body are all visible, and a dead row
+ * can be requeued in one click.
+ */
+function MessageLogCard() {
+  const toast = useToast();
+  const [status, setStatus] = useState<'all' | WaMessageRow['status']>('all');
+  const q = useQuery({
+    queryKey: ['wa-messages', status],
+    queryFn: () =>
+      api.get<WaMessageRow[]>(
+        `/whatsapp/messages?take=80${status === 'all' ? '' : `&status=${status}`}`,
+      ),
+    refetchInterval: liteInterval(15_000),
+  });
+  const retry = useMutation({
+    mutationFn: (id: string) => api.post(`/whatsapp/messages/${id}/retry`, {}),
+    onSuccess: () => {
+      toast.ok('Pesan di-antrekan ulang');
+      void q.refetch();
+    },
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+  });
+
+  const columns: ReadonlyArray<Column<WaMessageRow>> = [
+    {
+      key: 'at',
+      header: 'Waktu',
+      cell: (r) => (
+        <span className="whitespace-nowrap text-2xs text-slate-400">
+          {new Date(r.createdAt).toLocaleString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </span>
+      ),
+      className: 'w-24',
+    },
+    {
+      key: 'to',
+      header: 'Tujuan',
+      cell: (r) => (
+        <div className="min-w-0">
+          <span className="block truncate font-mono text-xs text-slate-200">{r.to}</span>
+          {r.siteName && <span className="text-2xs text-slate-500">{r.siteName}</span>}
+        </div>
+      ),
+    },
+    {
+      key: 'kind',
+      header: 'Jenis',
+      hideBelow: 'md',
+      cell: (r) => <span className="text-2xs text-slate-400">{r.kind}</span>,
+      className: 'w-20',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (r) => (
+        <Badge tone={MSG_STATUS_TONE[r.status]}>
+          {MSG_STATUS_LABEL[r.status]}
+          {r.attempts > 1 ? ` ·${r.attempts}x` : ''}
+        </Badge>
+      ),
+      className: 'w-24',
+    },
+    {
+      key: 'body',
+      header: 'Pesan',
+      cell: (r) => (
+        <span className="block max-w-md truncate text-2xs text-slate-400" title={r.body}>
+          {r.body.replace(/\n/g, ' · ')}
+        </span>
+      ),
+      hideBelow: 'lg',
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      label: null,
+      cell: (r) =>
+        r.status === 'dead' ? (
+          <button
+            className="noc-tap rounded-md px-2 py-1 text-2xs font-medium text-accent hover:bg-accent/10"
+            onClick={() => retry.mutate(r.id)}
+            disabled={retry.isPending}
+          >
+            Antrekan ulang
+          </button>
+        ) : null,
+      className: 'w-24',
+    },
+  ];
+
+  return (
+    <Card className="p-4">
+      <SectionHeader
+        title="Log Pengiriman"
+        action={
+          <Tabs
+            value={status}
+            onChange={setStatus}
+            tabs={[
+              { value: 'all', label: 'Semua' },
+              { value: 'queued', label: 'Antre' },
+              { value: 'sent', label: 'Terkirim' },
+              { value: 'failed', label: 'Retry' },
+              { value: 'dead', label: 'Dead' },
+            ]}
+          />
+        }
+      />
+      <DataTable
+        dense
+        columns={columns}
+        rows={q.data ?? []}
+        rowKey={(r) => r.id}
+        loading={q.isLoading}
+        error={q.isError}
+        onRetry={() => void q.refetch()}
+        empty="Belum ada pesan pada filter ini."
+      />
+      <p className="mt-2 text-2xs text-slate-500">
+        80 pesan terbaru · <em>dead</em> = 5x gagal kirim (nomor salah / bukan anggota grup) —
+        perbaiki tujuannya lalu &quot;Antrekan ulang&quot;.
+      </p>
+    </Card>
   );
 }
 

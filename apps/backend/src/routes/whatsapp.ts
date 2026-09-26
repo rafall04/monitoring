@@ -8,7 +8,7 @@ import {
   type WaControlOp,
   type WaSessionState,
 } from '@noc/shared';
-import { notFound } from '../lib/errors';
+import { badRequest, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import { assertSiteAccess, authenticate, requirePermission } from '../plugins/rbac';
 
@@ -76,6 +76,64 @@ export async function whatsappRoutes(app: FastifyInstance) {
       after: { to: body.to },
     });
     return { id };
+  });
+
+  // ---- Delivery log ---------------------------------------------------------
+  // Recent outbound rows — the "did that alert actually send?" answer without
+  // SSH. Filterable by status so the dead-letter queue is one click away.
+  app.get('/messages', guard, async (req) => {
+    const q = req.query as { status?: string; take?: string };
+    const take = Math.min(200, Math.max(1, Number(q.take) || 50));
+    const rows = await prisma.waMessage.findMany({
+      where:
+        q.status === 'queued' || q.status === 'sent' || q.status === 'failed' || q.status === 'dead'
+          ? { status: q.status }
+          : {},
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+    // siteId is a bare field (no relation) — resolve names in one extra query.
+    const siteIds = [...new Set(rows.map((r) => r.siteId).filter((x): x is string => !!x))];
+    const sites = siteIds.length
+      ? await prisma.site.findMany({ where: { id: { in: siteIds } }, select: { id: true, name: true } })
+      : [];
+    const siteName = new Map(sites.map((s) => [s.id, s.name]));
+    return rows.map((r) => ({
+      id: r.id,
+      to: r.to,
+      kind: r.kind,
+      status: r.status,
+      attempts: r.attempts,
+      body: r.body,
+      siteName: r.siteId ? (siteName.get(r.siteId) ?? null) : null,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  });
+
+  // Requeue a dead-letter row — same payload shape the producer pushed. Only
+  // 'dead' is retryable: queued/failed are already in the retry loop.
+  app.post('/messages/:id/retry', guard, async (req) => {
+    const { id } = req.params as { id: string };
+    const m = await prisma.waMessage.findUnique({ where: { id } });
+    if (!m) throw notFound('Pesan tidak ditemukan');
+    if (m.status !== 'dead') {
+      throw badRequest(`Pesan status '${m.status}' tidak perlu di-antrekan ulang`);
+    }
+    await prisma.waMessage.update({
+      where: { id },
+      data: { status: 'queued', attempts: 0 },
+    });
+    await app.redisPub.lpush(
+      REDIS_KEYS.waOutbox,
+      JSON.stringify({ id: m.id, to: m.to, text: m.body, kind: m.kind, siteId: m.siteId }),
+    );
+    await writeAudit(req, {
+      action: 'wa-retry',
+      entity: 'wa_message',
+      entityId: id,
+      after: { to: m.to },
+    });
+    return { queued: true };
   });
 
   // Broadcast an announcement to a site's active recipients + every member

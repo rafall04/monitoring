@@ -87,6 +87,16 @@ export async function userRoutes(app: FastifyInstance) {
       }
       throw e;
     }
+    // Defense-in-depth: authenticate() already rejects inactive users on every
+    // request, and a new password invalidates the old credential — but revoke
+    // live refresh tokens too so a just-refreshed long-lived session can't
+    // linger for minutes after deactivation/reset.
+    if (body.isActive === false || password) {
+      await prisma.refreshToken.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
     await writeAudit(req, {
       action: 'update',
       entity: 'app_user',
@@ -95,6 +105,26 @@ export async function userRoutes(app: FastifyInstance) {
       after: toAppUserPublic(u),
     });
     return toAppUserPublic(u);
+  });
+
+  // Force-logout: revoke every live session of a user without touching their
+  // account (e.g. lost phone, suspicious login). They can sign back in
+  // immediately — for a hard block use isActive=false instead.
+  app.post('/:id/revoke-sessions', guard, async (req) => {
+    const { id } = idParamSchema.parse(req.params);
+    const target = await prisma.appUser.findUnique({ where: { id }, select: { id: true } });
+    if (!target) throw notFound('User not found');
+    const res = await prisma.refreshToken.updateMany({
+      where: { userId: id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await writeAudit(req, {
+      action: 'session-revoke-all',
+      entity: 'app_user',
+      entityId: id,
+      after: { count: res.count },
+    });
+    return { revoked: res.count };
   });
 
   app.delete('/:id', guard, async (req, reply) => {

@@ -129,7 +129,14 @@ export default function AdminUsersPage() {
                 {filtered.map((u) => (
                   <Fragment key={u.id}>
                     <tr className={TABLE.row}>
-                      <td data-label="Nama" className={`${TABLE.tdDense} `}>{u.name}</td>
+                      <td data-label="Nama" className={`${TABLE.tdDense} `}>
+                        {u.name}
+                        {u.hotspotUsername && (
+                          <span className="block font-mono text-2xs text-slate-500">
+                            WiFi: {u.hotspotUsername}
+                          </span>
+                        )}
+                      </td>
                       <td data-label="Email" className={TABLE.tdDense}>{u.email}</td>
                       <td data-label="WhatsApp" className={`${TABLE.tdDense} text-xs`}>
                         {u.phone ? (
@@ -305,6 +312,12 @@ function EditUserForm({ user, sites, onDone }: { user: AppUserPublic; sites: Sit
 
   const pwTooShort = form.password.length > 0 && form.password.length < 8;
 
+  const revokeSessions = useMutation({
+    mutationFn: () => api.post<{ revoked: number }>(`/users/${user.id}/revoke-sessions`, {}),
+    onSuccess: (r) => toast.ok(`${r.revoked} sesi user dicabut`),
+    onError: (e) => toast.error(`Gagal: ${(e as Error).message}`),
+  });
+
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -340,13 +353,28 @@ function EditUserForm({ user, sites, onDone }: { user: AppUserPublic; sites: Sit
         Aktif (bisa login)
       </label>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button onClick={() => save.mutate()} disabled={save.isPending || !form.name || !form.email || pwTooShort}>
           {save.isPending ? 'Menyimpan…' : 'Simpan'}
         </Button>
         <Button variant="ghost" onClick={onDone}>Batal</Button>
         {pwTooShort && <span className="text-sm text-amber-400">Password min. 8 karakter</span>}
         {save.isError && <span className="text-sm text-red-400">{(save.error as Error).message}</span>}
+        <button
+          type="button"
+          className="noc-tap ml-auto inline-flex items-center rounded-md px-2 py-1 text-2xs font-medium text-red-400 hover:bg-red-500/10"
+          disabled={revokeSessions.isPending}
+          onClick={() => {
+            if (
+              window.confirm(
+                `Cabut semua sesi login ${user.name}?\nSemua perangkat user ini langsung diminta login ulang (akun tetap aktif).`,
+              )
+            )
+              revokeSessions.mutate();
+          }}
+        >
+          {revokeSessions.isPending ? 'Mencabut…' : 'Cabut semua sesi'}
+        </button>
       </div>
     </div>
   );
