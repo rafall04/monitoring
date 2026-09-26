@@ -17,6 +17,7 @@ export interface RetentionStats {
   lastEventsDeleted: number;
   lastAuditDeleted: number;
   lastRefreshTokensDeleted: number;
+  lastWaMessagesDeleted: number;
 }
 
 export class RetentionSweeper {
@@ -27,6 +28,7 @@ export class RetentionSweeper {
     lastEventsDeleted: 0,
     lastAuditDeleted: 0,
     lastRefreshTokensDeleted: 0,
+    lastWaMessagesDeleted: 0,
   };
 
   constructor(private readonly logger: Logger) {}
@@ -51,6 +53,9 @@ export class RetentionSweeper {
       const auditDeleted = await this.purgeOlderThan('auditLog', s.auditRetentionDays);
       // Ruijie port-event timeline shares the status-event retention window.
       await this.purgeOlderThan('ruijiePortEvent', s.eventRetentionDays);
+      // wa_message is a delivery log (one row per outbound send) — it grows
+      // unboundedly without this; shares the telemetry retention window.
+      const waMessagesDeleted = await this.purgeOlderThan('waMessage', s.eventRetentionDays);
       // Expired refresh tokens are dead weight — purge by expiresAt, not age.
       const refreshTokensDeleted = await this.purgeExpiredRefreshTokens();
 
@@ -59,11 +64,13 @@ export class RetentionSweeper {
         lastEventsDeleted: eventsDeleted,
         lastAuditDeleted: auditDeleted,
         lastRefreshTokensDeleted: refreshTokensDeleted,
+        lastWaMessagesDeleted: waMessagesDeleted,
       };
       this.logger.info(
         {
           eventsDeleted,
           auditDeleted,
+          waMessagesDeleted,
           refreshTokensDeleted,
           eventRetentionDays: s.eventRetentionDays,
           auditRetentionDays: s.auditRetentionDays,
@@ -79,13 +86,24 @@ export class RetentionSweeper {
 
   /** Delete rows older than (now - days). Batched via deleteInBatches. */
   private async purgeOlderThan(
-    table: 'statusEvent' | 'auditLog' | 'ruijiePortEvent',
+    table: 'statusEvent' | 'auditLog' | 'ruijiePortEvent' | 'waMessage',
     days: number,
   ): Promise<number> {
     if (!Number.isFinite(days) || days <= 0) return 0;
     const cutoff = new Date(Date.now() - days * 24 * HOUR_MS);
     // Timestamp column differs per table: StatusEvent=occurredAt,
-    // AuditLog=createdAt, RuijiePortEvent=at.
+    // AuditLog=createdAt, RuijiePortEvent=at, WaMessage=createdAt.
+    if (table === 'waMessage') {
+      return deleteInBatches(
+        (take) =>
+          prisma.waMessage.findMany({
+            where: { createdAt: { lt: cutoff } },
+            select: { id: true },
+            take,
+          }),
+        (ids) => prisma.waMessage.deleteMany({ where: { id: { in: ids } } }),
+      );
+    }
     if (table === 'statusEvent') {
       return deleteInBatches(
         (take) =>

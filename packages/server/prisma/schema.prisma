@@ -234,6 +234,9 @@ model AppUser {
   tickets       Ticket[]
 
   @@index([hotspotRouterId, hotspotUsername])
+  // The WA bot resolves senders by phone on EVERY inbound message — without
+  // this that lookup is a per-message seq scan.
+  @@index([phone])
   @@map("app_user")
 }
 
@@ -347,6 +350,9 @@ model WaRecipient {
   createdAt DateTime @default(now())
 
   @@index([siteId])
+  // Ticket ops + the recipient-scope read surface look rows up by target
+  // (phone/JID) — index the lookup column, not just the site FK.
+  @@index([target])
   @@map("wa_recipient")
 }
 
@@ -375,6 +381,9 @@ model Ticket {
 
   @@index([siteId, status])
   @@index([createdAt])
+  // The escalator sweep filters status='open' AND escalatedAt IS NULL every
+  // minute — a compound index keeps it cheap as the table grows.
+  @@index([status, escalatedAt])
   @@map("ticket")
 }
 
