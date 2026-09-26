@@ -30,9 +30,9 @@ import {
   type WaInboundMessage,
 } from '@noc/shared';
 import { consumeWaLinkCode, getSettings, type Redis } from '@noc/server';
-import { continueIntake, getConv, startComplaint, startRegister } from './intake';
+import { clearConv, continueIntake, getConv, startComplaint, startRegister } from './intake';
 import { handleTicketCommand, type BotCtx } from './tickets';
-import { BOT_TITLE, DIV, card, cmd, greetingFor } from './fmt';
+import { DIV, ago, card, cmd, greetingFor } from './fmt';
 import { MEMBER_MENU, memberInfo, memberKick, memberStatus, memberTickets } from './commands/member';
 import {
   STAFF_MENU,
@@ -60,6 +60,16 @@ interface RouterDeps {
 }
 
 const GREETING = /^(menu|help|bantuan|start|hai|halo|halo bot)$/i;
+
+/**
+ * A pending wizard used to swallow ANY text for up to 15 minutes — a user who
+ * wandered off and typed STATUS got silence-ish confusion ("bot stuck").
+ * Command-looking input now exits the wizard and runs as a command instead.
+ * Wizard nav words (BATAL/KEMBALI/0/KELUAR) are deliberately NOT listed —
+ * they keep their in-wizard meaning (KELUAR also collides with member LOGOUT).
+ */
+const COMMANDISH =
+  /^(menu|help|bantuan|info|status|akun|kuota|profil|tiket|tickets|sites|down|cek|ack|unack|ping|laporan|maint|maintenance|aktif|silent|unsilent|bunyi|bot|botstatus|wastatus|wadead|kirimulang|komplain|lapor|keluhan|pengaduan|gangguan|daftar|register|logout|kick|link)\b/i;
 
 export class InboundRouter {
   constructor(private deps: RouterDeps) {}
@@ -92,7 +102,14 @@ export class InboundRouter {
     } catch (err) {
       this.deps.logger.error({ err, phone }, 'wa command failed');
       await ctx
-        .reply(phone, card('⚠️ *Ups, ada gangguan*', 'Perintah gagal diproses — coba lagi sebentar.'))
+        .reply(
+          phone,
+          card(
+            '⚠️ *Ups, ada gangguan*',
+            'Perintah gagal diproses — ini gangguan sementara di sisi bot.',
+            'Coba kirim ulang · ketik MENU bila butuh daftar perintah',
+          ),
+        )
         .catch(() => undefined);
     }
   }
@@ -125,14 +142,18 @@ export class InboundRouter {
           phone,
           card(
             '❌ *Kode tidak valid*',
-            'Kode sudah kedaluwarsa atau salah ketik.\nAmbil kode baru di portal → menu *Akun*.',
+            'Kode kedaluwarsa (berlaku 10 menit) atau salah ketik.',
+            'Ambil kode baru: portal → menu Akun → Tautkan WhatsApp',
           ),
         );
         return;
       }
       const u = await ctx.prisma.appUser.findUnique({ where: { id: userId } });
       if (!u?.isActive) {
-        await ctx.reply(phone, card('⛔ *Akun nonaktif*', 'Akun untuk kode ini sudah dinonaktifkan — hubungi admin.'));
+        await ctx.reply(
+          phone,
+          card('⛔ *Akun nonaktif*', 'Akun untuk kode ini sudah dinonaktifkan.', 'Hubungi admin untuk mengaktifkan kembali'),
+        );
         return;
       }
       // One phone = one identity: detach the number from any other account.
@@ -149,7 +170,7 @@ export class InboundRouter {
         card(
           '✅ *Nomor tertaut!*',
           `Nomor ini sekarang terhubung ke akun *${u?.name ?? userId}*.`,
-          'Ketik MENU untuk daftar perintah',
+          'Ketik MENU untuk daftar perintah yang bisa dipakai',
         ),
       );
       return;
@@ -182,8 +203,14 @@ export class InboundRouter {
     // ---- Pending complaint intake (anonymous wizard / member body) ----------
     const conv = await getConv(ctx.redis, phone);
     if (conv) {
-      await continueIntake(ctx, phone, text, conv);
-      return;
+      if (COMMANDISH.test(text)) {
+        // Looks like a command, not a wizard answer — drop the stale conv and
+        // fall through to normal dispatch so the bot never feels "stuck".
+        await clearConv(ctx.redis, phone).catch(() => undefined);
+      } else {
+        await continueIntake(ctx, phone, text, conv);
+        return;
+      }
     }
 
     // ---- Identity: verified phone → AppUser --------------------------------
@@ -197,7 +224,14 @@ export class InboundRouter {
     if (komplainM) {
       const settings = await getSettings();
       if (!settings.waComplaintEnabled) {
-        await ctx.reply(phone, card('⛔ *Layanan nonaktif*', 'Komplain via WhatsApp sedang nonaktif — hubungi admin.'));
+        await ctx.reply(
+          phone,
+          card(
+            '⛔ *Layanan nonaktif*',
+            'Komplain via WhatsApp sedang dinonaktifkan admin.',
+            'Ketik INFO untuk kontak & portal pelanggan',
+          ),
+        );
         return;
       }
       const inline = text.slice(komplainM[0].length).trim();
@@ -264,19 +298,27 @@ export class InboundRouter {
           include: { site: { select: { name: true } } },
         });
         if (rows.length === 0) {
-          await ctx.reply(phone, card('🎫 *Tiket Anda*', 'Belum ada komplain dari nomor ini.', 'Kirim KOMPLAIN <pesan> untuk melapor'));
+          await ctx.reply(
+            phone,
+            card(
+              '🎫 *Tiket Anda*',
+              'Belum ada komplain yang tercatat dari nomor ini.',
+              'Kirim KOMPLAIN <keluhan> untuk membuat tiket',
+            ),
+          );
           return;
         }
         const label = { open: '🟡 Open', ack: '🔧 Diproses', resolved: '✅ Selesai' } as const;
         await ctx.reply(
           phone,
           card(
-            '🎫 *Tiket Anda* (dari nomor ini)',
+            `🎫 *Tiket Anda* (${rows.length} terbaru)`,
             rows.map((t) => {
               const code = t.id.slice(0, 6).toUpperCase();
               const st = label[t.status as keyof typeof label] ?? t.status;
-              return `*#${code}* ${st}\n   ${t.site.name} — "${t.message.slice(0, 80)}"`;
+              return `*#${code}* ${st} · ${ago(t.createdAt.toISOString())} lalu\n   ${t.site.name} — "${t.message.slice(0, 80)}"`;
             }),
+            'KOMPLAIN <keluhan> untuk tiket baru',
           ),
         );
         return;
@@ -326,7 +368,11 @@ export class InboundRouter {
       if (perm && !hasPermission(user.role as Role, perm)) {
         await ctx.reply(
           phone,
-          card('⛔ *Akses kurang*', `Perintah *${cmd.toUpperCase()}* butuh izin _${perm}_ — role Anda *${user.role}* tidak memilikinya.`),
+          card(
+            '⛔ *Akses kurang*',
+            `Perintah *${cmd.toUpperCase()}* butuh izin _${perm}_ — role Anda *${user.role}* tidak memilikinya.`,
+            'Ketik MENU untuk perintah yang tersedia bagi Anda',
+          ),
         );
         return;
       }
@@ -369,22 +415,25 @@ export class InboundRouter {
     if (/gangguan|mati|rusak|error|lemot|lambat|internet|wifi|jaringan|putus/.test(t)) {
       return card(
         '📡 *Ada gangguan?*',
-        'Sepertinya Anda mau melaporkan gangguan.',
-        'Balas *KOMPLAIN* <keluhan> — contoh: KOMPLAIN wifi gudang mati',
+        'Sepertinya Anda mau melaporkan gangguan jaringan.',
+        'Balas *KOMPLAIN <keluhan>* — contoh: KOMPLAIN wifi gudang mati',
       );
     }
     if (/voucher|top.?up|isi ulang|beli|bayar|harga|tagihan/.test(t)) {
       return card(
-        '🎟️ *Voucher / Pembayaran*',
-        'Pembelian voucher & pembayaran dilakukan lewat portal pelanggan.',
-        'Ketik INFO untuk link portal · KOMPLAIN jika ada kendala',
+        '🎟️ *Voucher & Pembayaran*',
+        'Pembelian voucher dan pembayaran lewat portal pelanggan — bot ini tidak memproses pembayaran.',
+        'Ketik INFO untuk link portal · KOMPLAIN <keluhan> bila ada kendala',
       );
     }
     if (/akun|daftar|register|username|password|login/.test(t)) {
       return card(
         '🆕 *Soal Akun*',
-        '• Belum punya akun? Ketik *DAFTAR* untuk permintaan akun baru.',
-        '• Sudah punya akun portal? Minta kode di portal lalu kirim *LINK <kode>*.',
+        [
+          '• Belum punya akun → ketik *DAFTAR* (permintaan ke admin)',
+          '• Sudah punya akun portal → minta kode di portal, kirim *LINK <kode>*',
+          '• Lupa password → lewat portal, bukan chat ini',
+        ],
       );
     }
     return null;
@@ -399,16 +448,15 @@ export class InboundRouter {
       title,
       greetingFor(),
       DIV,
-      'Saya bisa bantu hal berikut:',
-      cmd('KOMPLAIN <pesan>', 'laporkan gangguan ke teknisi'),
-      cmd('TIKET', 'cek status komplain dari nomor ini'),
+      'Yang bisa saya bantu:',
+      cmd('KOMPLAIN <keluhan>', 'lapor gangguan ke teknisi'),
+      cmd('TIKET', 'status komplain dari nomor ini'),
       cmd('DAFTAR', 'minta akun baru ke admin'),
       cmd('LINK <kode>', 'tautkan nomor ke akun portal'),
       cmd('INFO', 'kontak & portal pelanggan'),
-      cmd('PING', 'cek bot aktif'),
       DIV,
+      '_Alias komplain: LAPOR / KELUHAN / GANGGUAN_',
       '_Contoh: KOMPLAIN internet mati di gudang_',
-      '_Bisa juga: LAPOR / KELUHAN / GANGGUAN <keluhan>_',
       '_Nomor Anda hanya dipakai untuk update layanan NOC_',
     ].join('\n');
   }
@@ -491,7 +539,11 @@ export class InboundRouter {
         await this.deps
           .reply(
             notifyTo,
-            card('🐢 *Terlalu cepat*', `Maks ${RATE_LIMIT_PER_MIN} pesan/menit — tunggu sebentar lalu kirim ulang.`),
+            card(
+              '🐢 *Terlalu cepat*',
+              `Batas ${RATE_LIMIT_PER_MIN} pesan/menit tercapai — pesan Anda sementara diabaikan.`,
+              'Tunggu ±1 menit lalu kirim ulang',
+            ),
           )
           .catch(() => undefined);
       }

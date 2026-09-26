@@ -147,6 +147,12 @@ export interface WaConvState {
 
 export interface WhatsAppSender {
   sendText(to: string, text: string): Promise<void>;
+  /**
+   * Optional presence humanization — 'composing' before a send / 'paused'
+   * after. Machine-perfect send timing is a WhatsApp ban signature; drivers
+   * that can't do presence simply omit this (mock/offline).
+   */
+  sendPresence?(to: string, presence: 'composing' | 'paused'): Promise<void>;
   session(): WaSessionState;
   /** Soft restart of the WA socket — keeps the paired session keys. */
   reconnect(): Promise<void>;

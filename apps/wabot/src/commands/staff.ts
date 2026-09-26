@@ -23,7 +23,8 @@ import {
   toDeviceDto,
 } from '@noc/server';
 import type { BotCtx } from '../tickets';
-import { DIV, card, cmd } from '../fmt';
+import { DIV, ago, card, cmd, kvBlock } from '../fmt';
+import { withTimeout } from '../util';
 
 export const scoped = (u: AppUser): ScopedUser => ({
   role: u.role as Role,
@@ -84,7 +85,14 @@ async function pickDevice(
     take: 10,
   });
   if (hits.length === 0) {
-    await ctx.reply(phone, card('❓ *Tidak ditemukan*', `Perangkat "${arg}" tidak ada dalam scope Anda.`));
+    await ctx.reply(
+      phone,
+      card(
+        '❓ *Tidak ditemukan*',
+        `Perangkat "${arg}" tidak ada dalam scope Anda.`,
+        'Ketik SITES untuk daftar site · DOWN untuk yang sedang down',
+      ),
+    );
     return null;
   }
   if (hits.length > 1) {
@@ -100,8 +108,10 @@ async function pickDevice(
       phone,
       card(
         '🔍 *Terlalu umum*',
-        `Ada *${hits.length}* perangkat cocok:\n${top.map((d, i) => `*${i + 1}.* ${d.name} — ${d.site.name}`).join('\n')}`,
-        opts.pick ? 'Balas nomornya untuk memilih — atau perjelas nama' : 'Perjelas namanya',
+        `"${arg}" cocok dengan *${hits.length}* perangkat:\n${top
+          .map((d, i) => `*${i + 1}.* ${d.name} — ${d.site.name}${d.ipAddress ? ` · ${d.ipAddress}` : ''}`)
+          .join('\n')}`,
+        opts.pick ? 'Balas nomornya untuk memilih — atau perjelas nama/IP' : 'Perjelas namanya — sertakan IP bila perlu',
       ),
     );
     return null;
@@ -109,13 +119,16 @@ async function pickDevice(
   return hits[0];
 }
 
-const ago = (iso: string | null): string => {
-  if (!iso) return '?';
-  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
-  if (m < 1) return 'baru saja';
-  if (m < 60) return `${m} mnt`;
-  return `${Math.floor(m / 60)}j ${m % 60}m`;
-};
+/** Sites whose router is OFFLINE right now — the "site gelap" view. Devices go
+ *  `unknown` (not `down`) during a router outage, so without this the DOWN
+ *  list would misleadingly read "all clear" exactly during a mass outage. */
+async function darkSites(ctx: BotCtx, u: ScopedUser) {
+  const scope = siteScopeFor(u);
+  return ctx.prisma.routerMikrotik.findMany({
+    where: { status: 'offline', ...(scope ? { siteId: { in: scope } } : {}) },
+    select: { name: true, siteId: true, lastSeenAt: true, site: { select: { name: true } } },
+  });
+}
 
 /** `sites` / `status` — one-line health summary per accessible site. */
 export async function staffSites(ctx: BotCtx, phone: string, u: ScopedUser) {
@@ -124,19 +137,50 @@ export async function staffSites(ctx: BotCtx, phone: string, u: ScopedUser) {
     orderBy: { name: 'asc' },
   });
   if (sites.length === 0) {
-    await ctx.reply(phone, card('📡 *Ringkasan Site*', 'Tidak ada site dalam scope akun Anda.'));
+    await ctx.reply(
+      phone,
+      card(
+        '📡 *Ringkasan Site*',
+        'Tidak ada site dalam scope akun Anda.',
+        'Minta admin menambahkan site ke akun Anda bila seharusnya ada',
+      ),
+    );
     return;
   }
+  const dark = await darkSites(ctx, u);
+  const darkBySite = new Map(dark.map((r) => [r.siteId, r]));
   const lines: string[] = [];
+  let totUp = 0;
+  let totDevices = 0;
+  let totDown = 0;
   for (const s of sites) {
+    const dead = darkBySite.get(s.id);
+    if (dead) {
+      lines.push(`⛔ *${s.name}* — ROUTER OFFLINE (${ago(dead.lastSeenAt?.toISOString() ?? null)})`);
+      continue;
+    }
     const sum = await computeSiteSummary(ctx.prisma, s.id);
+    totUp += sum.up;
+    totDevices += sum.total;
+    totDown += sum.down;
     const flag = sum.down > 0 ? '🔴' : sum.unknown > 0 ? '🟡' : '🟢';
     lines.push(
       `${flag} *${s.name}* — ${sum.up}/${sum.total} up (${sum.availabilityPct}%)` +
         (sum.down ? ` · ${sum.down} DOWN` : ''),
     );
   }
-  await ctx.reply(phone, card('📡 *Ringkasan Site*', lines, 'DOWN <site> · TIKET · LAPORAN · ACK <nama> · PING <ip>'));
+  const totals =
+    totDevices > 0
+      ? `${sites.length} site · ${totDevices} device — ${totUp} up${totDown ? `, *${totDown} down*` : ''}${darkBySite.size ? `, *${darkBySite.size} site gelap*` : ''}`
+      : `${sites.length} site`;
+  await ctx.reply(
+    phone,
+    card(
+      '📡 *Ringkasan Site*',
+      [...lines, DIV, `Total: ${totals}`],
+      'DOWN [site] untuk detail · CEK <nama|ip> · LAPORAN [site]',
+    ),
+  );
 }
 
 /** `down [site]` — devices currently down, optionally narrowed to one site. */
@@ -164,8 +208,21 @@ export async function staffDown(ctx: BotCtx, phone: string, u: ScopedUser, arg: 
     orderBy: { statusSince: 'asc' },
     take: 25,
   });
+  // A site whose router is offline shows its devices as `unknown`, not `down`
+  // — surface it explicitly or a total site outage reports "semua aman".
+  const dark = (await darkSites(ctx, u)).filter((r) =>
+    siteIds ? siteIds.includes(r.siteId) : true,
+  );
+  const darkLines = dark.map(
+    (r) => `⛔ *${r.site.name}* — router *${r.name}* offline ${ago(r.lastSeenAt?.toISOString() ?? null)} (semua device unknown)`,
+  );
   if (devices.length === 0) {
-    await ctx.reply(phone, card('🟢 *Semua aman*', 'Tidak ada perangkat DOWN dalam scope Anda.'));
+    await ctx.reply(
+      phone,
+      darkLines.length
+        ? card('⛔ *Site Gelap*', darkLines, 'Router offline = semua device site itu unknown, bukan down')
+        : card('🟢 *Semua aman*', 'Tidak ada perangkat DOWN dalam scope Anda.'),
+    );
     return;
   }
   const lines = devices.map(
@@ -176,7 +233,11 @@ export async function staffDown(ctx: BotCtx, phone: string, u: ScopedUser, arg: 
   );
   await ctx.reply(
     phone,
-    card(`🔴 *Perangkat DOWN*` + (devices.length === 25 ? ' (25 terlama)' : ''), lines, 'ACK <nama> untuk tandai dikerjakan'),
+    card(
+      `🔴 *Perangkat DOWN*` + (devices.length === 25 ? ' (25 terlama)' : ''),
+      [...darkLines, ...(darkLines.length ? [DIV] : []), ...lines],
+      'ACK <nama> untuk tandai dikerjakan',
+    ),
   );
 }
 
@@ -198,18 +259,34 @@ async function replyDeviceDetail(ctx: BotCtx, phone: string, d: DeviceDetail) {
   const icon = d.manualOverride === 'maintenance' ? '🛠️' : d.status === 'up' ? '🟢' : d.status === 'down' ? '🔴' : '🟡';
   const status =
     d.manualOverride === 'maintenance' ? 'MAINTENANCE' : d.status.toUpperCase();
+  // The hint points at the action that makes sense FOR THIS status.
+  const hint =
+    d.manualOverride === 'maintenance'
+      ? `AKTIF ${d.name} untuk mengakhiri maintenance`
+      : d.status === 'down'
+        ? `ACK ${d.name} untuk tandai dikerjakan · SILENT ${d.name} [menit]`
+        : d.ipAddress
+          ? `PING ${d.ipAddress} untuk tes langsung`
+          : undefined;
   await ctx.reply(
     phone,
-    card(`${icon} *${d.name}*`, [
-      `Status   : *${status}*`,
-      `IP       : ${d.ipAddress ?? '-'}`,
-      `Site     : ${d.site.name} · router ${d.router.name}`,
-      `Sejak    : ${ago(d.statusSince?.toISOString() ?? null)}`,
-      d.ackBy ? `Ack      : ${d.ackBy}` : null,
-      d.silencedUntil && d.silencedUntil > new Date()
-        ? `Silent   : s/d ${d.silencedUntil.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })}`
-        : null,
-    ].filter(Boolean) as string[], d.ipAddress ? `PING ${d.ipAddress} untuk tes langsung` : undefined),
+    card(
+      `${icon} *${d.name}*`,
+      kvBlock([
+        ['Status', `*${status}*`],
+        ['IP', d.ipAddress ?? '-'],
+        ['Site', `${d.site.name} · router ${d.router.name}`],
+        ['Sejak', ago(d.statusSince?.toISOString() ?? null)],
+        ['Ack', d.ackBy],
+        [
+          'Silent',
+          d.silencedUntil && d.silencedUntil > new Date()
+            ? `s/d ${d.silencedUntil.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })} WIB`
+            : null,
+        ],
+      ]),
+      hint,
+    ),
   );
 }
 
@@ -239,7 +316,14 @@ export async function staffCek(
     take: 10,
   });
   if (hits.length === 0) {
-    await ctx.reply(phone, card('❓ *Tidak ditemukan*', `Perangkat "${arg}" tidak ada dalam scope Anda.`));
+    await ctx.reply(
+      phone,
+      card(
+        '❓ *Tidak ditemukan*',
+        `Perangkat "${arg}" tidak ada dalam scope Anda.`,
+        'Ketik SITES untuk daftar site · DOWN untuk yang sedang down',
+      ),
+    );
     return;
   }
   if (hits.length > 1) {
@@ -251,8 +335,10 @@ export async function staffCek(
       phone,
       card(
         '🔍 *Terlalu umum*',
-        `Ada *${hits.length}* perangkat cocok:\n${top.map((d, i) => `*${i + 1}.* ${d.name} — ${d.site.name}`).join('\n')}`,
-        opts.pickable ? 'Balas nomornya untuk memilih — atau perjelas nama' : 'Perjelas namanya',
+        `"${arg}" cocok dengan *${hits.length}* perangkat:\n${top
+          .map((d, i) => `*${i + 1}.* ${d.name} — ${d.site.name}${d.ipAddress ? ` · ${d.ipAddress}` : ''}`)
+          .join('\n')}`,
+        opts.pickable ? 'Balas nomornya untuk memilih — atau perjelas nama/IP' : 'Perjelas namanya — sertakan IP bila perlu',
       ),
     );
     return;
@@ -279,7 +365,14 @@ async function applyAck(ctx: BotCtx, phone: string, user: AppUser, d: Picked) {
       },
     })
     .catch(() => undefined);
-  await ctx.reply(phone, card('✅ *Ditandai*', `*${d.name}* sedang dikerjakan oleh ${actor}.`));
+  await ctx.reply(
+    phone,
+    card(
+      '✅ *Ditandai dikerjakan*',
+      `*${d.name}* sekarang ditandai sedang dikerjakan oleh *${actor}*.`,
+      'UNACK <nama> untuk melepas · CEK <nama> untuk status',
+    ),
+  );
 }
 
 /** `ack <nama>` — mark the matching down device as being handled. */
@@ -313,7 +406,10 @@ async function applyUnack(ctx: BotCtx, phone: string, user: AppUser, d: Picked &
       },
     })
     .catch(() => undefined);
-  await ctx.reply(phone, card('↩️ *Ack dilepas*', `*${d.name}* tidak lagi ditandai dikerjakan.`));
+  await ctx.reply(
+    phone,
+    card('↩️ *Ack dilepas*', `*${d.name}* tidak lagi ditandai dikerjakan.`, 'ACK <nama> untuk menandai lagi'),
+  );
 }
 
 /** `unack <nama>` — release the ack marker (device stays down, just unclaimed). */
@@ -651,16 +747,20 @@ export async function staffBotStatus(ctx: BotCtx, phone: string) {
     card(
       `${icon} *Status Bot WhatsApp*`,
       [
-        `Sesi        : *${s?.status ?? 'tidak ada'}*${s?.phone ? ` (${s.phone})` : ''}`,
-        s?.name ? `Akun        : ${s.name}` : null,
-        s?.error ? `Error       : ${s.error}` : null,
-        `Update      : ${ago(s?.updatedAt ?? null)}`,
+        ...kvBlock([
+          ['Sesi', `*${s?.status ?? 'tidak ada'}*${s?.phone ? ` (${s.phone})` : ''}`],
+          ['Akun', s?.name],
+          ['Error', s?.error],
+          ['Update', ago(s?.updatedAt ?? null)],
+        ]),
         DIV,
-        `Antre outbox : ${depth >= 0 ? `*${depth}*` : '?'}`,
-        `Terkirim 24j : *${sent24h}* · gagal ${fail24h} · dead ${dead24h}`,
-        `Wizard aktif : ${convs.length}`,
-      ].filter(Boolean) as string[],
-      'Reconnect/logout: Admin → WhatsApp',
+        ...kvBlock([
+          ['Outbox', depth >= 0 ? `*${depth}* antre` : '?'],
+          ['24 jam', `*${sent24h}* terkirim · ${fail24h} gagal · ${dead24h} dead`],
+          ['Wizard', `${convs.length} aktif`],
+        ]),
+      ],
+      'WADEAD untuk pesan gagal · reconnect/logout: Admin → WhatsApp',
     ),
   );
 }
@@ -687,7 +787,7 @@ export async function staffPing(ctx: BotCtx, phone: string, user: AppUser, arg: 
   }
   const c = clientForRouter(d.router);
   try {
-    const r = await c.pingHost(ip);
+    const r = await withTimeout(c.pingHost(ip), 20_000, 'ping');
     const verdict = r.lossPct === 100 ? '🔴 100% loss' : r.lossPct! > 0 ? '🟡 loss sebagian' : '🟢 reachable';
     await ctx.reply(
       phone,
@@ -743,11 +843,21 @@ export async function staffWaRetry(ctx: BotCtx, phone: string, arg: string) {
     take: 5,
   });
   if (matches.length === 0) {
-    await ctx.reply(phone, card('❓ *Tidak ada*', `Pesan dead *${arg.toUpperCase()}* tidak ditemukan — sudah terkirim / belum dead?`));
+    await ctx.reply(
+      phone,
+      card(
+        '❓ *Tidak ada*',
+        `Pesan dead *${arg.toUpperCase()}* tidak ditemukan — kemungkinan sudah terkirim atau belum mati.`,
+        'Ketik WADEAD untuk daftar pesan dead',
+      ),
+    );
     return;
   }
   if (matches.length > 1) {
-    await ctx.reply(phone, card('🔍 *Kode ambigu*', `Id *${arg.toUpperCase()}* cocok beberapa pesan — pakai lebih panjang.`));
+    await ctx.reply(
+      phone,
+      card('🔍 *Kode ambigu*', `Id *${arg.toUpperCase()}* cocok *${matches.length}* pesan.`, 'Pakai id lebih panjang dari WADEAD'),
+    );
     return;
   }
   const m = matches[0]!;
@@ -800,18 +910,25 @@ export async function staffTickets(ctx: BotCtx, phone: string, u: ScopedUser, ar
     await ctx.reply(
       phone,
       card(`🎫 *TIKET #${t.id.slice(0, 6).toUpperCase()}*`, [
-        `Status   : ${label[t.status as keyof typeof label] ?? t.status}`,
-        `Site     : ${t.site.name}`,
-        `Pelapor  : ${t.reporterName ?? 'Anonim'}${t.reporterDept ? ` · ${t.reporterDept}` : ''}`,
-        `Kontak   : ${t.reporterPhone ?? 'via web'}`,
-        t.member?.hotspotUsername ? `Akun     : ${t.member.hotspotUsername}` : null,
-        `Kategori : ${t.category}`,
-        `Waktu    : ${when} WIB`,
-        t.handledBy ? `Teknisi  : ${t.handledBy}` : null,
-        t.resolvedAt ? `Selesai  : ${t.resolvedAt.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} WIB` : null,
+        ...kvBlock([
+          ['Status', label[t.status as keyof typeof label] ?? t.status],
+          ['Site', t.site.name],
+          ['Pelapor', `${t.reporterName ?? 'Anonim'}${t.reporterDept ? ` · ${t.reporterDept}` : ''}`],
+          ['Kontak', t.reporterPhone ?? 'via web'],
+          ['Akun', t.member?.hotspotUsername],
+          ['Kategori', t.category],
+          ['Dibuat', `${when} WIB (${ago(t.createdAt.toISOString())} lalu)`],
+          ['Teknisi', t.handledBy],
+          [
+            'Selesai',
+            t.resolvedAt
+              ? `${t.resolvedAt.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} WIB`
+              : null,
+          ],
+        ]),
         DIV,
         `"${t.message}"`,
-      ].filter(Boolean) as string[],
+      ],
       t.status !== 'resolved' ? `Balas PROSES/SELESAI ${t.id.slice(0, 6).toUpperCase()}` : undefined),
     );
     return;
@@ -826,7 +943,14 @@ export async function staffTickets(ctx: BotCtx, phone: string, u: ScopedUser, ar
     take: 15,
   });
   if (rows.length === 0) {
-    await ctx.reply(phone, card('🟢 *Tiket bersih*', 'Tidak ada tiket terbuka dalam scope Anda.'));
+    await ctx.reply(
+      phone,
+      card(
+        '🟢 *Tiket bersih*',
+        'Tidak ada tiket terbuka dalam scope Anda.',
+        'TIKET <kode> untuk detail satu tiket',
+      ),
+    );
     return;
   }
   await ctx.reply(
@@ -835,13 +959,13 @@ export async function staffTickets(ctx: BotCtx, phone: string, u: ScopedUser, ar
       `🎫 *Tiket Terbuka* (${rows.length})`,
       rows.map(
         (t) =>
-          `*#${t.id.slice(0, 6).toUpperCase()}* ${t.status === 'ack' ? '🔧' : '🟡'} ${t.site.name}\n   ${
+          `*#${t.id.slice(0, 6).toUpperCase()}* ${t.status === 'ack' ? '🔧' : '🟡'} ${t.site.name} · ${ago(t.createdAt.toISOString())}\n   ${
             t.reporterName ?? 'Anonim'
           }${t.reporterDept ? ` · ${t.reporterDept}` : ''} · ${t.reporterPhone ?? 'web'}\n   "${
             t.message.slice(0, 80)
           }"`,
       ),
-      'Balas PROSES <kode> · SELESAI <kode>',
+      'TIKET <kode> detail · PROSES/SELESAI <kode> untuk kerjakan',
     ),
   );
 }
@@ -887,13 +1011,19 @@ export async function staffReport(ctx: BotCtx, phone: string, u: ScopedUser, arg
   }
   await ctx.reply(
     phone,
-    card(`📊 *Laporan 24 Jam*${arg ? ` — ${sites[0]!.name}` : ''}`, [
-      ...lines,
-      DIV,
-      `� Insiden down 24 jam : *${downEvents}*`,
-      `🎫 Tiket terbuka       : *${openTickets}*`,
-      `✅ Tiket selesai 24 jam : *${resolvedToday}*`,
-    ]),
+    card(
+      `📊 *Laporan 24 Jam*${arg ? ` — ${sites[0]!.name}` : ''}`,
+      [
+        ...lines,
+        DIV,
+        ...kvBlock([
+          ['Insiden 24j', `*${downEvents}* perangkat down`],
+          ['Tiket open', `*${openTickets}*`],
+          ['Selesai 24j', `*${resolvedToday}*`],
+        ]),
+      ],
+      'DOWN [site] untuk daftar perangkat · TIKET untuk tiket terbuka',
+    ),
   );
 }
 

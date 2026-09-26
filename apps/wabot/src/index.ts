@@ -23,6 +23,7 @@ import { ControlConsumer } from './control';
 import { OutboxConsumer } from './outbox';
 import { InboundRouter } from './router';
 import { clearDbAuthState } from './session';
+import { withTimeout } from './util';
 
 // A sender that always fails — used when WA_ENABLED=false so queued messages
 // retry then go 'dead' instead of stacking forever.
@@ -78,7 +79,10 @@ async function main() {
     prisma,
     redis: redisPub,
     logger,
-    reply: (to, text) => sender.sendText(to, text),
+    // Inbound replies bypass the outbox for latency — but a hung send must not
+    // be a silent stall. The timeout turns it into a logged error instead of
+    // an invisible "read but no reply".
+    reply: (to, text) => withTimeout(sender.sendText(to, text), 20_000, 'wa reply'),
   });
 
   if (!env.WA_ENABLED) {

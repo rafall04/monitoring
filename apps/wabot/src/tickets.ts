@@ -13,7 +13,7 @@ import {
   ticketCode,
   type Redis,
 } from '@noc/server';
-import { card } from './fmt';
+import { DIV, ago, card, kvBlock } from './fmt';
 
 export { createAndForwardTicket, ticketCode };
 
@@ -40,14 +40,31 @@ export async function handleTicketCommand(
 ): Promise<void> {
   const matches = await ctx.prisma.ticket.findMany({
     where: { id: { startsWith: code.toLowerCase() }, status: { not: 'resolved' } },
+    include: { site: { select: { name: true } } },
     take: 5,
   });
   if (matches.length === 0) {
-    await ctx.reply(replyTo, card('❓ *Tiket tidak ada*', `Tiket *#${code.toUpperCase()}* tidak ditemukan atau sudah selesai.`));
+    await ctx.reply(
+      replyTo,
+      card(
+        '❓ *Tiket tidak ada*',
+        `Tiket *#${code.toUpperCase()}* tidak ditemukan atau sudah selesai.`,
+        'Ketik TIKET untuk daftar tiket terbuka',
+      ),
+    );
     return;
   }
   if (matches.length > 1) {
-    await ctx.reply(replyTo, card('🔍 *Kode ambigu*', `Kode *${code.toUpperCase()}* cocok dengan beberapa tiket.\nPakai kode lebih panjang.`));
+    await ctx.reply(
+      replyTo,
+      card(
+        '🔍 *Kode ambigu*',
+        `Kode *${code.toUpperCase()}* cocok dengan *${matches.length}* tiket:\n${matches
+          .map((m) => `· *#${ticketCode(m)}* — ${m.site.name} · "${m.message.slice(0, 40)}"`)
+          .join('\n')}`,
+        'Pakai kode lebih panjang (mis. 8 huruf)',
+      ),
+    );
     return;
   }
   const t = matches[0]!;
@@ -66,7 +83,14 @@ export async function handleTicketCommand(
       t.siteId,
     );
   if (!contact && !staffAllowed) {
-    await ctx.reply(replyTo, card('⛔ *Bukan teknisi*', 'Nomor Anda tidak terdaftar sebagai teknisi untuk site tiket ini.'));
+    await ctx.reply(
+      replyTo,
+      card(
+        '⛔ *Bukan teknisi*',
+        `Nomor Anda tidak terdaftar sebagai teknisi untuk site *${t.site.name}* (tiket #${ticketCode(t)}).`,
+        'Minta admin menambahkan nomor Anda ke penerima site',
+      ),
+    );
     return;
   }
 
@@ -92,14 +116,24 @@ export async function handleTicketCommand(
     })
     .catch(() => undefined);
 
+  // Confirmation carries the ticket's key facts — in a group the card tells
+  // everyone WHAT was closed without scrolling back to the forward.
   await ctx.reply(
     replyTo,
     card(
       action === 'proses' ? '🔧 *Tiket Diproses*' : '✅ *Tiket Selesai*',
       [
-        `*#${ticketCode(u)}* ${action === 'proses' ? 'ditandai DIPROSES' : 'SELESAI'} oleh ${actor}.`,
-        note ? `Catatan: ${note.slice(0, 200)}` : null,
-      ].filter(Boolean) as string[],
+        ...kvBlock([
+          ['Tiket', `*#${ticketCode(u)}* — ${t.site.name}`],
+          ['Pelapor', `${t.reporterName ?? 'Anonim'}${t.reporterDept ? ` · ${t.reporterDept}` : ''}`],
+          ['Keluhan', `"${t.message.slice(0, 120)}"`],
+          ['Oleh', actor],
+          ['Durasi', `${ago(t.createdAt.toISOString())} sejak dilaporkan`],
+          ['Catatan', note?.slice(0, 200)],
+        ]),
+        DIV,
+        action === 'proses' ? '_Balas SELESAI ke pesan ini untuk menutup_' : '_Pelapor sudah dikabari otomatis_',
+      ],
     ),
   );
   // Close the loop to the reporter — skipped when they reported via web

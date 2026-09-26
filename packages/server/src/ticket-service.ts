@@ -63,6 +63,12 @@ export async function createAndForwardTicket(
     hour: '2-digit',
     minute: '2-digit',
   });
+  const categoryLabel = {
+    gangguan: '🔴 Gangguan',
+    lambat: '🐢 Lambat',
+    voucher: '🎟️ Voucher',
+    lainnya: '📋 Lainnya',
+  }[input.category ?? 'gangguan'];
   const text = [
     `🎫 *TIKET BARU #${code}*`,
     '──────────────────',
@@ -71,7 +77,8 @@ export async function createAndForwardTicket(
     `🏢 Departemen : ${input.reporterDept ?? '-'}`,
     `📱 Kontak     : ${input.reporterPhone ?? 'via web'}`,
     member?.hotspotUsername ? `🔑 Akun       : ${member.hotspotUsername}` : null,
-    `� Waktu      : ${when} WIB`,
+    `� Kategori   : ${categoryLabel}`,
+    `�🕐 Waktu      : ${when} WIB`,
     '──────────────────',
     `💬 *Keluhan:*`,
     `"${input.message.slice(0, 500)}"`,
@@ -79,6 +86,7 @@ export async function createAndForwardTicket(
     `📌 Status: *OPEN*`,
     `_Balas *PROSES ${code}* untuk ambil alih_`,
     `_Balas *SELESAI ${code}* untuk menutup_`,
+    '_(bisa juga balas kartu ini langsung tanpa kode)_',
   ].filter(Boolean).join('\n');
 
   const targets = new Set<string>();
@@ -108,7 +116,9 @@ export async function notifyReporter(
       t.handledBy ? `Teknisi  : ${t.handledBy}` : null,
       note ? `Catatan  : ${note.slice(0, 200)}` : null,
       '──────────────────',
-      '_Terima kasih atas laporannya_',
+      status === 'resolved'
+        ? '_Terima kasih atas laporannya — ketik KOMPLAIN bila masih ada kendala_'
+        : '_Kami kabari lagi begitu tiket selesai_',
     ].filter(Boolean).join('\n'),
     kind: 'reply',
     siteId: t.siteId,

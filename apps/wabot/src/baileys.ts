@@ -81,6 +81,13 @@ export class BaileysSender implements WhatsAppSender {
     await this.sock.sendMessage(jid, { text });
   }
 
+  /** Typing indicator around outbound sends — a ban-avoidance humanizer. */
+  async sendPresence(to: string, presence: 'composing' | 'paused'): Promise<void> {
+    if (this.state.status !== 'connected' || !this.sock) return;
+    const jid = to.includes('@') ? to : phoneToJid(to);
+    await this.sock.sendPresenceUpdate(presence, jid);
+  }
+
   /**
    * Soft restart — keeps the paired session keys. Ending a live socket lets the
    * close handler drive the reconnect (avoids racing a second socket); with no

@@ -21,7 +21,8 @@ import {
 } from '@noc/shared';
 import type { Redis } from '@noc/server';
 import { createAndForwardTicket, type BotCtx } from './tickets';
-import { card } from './fmt';
+import { card, stepLabel } from './fmt';
+import { outagedSiteIds, siteOutage, outageLines } from './outage';
 
 const IDENT_TTL_SEC = 30 * 24 * 3600;
 
@@ -42,6 +43,9 @@ async function setConv(redis: Redis, phone: string, s: WaConvState): Promise<voi
 async function clearConv(redis: Redis, phone: string): Promise<void> {
   await redis.del(REDIS_KEYS.waConv(phone));
 }
+// Exported for the router's command-passthrough — a pending conv used to
+// swallow ANY text for up to 15 min (the classic "bot stuck" report).
+export { clearConv };
 
 interface WaIdent { name?: string; dept?: string }
 
@@ -65,7 +69,7 @@ export function detectCategory(text: string): TicketCategory {
 
 const BATAL_HINT = 'Ketik BATAL untuk batal · 0 untuk kembali';
 
-async function sitePickStep(ctx: BotCtx, phone: string, conv: WaConvState, stepLabel: string): Promise<void> {
+async function sitePickStep(ctx: BotCtx, phone: string, conv: WaConvState, stepTitle: string): Promise<void> {
   const sites = await ctx.prisma.site.findMany({
     select: { id: true, name: true },
     orderBy: { name: 'asc' },
@@ -76,14 +80,17 @@ async function sitePickStep(ctx: BotCtx, phone: string, conv: WaConvState, stepL
     await ctx.reply(phone, card('⚠️ *Belum ada site*', 'Belum ada site terdaftar — hubungi admin.'));
     return;
   }
+  // Mark sites already known-dark so a reporter doesn't file a duplicate —
+  // "we already know" is the most informative answer a list can give.
+  const dark = await outagedSiteIds(ctx, sites.map((s) => s.id)).catch(() => new Set<string>());
   await setConv(ctx.redis, phone, { ...conv, step: 'site', siteIds: sites.map((s) => s.id) });
   await ctx.reply(
     phone,
     card(
-      stepLabel,
+      stepTitle,
       `${conv.flow === 'register' ? 'Permintaan akun' : 'Komplain'} untuk site mana?\n` +
-        sites.map((s, i) => `*${i + 1}.* ${s.name}`).join('\n'),
-      'Balas dengan nomor · ' + BATAL_HINT,
+        sites.map((s, i) => `*${i + 1}.* ${s.name}${dark.has(s.id) ? ' 🔴' : ''}`).join('\n'),
+      (dark.size ? '_🔴 = gangguan sedang ditangani NOC_\n' : '') + 'Balas dengan nomor · ' + BATAL_HINT,
     ),
   );
 }
@@ -113,7 +120,7 @@ export async function startComplaint(
       await setConv(ctx.redis, phone, { ...base, step: 'dept', memberId: user.id, siteId, name: user.name });
       await ctx.reply(
         phone,
-        card('📝 *Komplain — langkah terakhir*', 'Anda dari departemen/bagian apa?\n_(ditanya sekali saja)_', BATAL_HINT),
+        card('📝 *Komplain — langkah terakhir*', `Halo *${user.name}*! Anda dari departemen/bagian apa?\n_(ditanya sekali saja — disimpan ke profil)_`, BATAL_HINT),
       );
       return;
     }
@@ -127,11 +134,14 @@ export async function startComplaint(
         category: detectCategory(inlineText),
         message: inlineText,
       });
-      await ctx.reply(phone, ticketSentCard(t.id, targets));
+      await ctx.reply(phone, await ticketSentCard(ctx, t.id, siteId, targets));
       return;
     }
     await setConv(ctx.redis, phone, { ...base, step: 'message', memberId: user.id, siteId, dept: user.department });
-    await ctx.reply(phone, card('📝 *Tulis komplain Anda*', 'Jelaskan gangguannya — bisa panjang.', BATAL_HINT));
+    await ctx.reply(
+      phone,
+      await complaintPrompt(ctx, siteId, true),
+    );
     return;
   }
   // Verified staff (non-member): same anonymous wizard, but pre-fill name/dept
@@ -145,45 +155,70 @@ export async function startComplaint(
 
 async function startAnonymous(ctx: BotCtx, phone: string, ident: WaIdent | null, inlineText: string): Promise<void> {
   const base: WaConvState = { flow: 'complaint', step: 'name', name: ident?.name, dept: ident?.dept, message: inlineText || undefined };
-  if (ident?.name && ident?.dept) return sitePickStep(ctx, phone, base, '📝 *Lapor Gangguan — pilih site*');
+  if (ident?.name && ident?.dept) return sitePickStep(ctx, phone, base, `📝 *Lapor Gangguan — ${stepLabel(3, 4)}*`);
   if (ident?.name) {
     await setConv(ctx.redis, phone, { ...base, step: 'dept' });
-    await ctx.reply(phone, card('📝 *Lapor Gangguan — langkah 2/4*', `Halo lagi, *${ident.name}*! 👋\nDepartemen/bagian apa? _(mis. Produksi, QC)_`, BATAL_HINT));
+    await ctx.reply(phone, card(`📝 *Lapor Gangguan — ${stepLabel(2, 4)}*`, `Halo lagi, *${ident.name}*! 👋\nDepartemen/bagian apa? _(mis. Produksi, QC)_`, BATAL_HINT));
     return;
   }
   await setConv(ctx.redis, phone, { ...base, step: 'name' });
-  await ctx.reply(phone, card('📝 *Lapor Gangguan — langkah 1/4*', 'Baik, kami bantu catat.\n*Siapa nama Anda?*', BATAL_HINT));
+  await ctx.reply(phone, card(`📝 *Lapor Gangguan — ${stepLabel(1, 4)}*`, 'Baik, kami bantu catat ke teknisi.\n*Siapa nama Anda?*', BATAL_HINT));
 }
 
 /** `daftar` — account-request wizard for brand-new users (3 steps). */
 export async function startRegister(ctx: BotCtx, phone: string): Promise<void> {
   const ident = await getIdent(ctx.redis, phone);
   const base: WaConvState = { flow: 'register', step: 'name', name: ident?.name, dept: ident?.dept };
-  if (ident?.name && ident?.dept) return sitePickStep(ctx, phone, base, '🆕 *Permintaan Akun — pilih site*');
+  if (ident?.name && ident?.dept) return sitePickStep(ctx, phone, base, `🆕 *Permintaan Akun — ${stepLabel(3, 3)}*`);
   if (ident?.name) {
     await setConv(ctx.redis, phone, { ...base, step: 'dept' });
-    await ctx.reply(phone, card('🆕 *Permintaan Akun — langkah 2/3*', `Halo *${ident.name}*!\nDepartemen/bagian apa?`, BATAL_HINT));
+    await ctx.reply(phone, card(`🆕 *Permintaan Akun — ${stepLabel(2, 3)}*`, `Halo *${ident.name}*!\nDepartemen/bagian apa?`, BATAL_HINT));
     return;
   }
   await setConv(ctx.redis, phone, { ...base, step: 'name' });
   await ctx.reply(
     phone,
-    card('🆕 *Permintaan Akun — langkah 1/3*', 'Kami buatkan permintaan akun untuk admin.\n*Siapa nama Anda?*', BATAL_HINT),
+    card(`🆕 *Permintaan Akun — ${stepLabel(1, 3)}*`, 'Kami buatkan permintaan akun untuk admin.\n*Siapa nama Anda?*', BATAL_HINT),
   );
 }
 
-function ticketSentCard(ticketId: string, targets: number): string {
+/**
+ * "Tulis komplain" prompt — when the member's site is already dark, say so
+ * up-front so they know the ticket isn't the first time NOC hears of it.
+ */
+async function complaintPrompt(ctx: BotCtx, siteId: string | null | undefined, memberFlow: boolean): Promise<string> {
+  const o = siteId ? await siteOutage(ctx, siteId).catch(() => null) : null;
+  const banner = o ? outageLines(o, memberFlow ? 'member' : 'staff') : [];
+  return card(
+    `📝 *Lapor Gangguan — ${stepLabel(4, 4)}*`,
+    [...banner, 'Jelaskan gangguannya — bisa panjang, sertakan lokasi/detail.'],
+    BATAL_HINT,
+  );
+}
+
+async function ticketSentCard(ctx: BotCtx, ticketId: string, siteId: string, targets: number): Promise<string> {
   const code = ticketId.slice(0, 6).toUpperCase();
+  // Reporter's site already dark → reassure that this wasn't news to NOC.
+  const o = await siteOutage(ctx, siteId).catch(() => null);
+  const banner = o ? [...outageLines(o, 'member'), ''] : [];
   if (targets > 0) {
     return card(
       '✅ *Terkirim*',
-      `Tiket *#${code}* sudah diteruskan ke *${targets}* kontak teknisi.\nKami kabari begitu ada update.`,
+      [
+        ...banner,
+        `Tiket *#${code}* sudah diteruskan ke *${targets}* kontak teknisi.`,
+        'Kami kabari lewat sini begitu ada update.',
+      ],
       'Ketik TIKET untuk cek status',
     );
   }
   return card(
     '✅ *Tercatat*',
-    `Tiket *#${code}* tersimpan dan dipantau via dashboard NOC.\n_(Kontak WA teknisi site ini belum diset admin)_`,
+    [
+      ...banner,
+      `Tiket *#${code}* tersimpan dan dipantau via dashboard NOC.`,
+      '_(Kontak WA teknisi site ini belum diset admin — laporan tetap masuk dashboard)_',
+    ],
     'Ketik TIKET untuk cek status',
   );
 }
@@ -242,7 +277,14 @@ export async function continueIntake(
       return;
     }
     await setConv(ctx.redis, phone, { ...conv, step: 'dept', name });
-    await ctx.reply(phone, card(`${tag} — langkah 2*`, `Halo *${name}*! 👋\nDepartemen/bagian apa? _(mis. Produksi, QC)_`, BATAL_HINT));
+    await ctx.reply(
+      phone,
+      card(
+        `${tag} — ${stepLabel(2, conv.flow === 'register' ? 3 : 4)}*`,
+        `Halo *${name}*! 👋\nDepartemen/bagian apa? _(mis. Produksi, QC)_`,
+        BATAL_HINT,
+      ),
+    );
     return;
   }
 
@@ -269,18 +311,18 @@ export async function continueIntake(
           category: detectCategory(conv.message),
           message: conv.message,
         });
-        await ctx.reply(phone, ticketSentCard(t.id, targets));
+        await ctx.reply(phone, await ticketSentCard(ctx, t.id, conv.siteId, targets));
         return;
       }
       const next: WaConvState = { ...conv, step: 'message', dept };
       await setConv(ctx.redis, phone, next);
-      await ctx.reply(phone, card('📝 *Tulis komplain Anda*', 'Jelaskan gangguannya — bisa panjang.', BATAL_HINT));
+      await ctx.reply(phone, await complaintPrompt(ctx, conv.siteId, true));
       return;
     }
     // Anonymous → site pick (complaint AND register share this step).
     await sitePickStep(
       ctx, phone, { ...conv, dept },
-      `${tag} — langkah ${conv.flow === 'register' ? '3*' : '3*'}`,
+      `${tag} — ${conv.flow === 'register' ? stepLabel(3, 3) : stepLabel(3, 4)}*`,
     );
     return;
   }
@@ -320,7 +362,7 @@ export async function continueIntake(
     }
 
     await setConv(ctx.redis, phone, { ...conv, step: 'message', siteId });
-    await ctx.reply(phone, card('📝 *Lapor Gangguan — langkah 4/4*', 'Tulis komplain Anda — bisa panjang.', BATAL_HINT));
+    await ctx.reply(phone, await complaintPrompt(ctx, siteId, false));
     return;
   }
 
@@ -346,21 +388,22 @@ export async function continueIntake(
     category: detectCategory(message),
     message,
   });
-  await ctx.reply(phone, ticketSentCard(t.id, targets));
+  await ctx.reply(phone, await ticketSentCard(ctx, t.id, conv.siteId, targets));
 }
 
 /** Re-ask the current step (used by back-nav). */
 async function askStep(ctx: BotCtx, phone: string, conv: WaConvState): Promise<void> {
   const tag = conv.flow === 'register' ? '🆕 *Permintaan Akun' : '📝 *Lapor Gangguan';
+  const total = conv.flow === 'register' ? 3 : 4;
   if (conv.step === 'name') {
-    await ctx.reply(phone, card(`${tag} — langkah 1*`, 'Siapa nama Anda?', BATAL_HINT));
+    await ctx.reply(phone, card(`${tag} — ${stepLabel(1, total)}*`, 'Siapa nama Anda?', BATAL_HINT));
   } else if (conv.step === 'dept') {
-    await ctx.reply(phone, card(`${tag} — langkah 2*`, 'Departemen/bagian apa?', BATAL_HINT));
+    await ctx.reply(phone, card(`${tag} — ${stepLabel(2, total)}*`, 'Departemen/bagian apa?', BATAL_HINT));
   } else if (conv.step === 'site' && conv.siteIds?.length) {
     const sites = await ctx.prisma.site.findMany({ where: { id: { in: conv.siteIds } }, orderBy: { name: 'asc' } });
     const ordered = conv.siteIds.map((id, i) => `${i + 1}. ${sites.find((s) => s.id === id)?.name ?? id}`).join('\n');
     await ctx.reply(phone, card(`${tag} — pilih site*`, ordered, 'Balas dengan nomor · ' + BATAL_HINT));
   } else {
-    await ctx.reply(phone, card('📝 *Tulis komplain Anda*', 'Jelaskan gangguannya — bisa panjang.', BATAL_HINT));
+    await ctx.reply(phone, await complaintPrompt(ctx, conv.siteId, !!conv.memberId));
   }
 }
