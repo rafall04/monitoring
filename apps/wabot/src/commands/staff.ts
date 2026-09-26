@@ -11,6 +11,8 @@ import {
   siteScopeFor,
   type Role,
   type ScopedUser,
+  type WaMessageKind,
+  type WaOutboxPayload,
 } from '@noc/shared';
 import {
   clientForRouter,
@@ -706,6 +708,69 @@ export async function staffPing(ctx: BotCtx, phone: string, user: AppUser, arg: 
   }
 }
 
+/** `wadead` — recent dead-letter outbound messages (whatsapp:manage). */
+export async function staffWaDead(ctx: BotCtx, phone: string) {
+  const rows = await ctx.prisma.waMessage.findMany({
+    where: { status: 'dead' },
+    orderBy: { createdAt: 'desc' },
+    take: 8,
+  });
+  if (rows.length === 0) {
+    await ctx.reply(phone, card('🟢 *Outbox bersih*', 'Tidak ada pesan dead — semua kiriman sehat.'));
+    return;
+  }
+  await ctx.reply(
+    phone,
+    card(
+      `☠️ *Pesan Dead* (${rows.length})`,
+      rows.map(
+        (r) =>
+          `*${r.id.slice(0, 8)}* → ${r.to}\n   ${r.kind} · ${ago(r.createdAt.toISOString())} · ${r.attempts}x gagal\n   "${r.body.slice(0, 60).replace(/\n/g, ' ')}"`,
+      ),
+      'KIRIMULANG <id> untuk antre ulang',
+    ),
+  );
+}
+
+/** `kirimulang <id>` — requeue a dead wa_message (id prefix, like tickets). */
+export async function staffWaRetry(ctx: BotCtx, phone: string, arg: string) {
+  if (!arg) {
+    await ctx.reply(phone, card('ℹ️ *Cara pakai*', '*KIRIMULANG* <id-pesan>', 'Lihat id via WADEAD'));
+    return;
+  }
+  const matches = await ctx.prisma.waMessage.findMany({
+    where: { id: { startsWith: arg.toLowerCase() }, status: 'dead' },
+    take: 5,
+  });
+  if (matches.length === 0) {
+    await ctx.reply(phone, card('❓ *Tidak ada*', `Pesan dead *${arg.toUpperCase()}* tidak ditemukan — sudah terkirim / belum dead?`));
+    return;
+  }
+  if (matches.length > 1) {
+    await ctx.reply(phone, card('🔍 *Kode ambigu*', `Id *${arg.toUpperCase()}* cocok beberapa pesan — pakai lebih panjang.`));
+    return;
+  }
+  const m = matches[0]!;
+  await ctx.prisma.waMessage.update({
+    where: { id: m.id },
+    data: { status: 'queued', attempts: 0 },
+  });
+  // Same payload shape enqueueWaMessage pushes — kinds only ever come from
+  // that writer, so the cast is a contract check, not a guess.
+  const payload: WaOutboxPayload = {
+    id: m.id,
+    to: m.to,
+    text: m.body,
+    kind: m.kind as WaMessageKind,
+    siteId: m.siteId ?? undefined,
+  };
+  await ctx.redis.lpush(REDIS_KEYS.waOutbox, JSON.stringify(payload)).catch(() => undefined);
+  await ctx.reply(
+    phone,
+    card('🔁 *Di-antrekan ulang*', `Pesan *${m.id.slice(0, 8)}* → ${m.to} masuk outbox lagi (counter attempts direset).`),
+  );
+}
+
 /** `tiket [kode]` — open tickets in scope, or one ticket's full detail. */
 export async function staffTickets(ctx: BotCtx, phone: string, u: ScopedUser, arg: string) {
   const scope = siteScopeFor(u);
@@ -959,6 +1024,8 @@ export const STAFF_MENU = [
   cmd('PROSES/SELESAI <kode> [catatan]', 'kerjakan tiket'),
   cmd('LAPORAN [site]', 'digest 24 jam'),
   cmd('BOTSTATUS', 'status sesi & antrean WA (admin)'),
+  cmd('WADEAD', 'pesan gagal kirim (admin)'),
+  cmd('KIRIMULANG <id>', 'antrekan ulang pesan dead (admin)'),
   cmd('KOMPLAIN <pesan>', 'buat tiket'),
   DIV,
   '_Balas nomor setelah "terlalu umum" · balas PROSES/SELESAI ke kartu tiket langsung_',

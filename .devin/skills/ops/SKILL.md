@@ -33,7 +33,7 @@ Setiap gejala = salah satu mata rantai. Cari mata rantainya dulu.
 
 ## "Alert device/tiket tidak sampai ke WA"
 
-1. `wa_message` row: `status queued|sent|failed|dead` + `attempts` — `dead` = 5x gagal (nomor salah/JID grup invalid).
+1. `wa_message` row: `status queued|sent|failed|dead` + `attempts` — `dead` = 5x gagal (nomor salah/JID grup invalid). Perbaiki penyebab lalu `KIRIMULANG <id>` dari chat admin (atau `WADEAD` untuk daftar) — row `dead` tidak auto-retry.
 2. Kedalaman `noc:wa:outbox` naik → wabot macet/disconnect (cek health).
 3. Tidak ada row sama sekali → produsen yang menahan:
    - Alert: `isCritical` off? `manualOverride='maintenance'`? `silencedUntil` masih aktif? alert window (uplinkAlert*/watchAlertWindow)? `noc:wacooldown:<dev>:<status>` EX 90 NX masih terisi (anti-flap)?
@@ -51,7 +51,7 @@ Setiap gejala = salah satu mata rantai. Cari mata rantainya dulu.
 ## "Status device aneh / dashboard bohong"
 
 1. `effectiveStatus(status, manualOverride)` — `status` mentah jangan dibaca sendiri; maintenance menang.
-2. Device `unknown` massal satu site → router offline: log worker `'reconciled devices to unknown (router offline)'` + `'router poll failed (circuit breaker engaged)'`. Itu OUTAGE nyata, bukan bug.
+2. Device `unknown` massal satu site → router offline: log worker `'reconciled devices to unknown (router offline)'` + `'router poll failed (circuit breaker engaged)'`. Itu OUTAGE nyata, bukan bug. Transisi router kini juga mengirim `🔴 SITE OFFLINE`/`🟢 SITE ONLINE` ke `alerts:true` recipients + TG (cooldown `noc:*cooldown:router:*` EX 300) — tak ada alert saat flip? cek key cooldown + `whatsappMode`/`telegramMode` site.
 3. Device dengan `watchInterface|watchPort|watchNatDstPort` → verdict milik probe; Netwatch tidak boleh menimpanya (cek exclude di `applyDeviceStatusesByHost`).
 4. Status berubah tapi tidak ada event → cek `statusSince`/`StatusEvent` terakhir; publisher ada di status-engine saja.
 

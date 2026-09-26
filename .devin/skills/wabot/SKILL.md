@@ -48,12 +48,13 @@ apps/wabot ── sender WhatsAppSender ──▶ WhatsApp
 8. `ping` (non-staff), greeting `menu|help|bantuan|...` → menu per role; `INFO` universal (kartu portal/kontak, tanpa akun pun bisa).
 9. Belum ter-link → `publicIntent()` (kata kunci gangguan/voucher/akun) → **WaRecipient scope** (nomor terdaftar di `wa_recipient` tanpa akun → read ops `sites|down|cek|tiket|laporan` terbatas site-nya via pseudo `ScopedUser{role:'viewer'}`) → `TIKET` (tiket anon per `reporterPhone`) → menu publik.
 10. Member → `status|akun|kuota|profil`, `logout|kick|keluar`, `tiket`, `info` di `commands/member.ts`.
-11. Staff → regex `(sites|status|down|ack|unack|cek|ping|tiket|tickets|laporan|maint|maintenance|aktif|silent|unsilent|bunyi|bot|botstatus|wastatus)` → cek `need[cmd]` permission via `hasPermission` → `commands/staff.ts`.
+11. Staff → regex `(sites|status|down|ack|unack|cek|ping|tiket|tickets|laporan|maint|maintenance|aktif|silent|unsilent|bunyi|bot|botstatus|wastatus|wadead|kirimulang)` → cek `need[cmd]` permission via `hasPermission` → `commands/staff.ts`.
     - `MAINT|AKTIF` = `manualOverride` maintenance + `publishSiteEvent`/`publishSiteSummary` (mirror PATCH /devices) — perm `device:edit-attributes`. Prefix `SITE` = `updateMany` seluruh device site + satu summary (tanpa event per-device).
     - `SILENT <nama> [menit]`/`BUNYI` = `silencedUntil` (mirror /incidents/:id/silence) — perm `alerts:manage`. `SILENT SITE <nama> [menit]` = versi massal.
     - `UNACK` lepas ack — perm `alerts:manage`. `TIKET <kode>` = detail tiket — perm `tickets:view`; `TIKET` bare + quoted card = detail kartu itu.
     - Lookup device (`pickDevice`, `CEK`) cocokkan nama **atau** `ipAddress`; hasil ambigu menawarkan numbered pick (`waPick`) — `staffPickResolve` di router menelan balasan digit (private staff saja; grup/recipient tidak menawarkan pick).
     - `BOTSTATUS` = sesi WA + kedalaman outbox + statistik `wa_message` 24j + wizard aktif — perm `whatsapp:manage`.
+    - `WADEAD` = daftar `wa_message` status `dead` (5x gagal); `KIRIMULANG <id-prefix>` reset attempts → `queued` + LPUSH ulang payload `{id,to,text:body,kind,siteId}` ke `noc:wa:outbox` — perm `whatsapp:manage`.
     - Handler baca (`staffSites/Down/Cek/Tickets/Report`) menerima `ScopedUser` (bukan AppUser) agar dipakai ulang surface grup/recipient — dispatch bersama lewat `staffRead()`. Handler tulis (`Ack/Unack/Maint/Silent/Ping`) tetap `AppUser` (butuh id/nama untuk audit) dan private-only.
 
 ## Security model (jangan dilanggar)

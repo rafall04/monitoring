@@ -5,7 +5,7 @@
 //               (plus the multi-step anonymous complaint intake) · INFO
 //   member    : STATUS · LOGOUT · TIKET · INFO  (verified member numbers)
 //   staff     : SITES · DOWN · CEK · ACK/UNACK · MAINT/AKTIF · SILENT/BUNYI ·
-//               PING · TIKET · LAPORAN · BOTSTATUS
+//               PING · TIKET · LAPORAN · BOTSTATUS · WADEAD · KIRIMULANG
 //   recipient : WaRecipient numbers (no account) — read ops scoped to their
 //               recipient sites (TIKET/DOWN/CEK/SITES/LAPORAN)
 //   group     : PROSES/SELESAI (ticket replies) + staff read commands
@@ -45,6 +45,8 @@ import {
   staffRead,
   staffSilent,
   staffUnack,
+  staffWaDead,
+  staffWaRetry,
 } from './commands/staff';
 
 /** Max inbound commands per phone per minute — beyond that we drop silently. */
@@ -300,7 +302,7 @@ export class InboundRouter {
     // "terlalu umum" list selects candidate #2 instead of starting fresh.
     if (await staffPickResolve(ctx, phone, user, text)) return;
     const staffM =
-      /^(sites|status|down|ack|unack|cek|ping|tiket|tickets|laporan|maint|maintenance|aktif|silent|unsilent|bunyi|bot|botstatus|wastatus)\b[ \t]*(.*)$/i.exec(
+      /^(sites|status|down|ack|unack|cek|ping|tiket|tickets|laporan|maint|maintenance|aktif|silent|unsilent|bunyi|bot|botstatus|wastatus|wadead|kirimulang)\b[ \t]*(.*)$/i.exec(
         text,
       );
     if (staffM) {
@@ -318,6 +320,7 @@ export class InboundRouter {
         aktif: 'device:edit-attributes',
         silent: 'alerts:manage', unsilent: 'alerts:manage', bunyi: 'alerts:manage',
         bot: 'whatsapp:manage', botstatus: 'whatsapp:manage', wastatus: 'whatsapp:manage',
+        wadead: 'whatsapp:manage', kirimulang: 'whatsapp:manage',
       };
       const perm = need[cmd];
       if (perm && !hasPermission(user.role as Role, perm)) {
@@ -351,6 +354,10 @@ export class InboundRouter {
         case 'botstatus':
         case 'wastatus':
           return staffBotStatus(ctx, phone);
+        case 'wadead':
+          return staffWaDead(ctx, phone);
+        case 'kirimulang':
+          return staffWaRetry(ctx, phone, arg);
       }
     }
     return ctx.reply(phone, await this.menuText('staff', user.name));

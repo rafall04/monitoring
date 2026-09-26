@@ -363,6 +363,7 @@ commands; unknown numbers can only file a complaint.
 | staff | `SILENT <device> [min]` / `BUNYI` | suppress alerts N min (default 60) / restore |
 | staff | `PING <ip|device>`, `LAPORAN [site]`, `TIKET [kode]` | diagnostics + digest + ticket queue/detail |
 | super_admin | `BOTSTATUS` | WA session + outbox/queue health from chat |
+| super_admin | `WADEAD` · `KIRIMULANG <id>` | list dead-letter messages · requeue one by id prefix |
 | technician | `PROSES <kode>` / `SELESAI <kode>` | work a ticket; reporter gets notified |
 | WaRecipient (no account) | `TIKET`/`DOWN`/`CEK`/`SITES`/`LAPORAN` | read-only ops scoped to its recipient sites |
 | group chat | `PROSES`/`SELESAI` (+ staff read cmds) | ticket replies work in recipient groups; member/public flows stay private |
