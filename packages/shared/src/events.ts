@@ -103,6 +103,8 @@ export const REDIS_KEYS = {
   waSeen: (messageId: string) => `noc:wa:seen:${messageId}`,
   /** Phone-linking code (portal shows it; user texts `LINK <code>` to the bot). */
   waLink: (code: string) => `noc:wa:link:${code}`,
+  /** Cached anonymous-reporter identity {name,dept} — skips re-asking. */
+  waIdent: (phone: string) => `noc:wa:ident:${phone}`,
 } as const;
 
 /** Parse the siteId out of a `noc:site:<id>:events` channel name. */

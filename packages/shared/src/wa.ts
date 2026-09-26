@@ -120,7 +120,7 @@ export const WA_CONV_TTL_SEC = 15 * 60;
 export const WA_LINK_TTL_SEC = 10 * 60;
 
 export interface WaConvState {
-  flow: 'complaint';
+  flow: 'complaint' | 'register';
   step: 'name' | 'dept' | 'site' | 'message';
   name?: string;
   /** Reporter's department — asked once, then saved to the member profile. */

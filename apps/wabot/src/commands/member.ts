@@ -156,7 +156,7 @@ export async function memberTickets(ctx: BotCtx, phone: string, user: AppUser) {
 
 export const MEMBER_MENU = [
   '👤 *Menu Member*',
-  cmd('STATUS', 'kuota, profil & sesi aktif'),
+  cmd('STATUS', 'kuota, profil & sesi (alias: AKUN/KUOTA)'),
   cmd('TIKET', 'status komplain Anda'),
   cmd('KOMPLAIN <pesan>', 'lapor gangguan ke teknisi'),
   cmd('LOGOUT', 'keluarkan semua sesi'),

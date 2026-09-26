@@ -340,15 +340,19 @@ commands; unknown numbers can only file a complaint.
 
 | Who | Command | Does |
 | --- | --- | --- |
-| anyone | `MENU`, `PING` | help / liveness |
-| anyone | `KOMPLAIN <pesan>` | file a ticket (anonymous → name → **department** → site → message wizard) |
-| anyone | `LINK <kode>` | bind the number to a portal account |
-| member | `STATUS` | own quota, profile, active sessions |
+| anyone | `MENU`, `PING`, `INFO` | help / liveness / portal + contact |
+| anyone | `KOMPLAIN <pesan>` (aliases `LAPOR`, `KELUHAN`, `GANGGUAN`) | file a ticket (anonymous → name → **department** → site → message wizard) |
+| anyone | `LINK <kode>` · `DAFTAR` | bind number to a portal account · request a new account |
+| anyone | `TIKET` | tickets filed from this number |
+| member | `STATUS` (aliases `AKUN`, `KUOTA`) | own quota, profile, active sessions |
 | member | `LOGOUT` | kick own hotspot sessions |
 | member | `TIKET` | own complaint tickets + status |
-| member | `INFO` | portal link + contact info |
-| staff | `SITES`, `DOWN [site]`, `ACK <device>` | monitoring scope (site-filtered) |
-| staff | `PING <ip>`, `LAPORAN`, `TIKET` | diagnostics + digest + ticket queue |
+| staff | `SITES`, `DOWN [site]`, `CEK <device>` | monitoring scope (site-filtered) |
+| staff | `ACK`/`UNACK <device>` | claim / release an incident |
+| staff | `MAINT`/`AKTIF <device>` | maintenance override on/off (mirrors web PATCH) |
+| staff | `SILENT <device> [min]` / `BUNYI` | suppress alerts N min (default 60) / restore |
+| staff | `PING <ip|device>`, `LAPORAN [site]`, `TIKET [kode]` | diagnostics + digest + ticket queue/detail |
+| super_admin | `BOTSTATUS` | WA session + outbox/queue health from chat |
 | technician | `PROSES <kode>` / `SELESAI <kode>` | work a ticket; reporter gets notified |
 
 Tickets land on the web at **/tickets** (filterable, `tickets:view`/`manage`

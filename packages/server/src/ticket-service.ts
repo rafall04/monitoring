@@ -31,7 +31,7 @@ export interface CreateTicketInput {
 export async function createAndForwardTicket(
   deps: { prisma: PrismaClient; redis: Redis },
   input: CreateTicketInput,
-): Promise<Ticket> {
+): Promise<{ t: Ticket; targets: number }> {
   const t = await deps.prisma.ticket.create({
     data: {
       siteId: input.siteId,
@@ -86,7 +86,7 @@ export async function createAndForwardTicket(
   for (const to of targets) {
     await enqueueWaMessage(deps, { to, text, kind: 'ticket-forward', siteId: input.siteId });
   }
-  return t;
+  return { t, targets: targets.size };
 }
 
 /** Notify the reporter of a status change — skipped when they have no phone. */

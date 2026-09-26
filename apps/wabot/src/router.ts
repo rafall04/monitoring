@@ -15,20 +15,32 @@
 
 import type { PrismaClient } from '@prisma/client';
 import type { Logger } from 'pino';
-import { REDIS_KEYS, normalizePhone, type WaInboundMessage } from '@noc/shared';
+import {
+  REDIS_KEYS,
+  hasPermission,
+  normalizePhone,
+  type Permission,
+  type Role,
+  type WaInboundMessage,
+} from '@noc/shared';
 import { consumeWaLinkCode, getSettings, type Redis } from '@noc/server';
-import { continueIntake, getConv, startComplaint } from './intake';
+import { continueIntake, getConv, startComplaint, startRegister } from './intake';
 import { handleTicketCommand, type BotCtx } from './tickets';
 import { BOT_TITLE, DIV, card, cmd, greetingFor } from './fmt';
 import { MEMBER_MENU, memberInfo, memberKick, memberStatus, memberTickets } from './commands/member';
 import {
   STAFF_MENU,
   staffAck,
+  staffBotStatus,
+  staffCek,
   staffDown,
+  staffMaint,
   staffPing,
   staffReport,
+  staffSilent,
   staffSites,
   staffTickets,
+  staffUnack,
 } from './commands/staff';
 
 /** Max inbound commands per phone per minute — beyond that we drop silently. */
@@ -90,11 +102,20 @@ export class InboundRouter {
         );
         return;
       }
+      const u = await ctx.prisma.appUser.findUnique({ where: { id: userId } });
+      if (!u?.isActive) {
+        await ctx.reply(phone, card('⛔ *Akun nonaktif*', 'Akun untuk kode ini sudah dinonaktifkan — hubungi admin.'));
+        return;
+      }
+      // One phone = one identity: detach the number from any other account.
+      await ctx.prisma.appUser.updateMany({
+        where: { phone, id: { not: userId } },
+        data: { phone: null, phoneVerifiedAt: null },
+      });
       await ctx.prisma.appUser.update({
         where: { id: userId },
         data: { phone, phoneVerifiedAt: new Date() },
       });
-      const u = await ctx.prisma.appUser.findUnique({ where: { id: userId } });
       await ctx.reply(
         phone,
         card(
@@ -131,83 +152,204 @@ export class InboundRouter {
     });
 
     // ---- KOMPLAIN [teks]: works for anyone; members get context attached ----
-    const komplainM = /^komplain\b[ \t]*/i.exec(text);
+    // Lay aliases map to the same flow — users type LAPOR/KELUHAN/GANGGUAN too.
+    const komplainM = /^(komplain|lapor|keluhan|pengaduan|gangguan)\b[ \t]*/i.exec(text);
     if (komplainM) {
       const settings = await getSettings();
       if (!settings.waComplaintEnabled) {
-        await ctx.reply(phone, 'Maaf, layanan komplain via WhatsApp sedang nonaktif.');
+        await ctx.reply(phone, card('⛔ *Layanan nonaktif*', 'Komplain via WhatsApp sedang nonaktif — hubungi admin.'));
         return;
       }
       const inline = text.slice(komplainM[0].length).trim();
-      await startComplaint(ctx, phone, inline, user?.role === 'member' ? user : null);
+      // Members take the member path; staff get the anonymous wizard pre-filled
+      // from their account (startComplaint branches on role internally).
+      await startComplaint(ctx, phone, inline, user);
+      return;
+    }
+
+    // ---- DAFTAR: account-request wizard for brand-new numbers ----------------
+    if (/^(daftar|register|registrasi)\b/i.test(text)) {
+      if (user) {
+        await ctx.reply(phone, card('ℹ️ *Sudah tertaut*', `Nomor ini sudah terhubung ke akun *${user.name}*.`, 'Ketik MENU untuk daftar perintah'));
+        return;
+      }
+      await startRegister(ctx, phone);
       return;
     }
 
     // ---- Universal ----------------------------------------------------------
-    if (text.toLowerCase() === 'ping') {
+    if (text.toLowerCase() === 'ping' && !(user && user.role !== 'member')) {
       await ctx.reply(phone, card('✅ *Pong!*', 'NOC bot aktif dan merespons.'));
       return;
     }
     if (GREETING.test(text)) {
-      await ctx.reply(phone, this.menuText(user?.role ?? null, user?.name));
+      await ctx.reply(phone, await this.menuText(user?.role ?? null, user?.name));
+      return;
+    }
+    // INFO is universal — anonymous users also need the portal/contact card.
+    if (/^info$/i.test(text)) {
+      await memberInfo(ctx, phone);
       return;
     }
 
-    // ---- Not linked → only the public menu + complaint hint -----------------
+    // ---- Not linked → intents for lay users, then the public menu -----------
     if (!user) {
-      await ctx.reply(phone, this.menuText(null));
+      const intent = this.publicIntent(text);
+      if (intent) {
+        await ctx.reply(phone, intent);
+        return;
+      }
+      if (/^tiket\b/i.test(text)) {
+        const rows = await ctx.prisma.ticket.findMany({
+          where: { reporterPhone: phone, memberId: null },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          include: { site: { select: { name: true } } },
+        });
+        if (rows.length === 0) {
+          await ctx.reply(phone, card('🎫 *Tiket Anda*', 'Belum ada komplain dari nomor ini.', 'Kirim KOMPLAIN <pesan> untuk melapor'));
+          return;
+        }
+        const label = { open: '🟡 Open', ack: '🔧 Diproses', resolved: '✅ Selesai' } as const;
+        await ctx.reply(
+          phone,
+          card(
+            '🎫 *Tiket Anda* (dari nomor ini)',
+            rows.map((t) => {
+              const code = t.id.slice(0, 6).toUpperCase();
+              const st = label[t.status as keyof typeof label] ?? t.status;
+              return `*#${code}* ${st}\n   ${t.site.name} — "${t.message.slice(0, 80)}"`;
+            }),
+          ),
+        );
+        return;
+      }
+      await ctx.reply(phone, await this.menuText(null));
       return;
     }
 
     // ---- Member commands ----------------------------------------------------
     if (user.role === 'member') {
       const cmd = text.toLowerCase();
-      if (cmd === 'status') return memberStatus(ctx, phone, user);
+      if (cmd === 'status' || cmd === 'akun' || cmd === 'kuota' || cmd === 'profil')
+        return memberStatus(ctx, phone, user);
       if (cmd === 'logout' || cmd === 'kick' || cmd === 'keluar')
         return memberKick(ctx, phone, user);
       if (cmd === 'tiket' || cmd === 'tickets') return memberTickets(ctx, phone, user);
       if (cmd === 'info') return memberInfo(ctx, phone);
-      return ctx.reply(phone, this.menuText('member'));
+      return ctx.reply(phone, await this.menuText('member', user.name));
     }
 
     // ---- Staff commands (viewer/operator/super_admin) ------------------------
-    const staffM = /^(sites|status|down|ack|ping|tiket|tickets|laporan)\b[ \t]*(.*)$/i.exec(text);
+    const staffM =
+      /^(sites|status|down|ack|unack|cek|ping|tiket|tickets|laporan|maint|maintenance|aktif|silent|unsilent|bunyi|bot|botstatus|wastatus)\b[ \t]*(.*)$/i.exec(
+        text,
+      );
     if (staffM) {
       const cmd = staffM[1]!.toLowerCase();
       const arg = (staffM[2] ?? '').trim();
+      const need: Record<string, Permission> = {
+        sites: 'map:view', status: 'map:view', down: 'device:view', cek: 'device:view',
+        ack: 'alerts:manage', unack: 'alerts:manage', ping: 'device:diagnose',
+        tiket: 'tickets:view', tickets: 'tickets:view', laporan: 'reports:view',
+        maint: 'device:edit-attributes', maintenance: 'device:edit-attributes',
+        aktif: 'device:edit-attributes',
+        silent: 'alerts:manage', unsilent: 'alerts:manage', bunyi: 'alerts:manage',
+        bot: 'whatsapp:manage', botstatus: 'whatsapp:manage', wastatus: 'whatsapp:manage',
+      };
+      const perm = need[cmd];
+      if (perm && !hasPermission(user.role as Role, perm)) {
+        await ctx.reply(
+          phone,
+          card('⛔ *Akses kurang*', `Perintah *${cmd.toUpperCase()}* butuh izin _${perm}_ — role Anda *${user.role}* tidak memilikinya.`),
+        );
+        return;
+      }
       switch (cmd) {
         case 'sites':
         case 'status':
           return staffSites(ctx, phone, user);
         case 'down':
           return staffDown(ctx, phone, user, arg);
+        case 'cek':
+          return staffCek(ctx, phone, user, arg);
         case 'ack':
           return staffAck(ctx, phone, user, arg);
+        case 'unack':
+          return staffUnack(ctx, phone, user, arg);
         case 'ping':
           return staffPing(ctx, phone, user, arg);
         case 'tiket':
         case 'tickets':
-          return staffTickets(ctx, phone, user);
+          return staffTickets(ctx, phone, user, arg);
         case 'laporan':
-          return staffReport(ctx, phone, user);
+          return staffReport(ctx, phone, user, arg);
+        case 'maint':
+        case 'maintenance':
+          return staffMaint(ctx, phone, user, arg, true);
+        case 'aktif':
+          return staffMaint(ctx, phone, user, arg, false);
+        case 'silent':
+          return staffSilent(ctx, phone, user, arg, true);
+        case 'unsilent':
+        case 'bunyi':
+          return staffSilent(ctx, phone, user, arg, false);
+        case 'bot':
+        case 'botstatus':
+        case 'wastatus':
+          return staffBotStatus(ctx, phone);
       }
     }
-    return ctx.reply(phone, this.menuText('staff'));
+    return ctx.reply(phone, await this.menuText('staff', user.name));
   }
 
-  private menuText(role: string | null, name?: string | null): string {
-    if (role === 'member') return `${BOT_TITLE}\n${greetingFor(name)}\n${DIV}\n${MEMBER_MENU}`;
-    if (role && role !== 'member') return `${BOT_TITLE}\n${greetingFor(name)}\n${DIV}\n${STAFF_MENU}`;
+  /** Lay-friendly keyword routing for numbers with no account. */
+  private publicIntent(text: string): string | null {
+    const t = text.toLowerCase();
+    if (/gangguan|mati|rusak|error|lemot|lambat|internet|wifi|jaringan|putus/.test(t)) {
+      return card(
+        '📡 *Ada gangguan?*',
+        'Sepertinya Anda mau melaporkan gangguan.',
+        'Balas *KOMPLAIN* <keluhan> — contoh: KOMPLAIN wifi gudang mati',
+      );
+    }
+    if (/voucher|top.?up|isi ulang|beli|bayar|harga|tagihan/.test(t)) {
+      return card(
+        '🎟️ *Voucher / Pembayaran*',
+        'Pembelian voucher & pembayaran dilakukan lewat portal pelanggan.',
+        'Ketik INFO untuk link portal · KOMPLAIN jika ada kendala',
+      );
+    }
+    if (/akun|daftar|register|username|password|login/.test(t)) {
+      return card(
+        '🆕 *Soal Akun*',
+        '• Belum punya akun? Ketik *DAFTAR* untuk permintaan akun baru.',
+        '• Sudah punya akun portal? Minta kode di portal lalu kirim *LINK <kode>*.',
+      );
+    }
+    return null;
+  }
+
+  private async menuText(role: string | null, name?: string | null): Promise<string> {
+    const settings = await getSettings().catch(() => null);
+    const title = `🤖 *${settings?.waBotName?.toUpperCase() || 'NOC BOT'} — ${settings?.orgName || 'RAF'}*`;
+    if (role === 'member') return `${title}\n${greetingFor(name)}\n${DIV}\n${MEMBER_MENU}`;
+    if (role && role !== 'member') return `${title}\n${greetingFor(name)}\n${DIV}\n${STAFF_MENU}`;
     return [
-      BOT_TITLE,
+      title,
       greetingFor(),
       DIV,
       'Saya bisa bantu hal berikut:',
       cmd('KOMPLAIN <pesan>', 'laporkan gangguan ke teknisi'),
+      cmd('TIKET', 'cek status komplain dari nomor ini'),
+      cmd('DAFTAR', 'minta akun baru ke admin'),
       cmd('LINK <kode>', 'tautkan nomor ke akun portal'),
+      cmd('INFO', 'kontak & portal pelanggan'),
       cmd('PING', 'cek bot aktif'),
       DIV,
       '_Contoh: KOMPLAIN internet mati di gudang_',
+      '_Bisa juga: LAPOR / KELUHAN / GANGGUAN <keluhan>_',
+      '_Nomor Anda hanya dipakai untuk update layanan NOC_',
     ].join('\n');
   }
 

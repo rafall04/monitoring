@@ -5,8 +5,21 @@
 // =============================================================================
 
 import type { AppUser } from '@prisma/client';
-import { canAccessSite, siteScopeFor, type Role, type ScopedUser } from '@noc/shared';
-import { clientForRouter, computeSiteSummary } from '@noc/server';
+import {
+  REDIS_KEYS,
+  canAccessSite,
+  siteScopeFor,
+  type Role,
+  type ScopedUser,
+} from '@noc/shared';
+import {
+  clientForRouter,
+  computeSiteSummary,
+  publishSiteEvent,
+  publishSiteSummary,
+  readWaSession,
+  toDeviceDto,
+} from '@noc/server';
 import type { BotCtx } from '../tickets';
 import { DIV, card, cmd } from '../fmt';
 
@@ -19,6 +32,40 @@ const siteWhere = (u: ScopedUser) => {
   const scope = siteScopeFor(u);
   return scope ? { id: { in: scope } } : {};
 };
+
+/**
+ * Resolve exactly one device by fuzzy name inside the caller's site scope.
+ * Replies and returns null on zero/ambiguous hits — the same UX staffCek uses.
+ */
+async function pickDevice(
+  ctx: BotCtx,
+  phone: string,
+  user: AppUser,
+  arg: string,
+  extraWhere: { status?: string } = {},
+) {
+  const scope = siteScopeFor(scoped(user));
+  const hits = await ctx.prisma.device.findMany({
+    where: {
+      name: { contains: arg, mode: 'insensitive' },
+      ...(scope ? { siteId: { in: scope } } : {}),
+      ...extraWhere,
+    },
+    take: 10,
+  });
+  if (hits.length === 0) {
+    await ctx.reply(phone, card('❓ *Tidak ditemukan*', `Perangkat "${arg}" tidak ada dalam scope Anda.`));
+    return null;
+  }
+  if (hits.length > 1) {
+    await ctx.reply(
+      phone,
+      card('🔍 *Terlalu umum*', `Ada *${hits.length}* perangkat cocok:\n${hits.map((d) => `· ${d.name}`).join('\n')}`, 'Perjelas namanya'),
+    );
+    return null;
+  }
+  return hits[0];
+}
 
 const ago = (iso: string | null): string => {
   if (!iso) return '?';
@@ -92,34 +139,60 @@ export async function staffDown(ctx: BotCtx, phone: string, user: AppUser, arg: 
   );
 }
 
+/** `cek <nama>` — ask the current status of one device (down OR unknown OR up). */
+export async function staffCek(ctx: BotCtx, phone: string, user: AppUser, arg: string) {
+  if (!arg) {
+    await ctx.reply(phone, card('ℹ️ *Cara pakai*', '*CEK* <nama-perangkat>', 'Contoh: CEK QC 3'));
+    return;
+  }
+  const scope = siteScopeFor(scoped(user));
+  const hits = await ctx.prisma.device.findMany({
+    where: {
+      name: { contains: arg, mode: 'insensitive' },
+      ...(scope ? { siteId: { in: scope } } : {}),
+    },
+    include: { site: { select: { name: true } }, router: { select: { name: true } } },
+    orderBy: { name: 'asc' },
+    take: 10,
+  });
+  if (hits.length === 0) {
+    await ctx.reply(phone, card('❓ *Tidak ditemukan*', `Perangkat "${arg}" tidak ada dalam scope Anda.`));
+    return;
+  }
+  if (hits.length > 1) {
+    await ctx.reply(
+      phone,
+      card('🔍 *Terlalu umum*', `Ada *${hits.length}* perangkat cocok:\n${hits.map((d) => `· ${d.name} — ${d.site.name}`).join('\n')}`, 'Perjelas namanya'),
+    );
+    return;
+  }
+  const d = hits[0]!;
+  const icon = d.manualOverride === 'maintenance' ? '🛠️' : d.status === 'up' ? '🟢' : d.status === 'down' ? '🔴' : '🟡';
+  const status =
+    d.manualOverride === 'maintenance' ? 'MAINTENANCE' : d.status.toUpperCase();
+  await ctx.reply(
+    phone,
+    card(`${icon} *${d.name}*`, [
+      `Status   : *${status}*`,
+      `IP       : ${d.ipAddress ?? '-'}`,
+      `Site     : ${d.site.name} · router ${d.router.name}`,
+      `Sejak    : ${ago(d.statusSince?.toISOString() ?? null)}`,
+      d.ackBy ? `Ack      : ${d.ackBy}` : null,
+      d.silencedUntil && d.silencedUntil > new Date()
+        ? `Silent   : s/d ${d.silencedUntil.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })}`
+        : null,
+    ].filter(Boolean) as string[], d.ipAddress ? `PING ${d.ipAddress} untuk tes langsung` : undefined),
+  );
+}
+
 /** `ack <nama>` — mark the matching down device as being handled. */
 export async function staffAck(ctx: BotCtx, phone: string, user: AppUser, arg: string) {
   if (!arg) {
     await ctx.reply(phone, card('ℹ️ *Cara pakai*', '*ACK* <nama-perangkat>', 'Contoh: ACK QC 3'));
     return;
   }
-  const u = scoped(user);
-  const scope = siteScopeFor(u);
-  const hits = await ctx.prisma.device.findMany({
-    where: {
-      status: 'down',
-      name: { contains: arg, mode: 'insensitive' },
-      ...(scope ? { siteId: { in: scope } } : {}),
-    },
-    take: 10,
-  });
-  if (hits.length === 0) {
-    await ctx.reply(phone, card('❓ *Tidak ditemukan*', `Perangkat down "${arg}" tidak ada dalam scope Anda.`));
-    return;
-  }
-  if (hits.length > 1) {
-    await ctx.reply(
-      phone,
-      card('🔍 *Terlalu umum*', `Ada *${hits.length}* perangkat cocok:\n${hits.map((d) => `· ${d.name}`).join('\n')}`, 'Perjelas namanya'),
-    );
-    return;
-  }
-  const d = hits[0]!;
+  const d = await pickDevice(ctx, phone, user, arg, { status: 'down' });
+  if (!d) return;
   const actor = user.name || user.email;
   await ctx.prisma.device.update({
     where: { id: d.id },
@@ -139,19 +212,218 @@ export async function staffAck(ctx: BotCtx, phone: string, user: AppUser, arg: s
   await ctx.reply(phone, card('✅ *Ditandai*', `*${d.name}* sedang dikerjakan oleh ${actor}.`));
 }
 
-/** `ping <ip>` — ping from the router that owns the device (same as the UI). */
-export async function staffPing(ctx: BotCtx, phone: string, user: AppUser, ip: string) {
-  if (!ip) {
-    await ctx.reply(phone, card('ℹ️ *Cara pakai*', '*PING* <ip-perangkat>', 'Contoh: PING 192.168.101.174'));
+/** `unack <nama>` — release the ack marker (device stays down, just unclaimed). */
+export async function staffUnack(ctx: BotCtx, phone: string, user: AppUser, arg: string) {
+  if (!arg) {
+    await ctx.reply(phone, card('ℹ️ *Cara pakai*', '*UNACK* <nama-perangkat>', 'Contoh: UNACK QC 3'));
+    return;
+  }
+  const d = await pickDevice(ctx, phone, user, arg);
+  if (!d) return;
+  if (!d.ackBy) {
+    await ctx.reply(phone, card('ℹ️ *Tanpa ack*', `*${d.name}* memang belum di-ack siapa pun.`));
+    return;
+  }
+  await ctx.prisma.device.update({ where: { id: d.id }, data: { ackBy: null, ackAt: null } });
+  await ctx.prisma.auditLog
+    .create({
+      data: {
+        userId: user.id,
+        action: 'unack',
+        entity: 'incident',
+        entityId: d.id,
+        after: { ackBy: null, prevAckBy: d.ackBy, via: 'whatsapp' },
+      },
+    })
+    .catch(() => undefined);
+  await ctx.reply(phone, card('↩️ *Ack dilepas*', `*${d.name}* tidak lagi ditandai dikerjakan.`));
+}
+
+/**
+ * `maint <nama>` (on=true) / `aktif <nama>` (on=false) — toggle the
+ * maintenance override, same field the web PATCH writes. Mirrors the web
+ * route exactly: update → device.updated event → fresh site summary → audit.
+ */
+export async function staffMaint(
+  ctx: BotCtx,
+  phone: string,
+  user: AppUser,
+  arg: string,
+  on: boolean,
+) {
+  if (!arg) {
+    await ctx.reply(
+      phone,
+      card('ℹ️ *Cara pakai*', on ? '*MAINT* <nama-perangkat>' : '*AKTIF* <nama-perangkat>', 'Contoh: MAINT QC 3'),
+    );
+    return;
+  }
+  const d = await pickDevice(ctx, phone, user, arg);
+  if (!d) return;
+  if ((d.manualOverride === 'maintenance') === on) {
+    await ctx.reply(phone, card('ℹ️ *Tidak berubah*', `*${d.name}* sudah ${on ? 'maintenance' : 'aktif'}.`));
+    return;
+  }
+  const u = await ctx.prisma.device.update({
+    where: { id: d.id },
+    data: { manualOverride: on ? 'maintenance' : null },
+  });
+  const dto = toDeviceDto(u);
+  await publishSiteEvent(ctx.redis, u.siteId, {
+    type: 'device.updated',
+    siteId: u.siteId,
+    deviceId: u.id,
+    device: dto,
+  }).catch(() => undefined);
+  // Maintenance wins the displayed status — recompute site counts like the web does.
+  await publishSiteSummary({ prisma: ctx.prisma, redisPub: ctx.redis }, u.siteId).catch(() => undefined);
+  const actor = user.name || user.email;
+  await ctx.prisma.auditLog
+    .create({
+      data: {
+        userId: user.id,
+        action: on ? 'maintenance' : 'unmaintenance',
+        entity: 'device',
+        entityId: d.id,
+        after: { manualOverride: u.manualOverride, via: 'whatsapp', actor },
+      },
+    })
+    .catch(() => undefined);
+  await ctx.reply(
+    phone,
+    card(
+      on ? '🛠️ *Mode Maintenance*' : '🟢 *Kembali Aktif*',
+      `*${d.name}* ${on ? 'ditandai maintenance — alert disenyapkan.' : 'kembali dipantau normal.'}`,
+      on ? 'AKTIF <nama> untuk mengakhiri' : undefined,
+    ),
+  );
+}
+
+/**
+ * `silent <nama> [menit]` (on=true) / `bunyi <nama>` (on=false) — suppress
+ * alerts for N minutes like POST /incidents/:id/silence (0 = unsilence).
+ */
+export async function staffSilent(
+  ctx: BotCtx,
+  phone: string,
+  user: AppUser,
+  arg: string,
+  on: boolean,
+) {
+  if (!arg) {
+    await ctx.reply(
+      phone,
+      card('ℹ️ *Cara pakai*', '*SILENT* <nama> [menit] · *BUNYI* <nama>', 'Contoh: SILENT QC 3 120'),
+    );
+    return;
+  }
+  let minutes = 60;
+  let name = arg;
+  if (on) {
+    // A trailing number is only a duration when the full string isn't itself a
+    // device name — "QC 3" is a name, "QC 3 120" is name + minutes.
+    const m = /^(.*?)[ \t]+(\d{1,4})$/.exec(arg);
+    if (m) {
+      const scope = siteScopeFor(scoped(user));
+      const fullMatch = await ctx.prisma.device.count({
+        where: {
+          name: { contains: arg, mode: 'insensitive' },
+          ...(scope ? { siteId: { in: scope } } : {}),
+        },
+      });
+      if (fullMatch === 0) {
+        name = m[1]!.trim();
+        minutes = Math.min(Number(m[2]), 24 * 60);
+      }
+    }
+  }
+  const d = await pickDevice(ctx, phone, user, name);
+  if (!d) return;
+  const silencedUntil = on ? new Date(Date.now() + minutes * 60_000) : null;
+  await ctx.prisma.device.update({ where: { id: d.id }, data: { silencedUntil } });
+  await ctx.prisma.auditLog
+    .create({
+      data: {
+        userId: user.id,
+        action: on ? 'silence' : 'unsilence',
+        entity: 'incident',
+        entityId: d.id,
+        after: { silencedUntil, via: 'whatsapp' },
+      },
+    })
+    .catch(() => undefined);
+  const until = silencedUntil?.toLocaleString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: 'short',
+  });
+  await ctx.reply(
+    phone,
+    card(
+      on ? '🔕 *Alert Dibungkam*' : '🔔 *Alert Aktif Lagi*',
+      on ? `*${d.name}* disenyapkan *${minutes}* menit (s/d ${until} WIB).` : `*${d.name}* berbunyi lagi.`,
+      on ? 'BUNYI <nama> untuk menyalakan kembali' : undefined,
+    ),
+  );
+}
+
+/**
+ * `botstatus` — WA session + outbox health straight from chat, so NOC can
+ * diagnose "alert tidak sampai" tanpa SSH/web (whatsapp:manage = super_admin).
+ */
+export async function staffBotStatus(ctx: BotCtx, phone: string) {
+  const s = await readWaSession(ctx.redis).catch(() => null);
+  const since = new Date(Date.now() - 24 * 3600_000);
+  const [depth, sent24h, fail24h, dead24h, convs] = await Promise.all([
+    ctx.redis.llen(REDIS_KEYS.waOutbox).catch(() => -1),
+    ctx.prisma.waMessage.count({ where: { createdAt: { gte: since }, status: 'sent' } }),
+    ctx.prisma.waMessage.count({ where: { createdAt: { gte: since }, status: 'failed' } }),
+    ctx.prisma.waMessage.count({ where: { createdAt: { gte: since }, status: 'dead' } }),
+    ctx.redis.keys(REDIS_KEYS.waConv('*')).catch(() => [] as string[]),
+  ]);
+  const icon =
+    ({ connected: '🟢', qr: '🟡', connecting: '🟡', disabled: '⚫', offline: '🔴' } as Record<string, string>)[
+      s?.status ?? 'offline'
+    ] ?? '🔴';
+  await ctx.reply(
+    phone,
+    card(
+      `${icon} *Status Bot WhatsApp*`,
+      [
+        `Sesi        : *${s?.status ?? 'tidak ada'}*${s?.phone ? ` (${s.phone})` : ''}`,
+        s?.name ? `Akun        : ${s.name}` : null,
+        s?.error ? `Error       : ${s.error}` : null,
+        `Update      : ${ago(s?.updatedAt ?? null)}`,
+        DIV,
+        `Antre outbox : ${depth >= 0 ? `*${depth}*` : '?'}`,
+        `Terkirim 24j : *${sent24h}* · gagal ${fail24h} · dead ${dead24h}`,
+        `Wizard aktif : ${convs.length}`,
+      ].filter(Boolean) as string[],
+      'Reconnect/logout: Admin → WhatsApp',
+    ),
+  );
+}
+
+/** `ping <ip|nama>` — ping from the router that owns the device (same as UI). */
+export async function staffPing(ctx: BotCtx, phone: string, user: AppUser, arg: string) {
+  if (!arg) {
+    await ctx.reply(phone, card('ℹ️ *Cara pakai*', '*PING* <ip-atau-nama-perangkat>', 'Contoh: PING 192.168.101.174 · PING QC 3'));
     return;
   }
   const u = scoped(user);
-  const d = await ctx.prisma.device.findFirst({
-    where: { ipAddress: ip },
-    include: { site: true, router: true },
-  });
+  const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(arg);
+  const d = isIp
+    ? await ctx.prisma.device.findFirst({ where: { ipAddress: arg }, include: { site: true, router: true } })
+    : await ctx.prisma.device.findFirst({ where: { name: { contains: arg, mode: 'insensitive' } }, include: { site: true, router: true } });
   if (!d || !canAccessSite(u, d.siteId)) {
-    await ctx.reply(phone, card('❓ *IP tidak dikenal*', `IP ${ip} tidak terdaftar di NOC / di luar scope Anda.`));
+    await ctx.reply(phone, card('❓ *Tidak dikenal*', `"${arg}" tidak terdaftar di NOC / di luar scope Anda.`));
+    return;
+  }
+  const ip = d.ipAddress;
+  if (!ip) {
+    await ctx.reply(phone, card('ℹ️ *Tanpa IP*', `Perangkat *${d.name}* tidak punya alamat IP tercatat.`));
     return;
   }
   const c = clientForRouter(d.router);
@@ -177,9 +449,51 @@ export async function staffPing(ctx: BotCtx, phone: string, user: AppUser, ip: s
   }
 }
 
-/** `tiket` — open tickets inside the caller's scope. */
-export async function staffTickets(ctx: BotCtx, phone: string, user: AppUser) {
+/** `tiket [kode]` — open tickets in scope, or one ticket's full detail. */
+export async function staffTickets(ctx: BotCtx, phone: string, user: AppUser, arg: string) {
   const scope = siteScopeFor(scoped(user));
+  if (arg) {
+    const t = await ctx.prisma.ticket.findFirst({
+      where: {
+        id: { startsWith: arg.toLowerCase() },
+        ...(scope ? { siteId: { in: scope } } : {}),
+      },
+      include: {
+        site: { select: { name: true } },
+        member: { select: { name: true, hotspotUsername: true } },
+      },
+    });
+    if (!t) {
+      await ctx.reply(phone, card('❓ *Tiket tidak ada*', `Tiket *#${arg.toUpperCase()}* tidak ditemukan dalam scope Anda.`));
+      return;
+    }
+    const label = { open: '🟡 OPEN', ack: '🔧 DIPROSES', resolved: '✅ SELESAI' } as const;
+    const when = t.createdAt.toLocaleString('id-ID', {
+      timeZone: 'Asia/Jakarta',
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    await ctx.reply(
+      phone,
+      card(`🎫 *TIKET #${t.id.slice(0, 6).toUpperCase()}*`, [
+        `Status   : ${label[t.status as keyof typeof label] ?? t.status}`,
+        `Site     : ${t.site.name}`,
+        `Pelapor  : ${t.reporterName ?? 'Anonim'}${t.reporterDept ? ` · ${t.reporterDept}` : ''}`,
+        `Kontak   : ${t.reporterPhone ?? 'via web'}`,
+        t.member?.hotspotUsername ? `Akun     : ${t.member.hotspotUsername}` : null,
+        `Kategori : ${t.category}`,
+        `Waktu    : ${when} WIB`,
+        t.handledBy ? `Teknisi  : ${t.handledBy}` : null,
+        t.resolvedAt ? `Selesai  : ${t.resolvedAt.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} WIB` : null,
+        DIV,
+        `"${t.message}"`,
+      ].filter(Boolean) as string[],
+      t.status !== 'resolved' ? `Balas PROSES/SELESAI ${t.id.slice(0, 6).toUpperCase()}` : undefined),
+    );
+    return;
+  }
   const rows = await ctx.prisma.ticket.findMany({
     where: {
       status: { in: ['open', 'ack'] },
@@ -210,21 +524,36 @@ export async function staffTickets(ctx: BotCtx, phone: string, user: AppUser) {
   );
 }
 
-/** `laporan` — compact digest: site health + open tickets in scope. */
-export async function staffReport(ctx: BotCtx, phone: string, user: AppUser) {
+/** `laporan [site]` — 24h digest: site health + insiden + tiket in scope. */
+export async function staffReport(ctx: BotCtx, phone: string, user: AppUser, arg: string) {
   const u = scoped(user);
   const scope = siteScopeFor(u);
-  const sites = await ctx.prisma.site.findMany({
+  let sites = await ctx.prisma.site.findMany({
     where: siteWhere(u),
     orderBy: { name: 'asc' },
   });
+  if (arg) {
+    sites = sites.filter((s) => s.name.toLowerCase().includes(arg.toLowerCase()));
+    if (sites.length === 0) {
+      await ctx.reply(phone, card('❓ *Site tidak ada*', `Site "${arg}" tidak ditemukan dalam scope Anda.`));
+      return;
+    }
+  }
+  const scopeIds = sites.map((s) => s.id);
   const since = new Date(Date.now() - 24 * 3600_000);
-  const [events, openTickets] = await Promise.all([
+  const [downEvents, openTickets, resolvedToday] = await Promise.all([
     ctx.prisma.statusEvent.count({
-      where: { occurredAt: { gte: since }, ...(scope ? { siteId: { in: scope } } : {}) },
+      where: {
+        occurredAt: { gte: since },
+        newStatus: 'down',
+        device: { siteId: { in: scopeIds } },
+      },
     }),
     ctx.prisma.ticket.count({
-      where: { status: { in: ['open', 'ack'] }, ...(scope ? { siteId: { in: scope } } : {}) },
+      where: { status: { in: ['open', 'ack'] }, siteId: { in: scopeIds } },
+    }),
+    ctx.prisma.ticket.count({
+      where: { status: 'resolved', resolvedAt: { gte: since }, siteId: { in: scopeIds } },
     }),
   ]);
   const lines: string[] = [];
@@ -237,11 +566,12 @@ export async function staffReport(ctx: BotCtx, phone: string, user: AppUser) {
   }
   await ctx.reply(
     phone,
-    card('📊 *Laporan 24 Jam*', [
+    card(`📊 *Laporan 24 Jam*${arg ? ` — ${sites[0]!.name}` : ''}`, [
       ...lines,
       DIV,
-      `🔄 Perubahan status: *${events}*`,
-      `🎫 Tiket terbuka: *${openTickets}*`,
+      `� Insiden down 24 jam : *${downEvents}*`,
+      `🎫 Tiket terbuka       : *${openTickets}*`,
+      `✅ Tiket selesai 24 jam : *${resolvedToday}*`,
     ]),
   );
 }
@@ -250,10 +580,15 @@ export const STAFF_MENU = [
   '🛠️ *Menu Staff NOC*',
   cmd('SITES', 'ringkasan semua site'),
   cmd('DOWN [site]', 'perangkat down saat ini'),
-  cmd('ACK <nama>', 'tandai insiden dikerjakan'),
-  cmd('PING <ip>', 'ping perangkat dari router site'),
-  cmd('TIKET', 'tiket komplain terbuka'),
+  cmd('CEK <nama>', 'status satu perangkat'),
+  cmd('ACK/UNACK <nama>', 'tandai/lepas insiden dikerjakan'),
+  cmd('MAINT/AKTIF <nama>', 'mode maintenance on/off'),
+  cmd('SILENT <nama> [menit]', 'senyapkan alert (default 60m)'),
+  cmd('BUNYI <nama>', 'nyalakan lagi alert'),
+  cmd('PING <ip|nama>', 'ping perangkat dari router site'),
+  cmd('TIKET [kode]', 'tiket terbuka / detail tiket'),
   cmd('PROSES/SELESAI <kode>', 'kerjakan tiket'),
-  cmd('LAPORAN', 'digest 24 jam'),
+  cmd('LAPORAN [site]', 'digest 24 jam'),
+  cmd('BOTSTATUS', 'status sesi & antrean WA (admin)'),
   cmd('KOMPLAIN <pesan>', 'buat tiket'),
 ].join('\n');

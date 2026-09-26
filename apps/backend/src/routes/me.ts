@@ -73,7 +73,7 @@ export async function meRoutes(app: FastifyInstance) {
         });
       }
 
-      const t = await createAndForwardTicket(
+      const { t } = await createAndForwardTicket(
         { prisma, redis: app.redisPub },
         {
           siteId: router.siteId,
