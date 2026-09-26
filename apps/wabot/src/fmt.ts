@@ -64,8 +64,17 @@ export function stepLabel(current: number, total: number): string {
   return `langkah ${current}/${total} ${stepDots(current, total)}`;
 }
 
-/** Greeting variants for a friendlier first touch. */
+/** WIB hour for the time-of-day greeting — the factory runs on Jakarta time. */
+const WIB_HOUR = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Asia/Jakarta',
+  hour: 'numeric',
+  hour12: false,
+});
+
+/** "Selamat malam, Budi!" — time-aware and named when we know who they are. */
 export function greetingFor(name?: string | null): string {
+  const h = Number(WIB_HOUR.format(new Date()));
+  const daypart = h >= 4 && h < 11 ? 'pagi' : h >= 11 && h < 15 ? 'siang' : h >= 15 && h < 19 ? 'sore' : 'malam';
   const who = name ? `, ${name}` : '';
-  return `Halo${who}! 👋`;
+  return `Selamat ${daypart}${who}! 👋`;
 }

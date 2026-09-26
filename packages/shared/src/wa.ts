@@ -115,6 +115,13 @@ export interface WaInboundMessage {
   text: string;
   isGroup: boolean;
   messageId: string;
+  /** Sender's WhatsApp display name (m.pushName) — lets greetings and the
+   *  intake wizard personalize before an account/name is known. */
+  pushName?: string;
+  /** Media kind label ('foto'|'video'|'dokumen'|'voice'|'stiker'|'media') when
+   *  the message carries an attachment — drives the "media diterima tapi tak
+   *  bisa dibaca" reply instead of silence. */
+  media?: string;
 }
 
 // ---- Conversation state (anonymous complaint intake) ----------------------------

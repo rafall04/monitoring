@@ -59,17 +59,23 @@ interface RouterDeps {
   reply: (to: string, text: string) => Promise<void>;
 }
 
-const GREETING = /^(menu|help|bantuan|start|hai|halo|halo bot)$/i;
+/** Friendly openings Indonesians actually send — not just literal "menu". */
+const GREETING =
+  /^(menu|help|bantuan|tolong|start|hai+|halo+|hei|hi|hello|tes|test|coba|halo bot|p|permisi|admin|pak|bu|ibu|mas|mbak|kak|bang|ass?alamu\S*|selamat(\s+(pagi|siang|sore|malam|datang))?|pagi|siang|sore|malam)$/i;
+
+/** Courtesy one-worders — answer briefly instead of dumping the full menu. */
+const SMALLTALK =
+  /^(terima ?kasih|makasih|mks|tengkyu|thanks?|thx|suwun|nuwun|maturnuwun|trims|oke|ok+|okay|okey|siap|sip|noted?|baik|mantap|keren|top|jos|aman|iya|iya +pak|y+|ya)$/i;
 
 /**
  * A pending wizard used to swallow ANY text for up to 15 minutes — a user who
  * wandered off and typed STATUS got silence-ish confusion ("bot stuck").
- * Command-looking input now exits the wizard and runs as a command instead.
- * Wizard nav words (BATAL/KEMBALI/0/KELUAR) are deliberately NOT listed —
- * they keep their in-wizard meaning (KELUAR also collides with member LOGOUT).
+ * Command-looking input (and fresh greetings) now exits the wizard and runs
+ * as a command instead. Wizard nav words (BATAL/KEMBALI/0/KELUAR) and courtesy
+ * words are deliberately NOT listed — they keep their in-wizard meaning.
  */
 const COMMANDISH =
-  /^(menu|help|bantuan|info|status|akun|kuota|profil|tiket|tickets|sites|down|cek|ack|unack|ping|laporan|maint|maintenance|aktif|silent|unsilent|bunyi|bot|botstatus|wastatus|wadead|kirimulang|komplain|lapor|keluhan|pengaduan|gangguan|daftar|register|logout|kick|link)\b/i;
+  /^(menu|help|bantuan|info|status|akun|kuota|profil|tiket|tickets|sites|down|cek|ack|unack|ping|laporan|maint|maintenance|aktif|silent|unsilent|bunyi|bot|botstatus|wastatus|wadead|kirimulang|komplain|lapor|keluhan|pengaduan|gangguan|daftar|register|logout|kick|link|hai+|halo+|hei|hi|hello|pagi|siang|sore|malam|selamat|tes|test|coba|permisi|p)\b/i;
 
 export class InboundRouter {
   constructor(private deps: RouterDeps) {}
@@ -94,7 +100,13 @@ export class InboundRouter {
     if (!(await this.allowed(phone, phone))) return;
 
     const text = msg.text.trim();
-    if (!text) return;
+    if (!text) {
+      // Attachments arrive with no text — silence here is the classic "bot
+      // mati" signal. Acknowledge once per window (a photo burst shouldn't
+      // spam back), and steer them to the text complaint path.
+      if (msg.media) await this.mediaNote(phone, msg.media);
+      return;
+    }
     const ctx: BotCtx = { ...this.deps };
 
     try {
@@ -167,10 +179,10 @@ export class InboundRouter {
       });
       await ctx.reply(
         phone,
-        card(
-          '✅ *Nomor tertaut!*',
-          `Nomor ini sekarang terhubung ke akun *${u?.name ?? userId}*.`,
-          'Ketik MENU untuk daftar perintah yang bisa dipakai',
+        await this.menuText(
+          u?.role === 'member' ? 'member' : 'staff',
+          u?.name,
+          `✅ Nomor ini tertaut ke akun *${u?.name ?? 'Anda'}* (${u?.role === 'member' ? 'member' : 'staff'}).`,
         ),
       );
       return;
@@ -237,27 +249,42 @@ export class InboundRouter {
       const inline = text.slice(komplainM[0].length).trim();
       // Members take the member path; staff get the anonymous wizard pre-filled
       // from their account (startComplaint branches on role internally).
-      await startComplaint(ctx, phone, inline, user);
+      await startComplaint(ctx, phone, inline, user, msg.pushName);
       return;
     }
 
     // ---- DAFTAR: account-request wizard for brand-new numbers ----------------
     if (/^(daftar|register|registrasi)\b/i.test(text)) {
       if (user) {
-        await ctx.reply(phone, card('ℹ️ *Sudah tertaut*', `Nomor ini sudah terhubung ke akun *${user.name}*.`, 'Ketik MENU untuk daftar perintah'));
+        await ctx.reply(phone, card('ℹ️ *Sudah tertaut*', `Nomor ini sudah terhubung ke akun *${user.name}* (${user.role === 'member' ? 'member' : 'staff'}).`, 'Ketik MENU untuk daftar perintah'));
         return;
       }
-      await startRegister(ctx, phone);
+      await startRegister(ctx, phone, msg.pushName);
       return;
     }
 
     // ---- Universal ----------------------------------------------------------
-    if (text.toLowerCase() === 'ping' && !(user && user.role !== 'member')) {
-      await ctx.reply(phone, card('✅ *Pong!*', 'NOC bot aktif dan merespons.'));
+    if (/^(p|ping)$/i.test(text) && !(user && user.role !== 'member')) {
+      await ctx.reply(phone, card('✅ *Pong!*', 'NOC bot aktif dan merespons.', 'Ketik MENU untuk daftar perintah'));
       return;
     }
+    // A registered site contact (WaRecipient, no account) isn't "anonymous" —
+    // they get their own ops menu instead of the member-recruitment one.
     if (GREETING.test(text)) {
-      await ctx.reply(phone, await this.menuText(user?.role ?? null, user?.name));
+      if (!user && (await this.recipientSiteIds(ctx, phone)).length) {
+        await ctx.reply(phone, await this.recipientMenu(msg.pushName));
+        return;
+      }
+      await ctx.reply(phone, await this.menuText(user ? (user.role === 'member' ? 'member' : 'staff') : null, user?.name ?? msg.pushName));
+      return;
+    }
+    // "makasih" / "ok" deserve a human-scale ack, not the whole menu again.
+    if (SMALLTALK.test(text)) {
+      const who = user?.name ?? msg.pushName;
+      await ctx.reply(
+        phone,
+        card('🙏 *Siap!*', `Sama-sama${who ? `, *${who}*` : ''} — senang bisa membantu.`, 'Ketik MENU bila butuh lagi'),
+      );
       return;
     }
     // INFO is universal — anonymous users also need the portal/contact card.
@@ -274,21 +301,20 @@ export class InboundRouter {
         return;
       }
       // A registered WaRecipient number (technician without an account) gets a
-      // read-only ops view scoped to its recipient sites.
-      const recipSites = await ctx.prisma.waRecipient.findMany({
-        where: { target: phone, kind: 'number', isActive: true },
-        select: { siteId: true },
-        distinct: ['siteId'],
-      });
+      // read-only ops view scoped to its recipient sites — and its own menu,
+      // not the member-recruitment one.
+      const recipSites = await this.recipientSiteIds(ctx, phone);
       if (recipSites.length) {
         const rm = /^(sites|status|down|cek|tiket|tickets|laporan)\b[ \t]*(.*)$/i.exec(text);
         if (rm) {
           const pseudo: ScopedUser = {
             role: 'viewer',
-            scopeSiteIds: recipSites.map((r) => r.siteId),
+            scopeSiteIds: recipSites,
           };
           if (await staffRead(ctx, phone, pseudo, rm[1]!.toLowerCase(), (rm[2] ?? '').trim())) return;
         }
+        await ctx.reply(phone, await this.recipientMenu(msg.pushName));
+        return;
       }
       if (/^tiket\b/i.test(text)) {
         const rows = await ctx.prisma.ticket.findMany({
@@ -323,7 +349,7 @@ export class InboundRouter {
         );
         return;
       }
-      await ctx.reply(phone, await this.menuText(null));
+      await ctx.reply(phone, await this.menuText(null, msg.pushName));
       return;
     }
 
@@ -336,7 +362,7 @@ export class InboundRouter {
         return memberKick(ctx, phone, user);
       if (cmd === 'tiket' || cmd === 'tickets') return memberTickets(ctx, phone, user);
       if (cmd === 'info') return memberInfo(ctx, phone);
-      return ctx.reply(phone, await this.menuText('member', user.name));
+      return ctx.reply(phone, await this.menuText('member', user.name ?? msg.pushName));
     }
 
     // ---- Staff commands (viewer/operator/super_admin) ------------------------
@@ -406,13 +432,13 @@ export class InboundRouter {
           return staffWaRetry(ctx, phone, arg);
       }
     }
-    return ctx.reply(phone, await this.menuText('staff', user.name));
+    return ctx.reply(phone, await this.menuText('staff', user.name ?? msg.pushName));
   }
 
   /** Lay-friendly keyword routing for numbers with no account. */
   private publicIntent(text: string): string | null {
     const t = text.toLowerCase();
-    if (/gangguan|mati|rusak|error|lemot|lambat|internet|wifi|jaringan|putus/.test(t)) {
+    if (/gangguan|mati|rusak|error|lemot|lambat|internet|wifi|jaringan|putus|cctv|kamera|printer|aplikasi|vpn|email|server|absen|finger ?print/.test(t)) {
       return card(
         '📡 *Ada gangguan?*',
         'Sepertinya Anda mau melaporkan gangguan jaringan.',
@@ -439,26 +465,84 @@ export class InboundRouter {
     return null;
   }
 
-  private async menuText(role: string | null, name?: string | null): Promise<string> {
+  /**
+   * The one menu card. `note` injects a status line right under the greeting
+   * (e.g. the LINK success banner) so confirmations double as orientation.
+   * `name` is the best-known display name — account name for linked users,
+   * else the WhatsApp pushName.
+   */
+  private async menuText(
+    role: 'member' | 'staff' | null,
+    name?: string | null,
+    note?: string,
+  ): Promise<string> {
     const settings = await getSettings().catch(() => null);
     const title = `🤖 *${settings?.waBotName?.toUpperCase() || 'NOC BOT'} — ${settings?.orgName || 'RAF'}*`;
-    if (role === 'member') return `${title}\n${greetingFor(name)}\n${DIV}\n${MEMBER_MENU}`;
-    if (role && role !== 'member') return `${title}\n${greetingFor(name)}\n${DIV}\n${STAFF_MENU}`;
+    const head = [title, greetingFor(name), ...(note ? [note] : []), DIV];
+    if (role === 'member') return `${head.join('\n')}\n${MEMBER_MENU}`;
+    if (role === 'staff') return `${head.join('\n')}\n${STAFF_MENU}`;
     return [
-      title,
-      greetingFor(),
-      DIV,
+      ...head,
+      '📌 _Nomor ini belum tertaut ke akun._',
       'Yang bisa saya bantu:',
       cmd('KOMPLAIN <keluhan>', 'lapor gangguan ke teknisi'),
       cmd('TIKET', 'status komplain dari nomor ini'),
-      cmd('DAFTAR', 'minta akun baru ke admin'),
-      cmd('LINK <kode>', 'tautkan nomor ke akun portal'),
+      cmd('LINK <kode>', 'sudah punya akun portal? tautkan di sini'),
+      cmd('DAFTAR', 'belum punya akun? minta ke admin'),
       cmd('INFO', 'kontak & portal pelanggan'),
       DIV,
+      '_Bisa juga tulis langsung: "wifi gudang mati"_',
       '_Alias komplain: LAPOR / KELUHAN / GANGGUAN_',
-      '_Contoh: KOMPLAIN internet mati di gudang_',
-      '_Nomor Anda hanya dipakai untuk update layanan NOC_',
     ].join('\n');
+  }
+
+  /** Sites this phone is a registered WaRecipient for (technician w/o account). */
+  private async recipientSiteIds(ctx: BotCtx, phone: string): Promise<string[]> {
+    const rows = await ctx.prisma.waRecipient.findMany({
+      where: { target: phone, kind: 'number', isActive: true },
+      select: { siteId: true },
+      distinct: ['siteId'],
+    });
+    return rows.map((r) => r.siteId);
+  }
+
+  /** Menu for WaRecipient numbers — registered contacts, not strangers. */
+  private async recipientMenu(name?: string): Promise<string> {
+    const settings = await getSettings().catch(() => null);
+    const title = `🤖 *${settings?.waBotName?.toUpperCase() || 'NOC BOT'} — ${settings?.orgName || 'RAF'}*`;
+    return [
+      title,
+      greetingFor(name),
+      `📌 Nomor ini terdaftar sebagai *kontak teknisi*.`,
+      DIV,
+      cmd('SITES', 'ringkasan site Anda'),
+      cmd('DOWN [site]', 'perangkat down saat ini'),
+      cmd('CEK <nama|ip>', 'status satu perangkat'),
+      cmd('TIKET [kode]', 'tiket site Anda'),
+      cmd('LAPORAN [site]', 'digest 24 jam'),
+      cmd('PROSES/SELESAI <kode>', 'kerjakan tiket'),
+      DIV,
+      '_Akses penuh? Minta akun ke admin → lalu LINK <kode>_',
+    ].join('\n');
+  }
+
+  /** Polite "can't read attachments" — throttled so a sticker/photo burst
+   *  triggers one reply, not one per image. */
+  private async mediaNote(phone: string, media: string): Promise<void> {
+    const fresh = await this.deps.redis
+      .set(REDIS_KEYS.waMediaNote(phone), '1', 'EX', 240, 'NX')
+      .catch(() => null);
+    if (fresh !== 'OK') return;
+    await this.deps
+      .reply(
+        phone,
+        card(
+          `📎 *${media.charAt(0).toUpperCase() + media.slice(1)} diterima*`,
+          'Bot ini membaca teks saja — lampiran tidak bisa saya lihat.',
+          'Jelaskan lewat teks: *KOMPLAIN <keluhan>* · ketik MENU untuk bantuan',
+        ),
+      )
+      .catch(() => undefined);
   }
 
   /**

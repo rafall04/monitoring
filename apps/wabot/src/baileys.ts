@@ -357,9 +357,29 @@ export class BaileysSender implements WhatsAppSender {
       if (type !== 'notify') return;
       for (const m of messages) {
         if (m.key.fromMe || !m.key.remoteJid) continue;
+        // Media captions ARE text — a photo captioned "cctv mati" should run
+        // intent routing like a plain message. Media with no caption still
+        // reaches the router (as a throttled "can't read attachments" reply).
+        const mm = m.message;
+        const mediaKind = mm?.imageMessage
+          ? 'foto'
+          : mm?.videoMessage
+            ? 'video'
+            : mm?.documentMessage
+              ? 'dokumen'
+              : mm?.audioMessage
+                ? 'voice'
+                : mm?.stickerMessage
+                  ? 'stiker'
+                  : undefined;
         const text =
-          m.message?.conversation ?? m.message?.extendedTextMessage?.text ?? '';
-        if (!text.trim()) continue;
+          mm?.conversation ??
+          mm?.extendedTextMessage?.text ??
+          mm?.imageMessage?.caption ??
+          mm?.videoMessage?.caption ??
+          mm?.documentMessage?.caption ??
+          '';
+        if (!text.trim() && !mediaKind) continue;
         // LID-addressed chats carry the phone-form JID in remoteJidAlt —
         // replying to a bare LID builds a phantom `…@s.whatsapp.net` target.
         const rawJid = m.key.remoteJid;
@@ -374,9 +394,14 @@ export class BaileysSender implements WhatsAppSender {
         // Quoted-reply context — replying "SELESAI" to a ticket card should
         // work without retyping the code.
         const quoted =
-          m.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+          mm?.extendedTextMessage?.contextInfo?.quotedMessage ??
+          mm?.imageMessage?.contextInfo?.quotedMessage ??
+          mm?.videoMessage?.contextInfo?.quotedMessage;
         const quotedText =
-          quoted?.conversation ?? quoted?.extendedTextMessage?.text ?? undefined;
+          quoted?.conversation ??
+          quoted?.extendedTextMessage?.text ??
+          quoted?.imageMessage?.caption ??
+          undefined;
         const inbound: WaInboundMessage = {
           from: isGroupJid(remoteJid) ? remoteJid : jidToPhone(remoteJid),
           ...(participant ? { sender: jidToPhone(participant) } : {}),
@@ -384,6 +409,8 @@ export class BaileysSender implements WhatsAppSender {
           text: text.trim(),
           isGroup: isGroupJid(remoteJid),
           messageId: m.key.id ?? '',
+          ...(m.pushName ? { pushName: m.pushName } : {}),
+          ...(mediaKind ? { media: mediaKind } : {}),
         };
         // Blue ticks + "mengetik…" — the bot should feel alive, not silent
         // until the reply lands. readMessages needs the raw key (jid, id,

@@ -110,6 +110,9 @@ export const REDIS_KEYS = {
   waPick: (phone: string) => `noc:wa:pick:${phone}`,
   /** "Slow down" notice throttle — tell the sender once a minute, not per msg. */
   waRateNote: (phone: string) => `noc:wa:rate-note:${phone}`,
+  /** "Media tak bisa dibaca" notice throttle — one polite reply per window so
+   *  a photo/sticker burst doesn't spam the sender. */
+  waMediaNote: (phone: string) => `noc:wa:media-note:${phone}`,
 } as const;
 
 /** Parse the siteId out of a `noc:site:<id>:events` channel name. */

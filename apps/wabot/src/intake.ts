@@ -101,6 +101,7 @@ export async function startComplaint(
   phone: string,
   inlineText: string,
   user: AppUser | null,
+  pushName?: string,
 ): Promise<void> {
   const base: WaConvState = { flow: 'complaint', step: 'name', message: inlineText || undefined };
   if (user?.role === 'member') {
@@ -150,15 +151,20 @@ export async function startComplaint(
   const pref: WaIdent | null = user
     ? { name: user.name, dept: user.department ?? ident?.dept }
     : ident;
-  await startAnonymous(ctx, phone, pref, inlineText);
+  await startAnonymous(ctx, phone, pref, inlineText, pushName);
 }
 
-async function startAnonymous(ctx: BotCtx, phone: string, ident: WaIdent | null, inlineText: string): Promise<void> {
-  const base: WaConvState = { flow: 'complaint', step: 'name', name: ident?.name, dept: ident?.dept, message: inlineText || undefined };
-  if (ident?.name && ident?.dept) return sitePickStep(ctx, phone, base, `📝 *Lapor Gangguan — ${stepLabel(3, 4)}*`);
-  if (ident?.name) {
+async function startAnonymous(ctx: BotCtx, phone: string, ident: WaIdent | null, inlineText: string, pushName?: string): Promise<void> {
+  // pushName stands in when nothing is cached — the wizard then skips the
+  // "siapa nama" step entirely (the WA profile name is good enough for a
+  // ticket, and one less step is one less place to wander off).
+  const known: WaIdent | null = ident?.name ? ident : pushName ? { name: pushName, dept: ident?.dept } : ident;
+  const base: WaConvState = { flow: 'complaint', step: 'name', name: known?.name, dept: known?.dept, message: inlineText || undefined };
+  if (known?.name && known?.dept) return sitePickStep(ctx, phone, base, `📝 *Lapor Gangguan — ${stepLabel(3, 4)}*`);
+  if (known?.name) {
     await setConv(ctx.redis, phone, { ...base, step: 'dept' });
-    await ctx.reply(phone, card(`📝 *Lapor Gangguan — ${stepLabel(2, 4)}*`, `Halo lagi, *${ident.name}*! 👋\nDepartemen/bagian apa? _(mis. Produksi, QC)_`, BATAL_HINT));
+    const greeting = ident?.name ? `Halo lagi, *${known.name}*! 👋` : `Halo, *${known.name}*! 👋 _(nama dari profil WA)_`;
+    await ctx.reply(phone, card(`📝 *Lapor Gangguan — ${stepLabel(2, 4)}*`, `${greeting}\nDepartemen/bagian apa? _(mis. Produksi, QC)_`, BATAL_HINT));
     return;
   }
   await setConv(ctx.redis, phone, { ...base, step: 'name' });
@@ -166,13 +172,15 @@ async function startAnonymous(ctx: BotCtx, phone: string, ident: WaIdent | null,
 }
 
 /** `daftar` — account-request wizard for brand-new users (3 steps). */
-export async function startRegister(ctx: BotCtx, phone: string): Promise<void> {
+export async function startRegister(ctx: BotCtx, phone: string, pushName?: string): Promise<void> {
   const ident = await getIdent(ctx.redis, phone);
-  const base: WaConvState = { flow: 'register', step: 'name', name: ident?.name, dept: ident?.dept };
-  if (ident?.name && ident?.dept) return sitePickStep(ctx, phone, base, `🆕 *Permintaan Akun — ${stepLabel(3, 3)}*`);
-  if (ident?.name) {
+  const known: WaIdent | null = ident?.name ? ident : pushName ? { name: pushName, dept: ident?.dept } : ident;
+  const base: WaConvState = { flow: 'register', step: 'name', name: known?.name, dept: known?.dept };
+  if (known?.name && known?.dept) return sitePickStep(ctx, phone, base, `🆕 *Permintaan Akun — ${stepLabel(3, 3)}*`);
+  if (known?.name) {
     await setConv(ctx.redis, phone, { ...base, step: 'dept' });
-    await ctx.reply(phone, card(`🆕 *Permintaan Akun — ${stepLabel(2, 3)}*`, `Halo *${ident.name}*!\nDepartemen/bagian apa?`, BATAL_HINT));
+    const greeting = ident?.name ? `Halo *${known.name}*!` : `Halo *${known.name}*! _(nama dari profil WA)_`;
+    await ctx.reply(phone, card(`🆕 *Permintaan Akun — ${stepLabel(2, 3)}*`, `${greeting}\nDepartemen/bagian apa?`, BATAL_HINT));
     return;
   }
   await setConv(ctx.redis, phone, { ...base, step: 'name' });
