@@ -346,7 +346,12 @@ export class BaileysSender implements WhatsAppSender {
         const text =
           m.message?.conversation ?? m.message?.extendedTextMessage?.text ?? '';
         if (!text.trim()) continue;
-        const remoteJid = m.key.remoteJid;
+        // LID-addressed chats carry the phone-form JID in remoteJidAlt —
+        // replying to a bare LID builds a phantom `…@s.whatsapp.net` target.
+        const rawJid = m.key.remoteJid;
+        const remoteJid = rawJid.endsWith('@lid')
+          ? (m.key.remoteJidAlt ?? rawJid)
+          : rawJid;
         const inbound: WaInboundMessage = {
           from: isGroupJid(remoteJid) ? remoteJid : jidToPhone(remoteJid),
           text: text.trim(),
