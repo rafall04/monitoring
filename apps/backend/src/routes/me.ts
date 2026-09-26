@@ -3,10 +3,11 @@ import {
   createAndForwardTicket,
   createWaLinkCode,
   prisma,
+  sha256,
   toTicketDto,
 } from '@noc/server';
-import { memberTicketSchema } from '@noc/shared';
-import { badRequest, unauthorized } from '../lib/errors';
+import { memberTicketSchema, refreshSchema } from '@noc/shared';
+import { badRequest, notFound, unauthorized } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import { authenticate } from '../plugins/auth';
 
@@ -35,6 +36,69 @@ export async function meRoutes(app: FastifyInstance) {
     '/wa/link-code',
     { ...guard, config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
     async (req) => createWaLinkCode(app.redisPub, req.appUser.id),
+  );
+
+  // ---- Login sessions -------------------------------------------------------
+  // Each live refresh token = one signed-in device/browser. No user-agent is
+  // stored (privacy + schema simplicity), so rows are identified by time.
+  // Every query is pinned to req.appUser.id — a session row can never be
+  // touched by anyone but its owner.
+
+  app.get('/sessions', guard, async (req) => {
+    const rows = await prisma.refreshToken.findMany({
+      where: { userId: req.appUser.id, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, createdAt: true, expiresAt: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt.toISOString(),
+      expiresAt: r.expiresAt.toISOString(),
+    }));
+  });
+
+  // Revoke one session by id — revoking the current device's session simply
+  // logs that device out at the next token refresh.
+  app.delete('/sessions/:id', guard, async (req) => {
+    const { id } = req.params as { id: string };
+    const res = await prisma.refreshToken.updateMany({
+      where: { id, userId: req.appUser.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (res.count === 0) throw notFound('Sesi tidak ditemukan');
+    await writeAudit(req, {
+      action: 'session-revoke',
+      entity: 'app_user',
+      entityId: req.appUser.id,
+      after: { sessionId: id },
+    });
+    return { revoked: true };
+  });
+
+  // "Keluar dari semua perangkat lain" — the client proves which session to
+  // KEEP by posting its own refresh token (same keepHash pattern as
+  // /auth/change-password). Never revokes the caller's current session.
+  app.post(
+    '/sessions/revoke-others',
+    { ...guard, config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+    async (req) => {
+      const { refreshToken } = refreshSchema.parse(req.body);
+      const res = await prisma.refreshToken.updateMany({
+        where: {
+          userId: req.appUser.id,
+          revokedAt: null,
+          tokenHash: { not: sha256(refreshToken) },
+        },
+        data: { revokedAt: new Date() },
+      });
+      await writeAudit(req, {
+        action: 'session-revoke-others',
+        entity: 'app_user',
+        entityId: req.appUser.id,
+        after: { count: res.count },
+      });
+      return { revoked: res.count };
+    },
   );
 
   // ---- Member complaints ----------------------------------------------------

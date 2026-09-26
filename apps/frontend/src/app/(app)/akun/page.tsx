@@ -36,6 +36,44 @@ function formatBytes(v: string | number | null | undefined): string {
   return `${val >= 10 || i === 0 ? Math.round(val) : val.toFixed(1)} ${UNITS[i]}`;
 }
 
+/** RouterOS duration ("1w2d3h4m5s", "3600s", or bare seconds) → seconds. */
+function parseRosSeconds(v: string | null | undefined): number | null {
+  if (!v) return null;
+  const s = v.trim();
+  const m = /^(?:(\d+)w)?(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i.exec(s);
+  if (!m) {
+    const n = Number(s);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  }
+  return (
+    Number(m[1] ?? 0) * 604800 +
+    Number(m[2] ?? 0) * 86400 +
+    Number(m[3] ?? 0) * 3600 +
+    Number(m[4] ?? 0) * 60 +
+    Number(m[5] ?? 0)
+  );
+}
+
+/** Slim usage meter — pct drives tone: emerald → amber >70% → red >90%. */
+function UsageMeter({ label, text, pct }: { label: string; text: string; pct: number }) {
+  const tone =
+    pct > 90 ? '#ef4444' : pct > 70 ? '#f59e0b' : '#10b981';
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between gap-2 text-2xs">
+        <span className="font-medium uppercase tracking-wide text-slate-500">{label}</span>
+        <span className="text-slate-400">{text}</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-surface">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${Math.min(100, Math.max(0, pct))}%`, background: tone }}
+        />
+      </div>
+    </div>
+  );
+}
+
 /**
  * Member self-service ("Akun Saya"): the hotspot account owner sees their own
  * quota/sessions, rotates their own password, and kicks stale sessions — the
@@ -101,6 +139,14 @@ export default function AkunPage() {
       <PageHeader
         title="Akun Hotspot Saya"
         subtitle={`Halo, ${user?.name ?? ''} — kelola akun WiFi Anda sendiri.`}
+        actions={
+          <a
+            href="/profile"
+            className="noc-tap inline-flex items-center gap-1.5 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-accent/50 hover:text-accent"
+          >
+            Profil &amp; Keamanan →
+          </a>
+        }
       />
       <PageBody>
         {status.isError ? (
@@ -140,6 +186,36 @@ export default function AkunPage() {
                   }
                 />
               </dl>
+              {/* Quota meters — a member should see "berapa sisa" at a glance,
+                  not parse "34 GB / 50 GB" text. */}
+              {(d.limitUptime || d.limitBytesTotal) && (
+                <div className="mt-3 space-y-2.5 border-t border-surface-border pt-3">
+                  {(() => {
+                    const upS = parseRosSeconds(d.uptime);
+                    const limS = parseRosSeconds(d.limitUptime);
+                    const bytesUsed = (Number(d.bytesIn) || 0) + (Number(d.bytesOut) || 0);
+                    const bytesLim = Number(d.limitBytesTotal) || 0;
+                    return (
+                      <>
+                        {limS != null && limS > 0 && upS != null && (
+                          <UsageMeter
+                            label="Batas waktu"
+                            text={`${d.uptime ?? '0s'} / ${d.limitUptime}`}
+                            pct={(upS / limS) * 100}
+                          />
+                        )}
+                        {bytesLim > 0 && (
+                          <UsageMeter
+                            label="Batas data"
+                            text={`${formatBytes(bytesUsed)} / ${formatBytes(bytesLim)}`}
+                            pct={(bytesUsed / bytesLim) * 100}
+                          />
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
               {d.limitUptime || d.limitBytesTotal ? (
                 <p className="mt-3 text-xs text-slate-500">
                   Limit habis → chat{' '}
