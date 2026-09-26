@@ -230,6 +230,16 @@ Useful scripts (root `package.json`): `dev`, `dev:backend`, `dev:worker`,
 `dev:frontend`, `build`, `typecheck`, `prisma:generate|migrate|deploy|studio`,
 `seed`.
 
+### Devin/agent skills (`.devin/skills/`)
+
+Domain playbooks checked into the repo — agent sessions auto-load the matching
+one: `wabot` (WhatsApp bot architecture/commands/quirks), `poller`
+(worker/probe-watch/Ruijie budget), `status-engine` (status & alert rules),
+`route-guard` (new endpoint/command recipe), `realtime` (Redis→WS→cache chain),
+`frontend` (query/auth/preview conventions), `mikrotik` (RouterOS client rules),
+`prisma` (schema/migration/secret rules), `verify` (the CI gate), `deploy`
+(production deploy via systemd-run), `ops` (production diagnosis runbook).
+
 ---
 
 ## Configuration (`.env`)
