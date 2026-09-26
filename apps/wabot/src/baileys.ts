@@ -48,6 +48,11 @@ export class BaileysSender implements WhatsAppSender {
    *  usually WA cleaning up the old session slot, not a real logout. */
   private lastPairRestartAt = 0;
   private retriedPostPair401 = false;
+  /** Sockets deliberately killed by logout()/reconnect(). Their close events
+   *  must NOT schedule another reconnect — doing so races the caller's own
+   *  explicit connect() and spawns a second live socket whose orphan QR gets
+   *  scanned while the paired session commits on the other one. */
+  private deadSocks = new WeakSet<WASocket>();
   private state: WaSessionState = {
     status: 'offline',
     qr: null,
@@ -87,15 +92,18 @@ export class BaileysSender implements WhatsAppSender {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    if (this.sock && this.state.status !== 'offline') {
+    // Tombstone the old socket so its close event can't double-drive the
+    // reconnect, then always connect explicitly.
+    if (this.sock) {
+      this.deadSocks.add(this.sock);
       try {
         this.sock.end(undefined);
       } catch {
         /* socket already gone */
       }
-    } else {
-      await this.connect();
+      this.sock = null;
     }
+    await this.connect();
   }
 
   /**
@@ -151,10 +159,11 @@ export class BaileysSender implements WhatsAppSender {
     } catch (err) {
       this.deps.logger.warn({ err }, 'wa logout failed — wiping keys anyway');
     }
-    // Dead/stale socket: end it FIRST (its close handler may be gone), then
-    // wipe, then connect explicitly — never rely on a close event that may
-    // have already fired.
+    // Dead/stale socket: tombstone it so its close can't re-drive the loop,
+    // end it, then wipe, then connect explicitly — never rely on a close
+    // event that may have already fired.
     if (sock) {
+      this.deadSocks.add(sock);
       try {
         sock.end(undefined);
       } catch {
@@ -287,7 +296,7 @@ export class BaileysSender implements WhatsAppSender {
         void this.setState({ status: 'offline', qr: null, error: reason });
         this.deps.logger.warn({ code, reason }, 'whatsapp connection closed');
         if (this.sock === sock) this.sock = null;
-        if (this.closed) return;
+        if (this.closed || this.deadSocks.has(sock)) return;
         if (code === DisconnectReason.restartRequired) {
           // 515 is EXPECTED, not an error: pair-success committed and WA asks
           // us to restart with the fresh credentials. Flush the pending creds
