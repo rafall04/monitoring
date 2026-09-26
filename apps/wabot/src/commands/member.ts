@@ -147,7 +147,9 @@ export async function memberTickets(ctx: BotCtx, phone: string, user: AppUser) {
   const lines = rows.map((t) => {
     const code = t.id.slice(0, 6).toUpperCase();
     const status = label[t.status as keyof typeof label] ?? t.status;
-    return `*#${code}* ${status}\n   ${t.site.name} — "${t.message.slice(0, 60)}"`;
+    const when = t.createdAt.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    return `*#${code}* ${status}\n   ${t.site.name} · ${when}\n   "${t.message.slice(0, 80)}"` +
+      (t.handledBy ? `\n   👷 ${t.handledBy}` : '');
   });
   await ctx.reply(phone, card(`🎫 *Tiket Anda* (${rows.length} terbaru)`, lines));
 }

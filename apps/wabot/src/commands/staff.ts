@@ -200,8 +200,10 @@ export async function staffTickets(ctx: BotCtx, phone: string, user: AppUser) {
       rows.map(
         (t) =>
           `*#${t.id.slice(0, 6).toUpperCase()}* ${t.status === 'ack' ? '🔧' : '🟡'} ${t.site.name}\n   ${
-            t.reporterName ?? t.reporterPhone
-          }: "${t.message.slice(0, 60)}"`,
+            t.reporterName ?? 'Anonim'
+          }${t.reporterDept ? ` · ${t.reporterDept}` : ''} · ${t.reporterPhone ?? 'web'}\n   "${
+            t.message.slice(0, 80)
+          }"`,
       ),
       'Balas PROSES <kode> · SELESAI <kode>',
     ),

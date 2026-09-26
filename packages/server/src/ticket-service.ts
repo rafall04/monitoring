@@ -56,19 +56,30 @@ export async function createAndForwardTicket(
     : null;
 
   const code = ticketCode(t);
+  const when = new Date(t.createdAt).toLocaleString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
   const text = [
     `🎫 *TIKET BARU #${code}*`,
     '──────────────────',
-    `🏭 Site    : *${site?.name ?? input.siteId}*`,
-    `👤 Pelapor : ${input.reporterName ?? 'Anonim'}` +
-      (input.reporterDept ? ` · ${input.reporterDept}` : ''),
-    `📱 Kontak  : ${input.reporterPhone ?? 'via web'}` +
-      (member?.hotspotUsername ? ` · akun ${member.hotspotUsername}` : ''),
-    `💬 Isi     : "${input.message.slice(0, 500)}"`,
+    `🏭 Site       : *${site?.name ?? input.siteId}*`,
+    `👤 Pelapor    : *${input.reporterName ?? 'Anonim'}*`,
+    `🏢 Departemen : ${input.reporterDept ?? '-'}`,
+    `📱 Kontak     : ${input.reporterPhone ?? 'via web'}`,
+    member?.hotspotUsername ? `🔑 Akun       : ${member.hotspotUsername}` : null,
+    `� Waktu      : ${when} WIB`,
     '──────────────────',
-    `_Balas: *PROSES ${code}* (ambil alih)_`,
-    `_        *SELESAI ${code}* (tutup tiket)_`,
-  ].join('\n');
+    `💬 *Keluhan:*`,
+    `"${input.message.slice(0, 500)}"`,
+    '──────────────────',
+    `📌 Status: *OPEN*`,
+    `_Balas *PROSES ${code}* untuk ambil alih_`,
+    `_Balas *SELESAI ${code}* untuk menutup_`,
+  ].filter(Boolean).join('\n');
 
   const targets = new Set<string>();
   for (const c of site?.waRecipients ?? []) targets.add(c.target);
@@ -90,10 +101,13 @@ export async function notifyReporter(
     text: [
       status === 'resolved' ? '✅ *Tiket Anda SELESAI*' : '🔧 *Tiket Anda Diproses*',
       '──────────────────',
-      `Tiket *#${ticketCode(t)}* ${status === 'resolved' ? 'sudah selesai ditangani teknisi.' : 'sedang dikerjakan teknisi.'}`,
+      `Tiket    : *#${ticketCode(t)}*`,
+      `Keluhan  : "${t.message.slice(0, 200)}"`,
+      `Status   : ${status === 'resolved' ? '*SELESAI* — sudah ditangani teknisi' : '*DIPROSES* — sedang dikerjakan'}`,
+      t.handledBy ? `Teknisi  : ${t.handledBy}` : null,
       '──────────────────',
       '_Terima kasih atas laporannya_',
-    ].join('\n'),
+    ].filter(Boolean).join('\n'),
     kind: 'reply',
     siteId: t.siteId,
   });
