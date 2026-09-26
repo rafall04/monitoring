@@ -38,6 +38,7 @@ export class BaileysSender implements WhatsAppSender {
   private retries = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private groupsTimer: NodeJS.Timeout | null = null;
+  private lastGroupsFetchAt = 0;
   /** Single-flight: concurrent callers share the in-flight connect instead of
    *  spawning parallel sockets (which race creds + show an orphaned QR). */
   private connecting: Promise<void> | null = null;
@@ -111,8 +112,14 @@ export class BaileysSender implements WhatsAppSender {
    * renders it as a pick-list for kind='group' recipients. A bot can only send
    * to groups it belongs to, so this list is also the validity boundary.
    */
-  async refreshGroups(): Promise<void> {
+  async refreshGroups(force = false): Promise<void> {
     if (this.state.status !== 'connected' || !this.sock) return;
+    // groupFetchAllParticipating re-emits groups.update for every group it
+    // touches — without a floor our own fetch re-arms the debounce forever
+    // and WA answers rate-overlimit. Event-driven refreshes throttle to
+    // 30 s; control ops (admin UI ⟳ button) pass force to bypass it.
+    if (!force && Date.now() - this.lastGroupsFetchAt < 30_000) return;
+    this.lastGroupsFetchAt = Date.now();
     const all = await this.sock.groupFetchAllParticipating();
     const groups = Object.values(all)
       .map((g) => ({

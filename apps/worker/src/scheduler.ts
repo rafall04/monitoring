@@ -244,13 +244,16 @@ export class PollScheduler {
       st.failures++;
       const backoff = Math.min(this.maxBackoffMs, 5000 * 2 ** Math.min(st.failures, 6));
       st.nextAllowed = Date.now() + backoff;
+      // node-routeros failures often carry an empty .message — fall back to
+      // the socket code / error name so the log line is actually debuggable.
+      const e0 = err as Error & { code?: string };
       this.logger.warn(
         {
           routerId: router.id,
           host: router.host,
           failures: st.failures,
           backoffMs: backoff,
-          err: (err as Error)?.message ?? String(err),
+          err: e0?.message || e0?.code || e0?.name || String(err),
         },
         'router poll failed (circuit breaker engaged)',
       );
@@ -267,8 +270,9 @@ export class PollScheduler {
           await this.reconcileDevicesUnknown(router);
           st.reconciled = true;
         } catch (e) {
+          const e1 = e as Error & { code?: string };
           this.logger.warn(
-            { routerId: router.id, err: (e as Error)?.message ?? String(e) },
+            { routerId: router.id, err: e1?.message || e1?.code || e1?.name || String(e) },
             'device reconciliation failed',
           );
         }

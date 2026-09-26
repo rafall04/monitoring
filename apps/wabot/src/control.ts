@@ -53,7 +53,7 @@ export class ControlConsumer {
         try {
           if (msg.op === 'reconnect') await this.deps.sender.reconnect();
           else if (msg.op === 'logout') await this.deps.sender.logout();
-          else if (msg.op === 'groups-refresh') await this.deps.sender.refreshGroups();
+          else if (msg.op === 'groups-refresh') await this.deps.sender.refreshGroups(true);
         } catch (err) {
           this.deps.logger.warn({ err: (err as Error)?.message, op: msg.op }, 'wa control op failed');
         }

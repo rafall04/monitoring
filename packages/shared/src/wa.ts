@@ -149,8 +149,10 @@ export interface WhatsAppSender {
   reconnect(): Promise<void>;
   /** Unlink the device on WhatsApp's side + wipe keys → fresh QR (new number). */
   logout(): Promise<void>;
-  /** Re-fetch the participating-group list into REDIS_KEYS.waGroups. */
-  refreshGroups(): Promise<void>;
+  /** Re-fetch the participating-group list into REDIS_KEYS.waGroups.
+   *  `force` bypasses the event-driven throttle — for admin-triggered
+   *  refreshes only. */
+  refreshGroups(force?: boolean): Promise<void>;
   close(): Promise<void>;
 }
 
